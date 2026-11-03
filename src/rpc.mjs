@@ -46,8 +46,12 @@ function publicConfig(config) {
   };
 }
 
-/** Peek only: the page polls this, and consuming would eat a finished login. */
-function loginSnapshot(channel) {
+/**
+ * Peek only: the page polls this, and consuming would eat a finished login.
+ * QQ hands its QR URL to a callback, so the image is rendered here on demand
+ * instead of being available once at `chat.login.begin` time.
+ */
+async function loginSnapshot(channel) {
   let state = null;
   try {
     state = channel.peekLoginState?.() ?? channel.loginState?.() ?? null;
@@ -56,7 +60,8 @@ function loginSnapshot(channel) {
   }
   if (!state) return { state: 'idle' };
   const { credentials, ...rest } = state;
-  return rest;
+  const qrDataUrl = await qrImageCached(String(rest.qrUrl ?? ''));
+  return qrDataUrl ? { ...rest, qrDataUrl } : rest;
 }
 
 /**
@@ -64,11 +69,11 @@ function loginSnapshot(channel) {
  * code. `channels` are the component's live channel instances.
  */
 export function createChatRpcHandler({ getConfig, update, channels, sessions }) {
-  const status = () => ({
+  const status = async () => ({
     config: publicConfig(getConfig()),
     channels: {
-      weixin: { login: loginSnapshot(channels.weixin) },
-      qq: { login: loginSnapshot(channels.qq) },
+      weixin: { login: await loginSnapshot(channels.weixin) },
+      qq: { login: await loginSnapshot(channels.qq) },
     },
   });
 
@@ -76,7 +81,7 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
     if (!METHODS.has(method)) return failure('chat/unknown-method', `Unknown method: ${method}`);
     const input = payload && typeof payload === 'object' ? payload : {};
 
-    if (method === 'chat.status') return { ok: true, value: status() };
+    if (method === 'chat.status') return { ok: true, value: await status() };
 
     if (method === 'chat.session.title') {
       return { ok: true, value: readSessionTitle(sessions, input.sessionId) };
@@ -94,7 +99,7 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
       }
       if (Object.keys(patch).length === 0) return failure('chat/bad-request', '没有可保存的字段。');
       update((current) => ({ ...current, ...patch }));
-      return { ok: true, value: status() };
+      return { ok: true, value: await status() };
     }
 
     const channelName = channelOf(input.channel);
@@ -105,9 +110,12 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
     if (method === 'chat.login.begin') {
       try {
         const started = await channel.startLogin();
-        const login = loginSnapshot(channel);
+        const login = await loginSnapshot(channel);
         const qrUrl = String(started?.qrUrl || login.qrUrl || '');
-        return { ok: true, value: { ...started, qrUrl, qrDataUrl: await qrImage(qrUrl), login } };
+        return {
+          ok: true,
+          value: { ...started, qrUrl, qrDataUrl: login.qrDataUrl ?? (await qrImage(qrUrl)), login },
+        };
       } catch (error) {
         return failure('chat/login-failed', String(error?.message ?? error));
       }
@@ -125,7 +133,8 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
       if (!state) return { ok: true, value: { login: { state: 'idle' } } };
       if (state.state !== 'connected' || !state.credentials) {
         const { credentials, ...login } = state;
-        return { ok: true, value: { login } };
+        const qrDataUrl = await qrImageCached(String(login.qrUrl ?? ''));
+        return { ok: true, value: { login: qrDataUrl ? { ...login, qrDataUrl } : login } };
       }
       update((current) => adoptCredentials(channelName, current, state.credentials));
       await channel.connect().catch(() => {});
@@ -135,13 +144,27 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
     if (method === 'chat.login.code') {
       const accepted = channel.submitVerifyCode?.(String(input.code ?? '')) === true;
       return accepted
-        ? { ok: true, value: { login: loginSnapshot(channel) } }
+        ? { ok: true, value: { login: await loginSnapshot(channel) } }
         : failure('chat/bad-request', '当前不需要配对码，或配对码已被拒绝。');
     }
 
     const cancelled = channel.cancelLogin?.() === true;
-    return { ok: true, value: { cancelled, login: loginSnapshot(channel) } };
+    return { ok: true, value: { cancelled, login: await loginSnapshot(channel) } };
   };
+}
+
+/** QR images are rendered once per URL: the page polls the state every second. */
+const qrCache = { url: '', data: '' };
+
+async function qrImageCached(url) {
+  if (!url) return '';
+  if (qrCache.url === url) return qrCache.data;
+  const data = await qrImage(url);
+  if (data) {
+    qrCache.url = url;
+    qrCache.data = data;
+  }
+  return data;
 }
 
 /** The page shows the QR inline, so the Host renders it once into a data URL. */
@@ -173,6 +196,8 @@ function adoptCredentials(channelName, config, credentials) {
       ...config.qq,
       appId: String(credentials.appId ?? ''),
       appSecret: String(credentials.appSecret ?? ''),
+      // The scan hands us the owner openid; keep an existing one if it does not.
+      ownerOpenId: String(credentials.ownerOpenId || config.qq?.ownerOpenId || ''),
     },
   };
 }

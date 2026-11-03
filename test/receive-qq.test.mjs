@@ -118,3 +118,19 @@ test('QQ drops bots, empty text and strangers', async () => {
     await channel.stop();
   });
 });
+
+test('QQ without a known owner drops everything instead of guessing', async () => {
+  await withHome({ appId: '123', appSecret: 'sec' }, async () => {
+    const bot = fakeBot();
+    const events = [];
+    const channel = new QqChannel({ config: loadConfig, log: quiet, createBot: () => bot,
+      onInbound: (event) => events.push(event) });
+    await channel.connect();
+    await bot.emit('message', {}, {
+      kind: 'c2c', senderId: OWNER, senderName: 'Kaczev',
+      content: '我是主人', messageId: 'm-1', timestamp: 1_793_728_666_199,
+    });
+    assert.deepEqual(events, []);
+    await channel.stop();
+  });
+});

@@ -8,6 +8,7 @@ import {
 } from './vendor/weixin-api.mjs';
 
 const defaultApi = createWeixinApi();
+const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
 const LOGIN_POLL_MS = 2_000;
 const LOGIN_TTL_MS = 5 * 60_000;
 
@@ -102,9 +103,16 @@ export class WeixinChannel {
     const senderId = String(message.from_user_id ?? '').trim();
     if (!text || !senderId) return;
     const { ownerUserId } = this.#credentials();
-    if (this.#config().ownerOnly && ownerUserId && senderId !== ownerUserId) {
-      this.#log.info?.(`[life-chat] weixin: dropped message from ${senderId.slice(-6)} (not the owner)`);
-      return;
+    if (this.#config().ownerOnly) {
+      // An unknown owner is not permission to accept everyone.
+      if (!ownerUserId) {
+        this.#log.warn?.('[life-chat] weixin: ownerOnly is on but no owner id is set; message dropped');
+        return;
+      }
+      if (senderId !== ownerUserId) {
+        this.#log.info?.(`[life-chat] weixin: dropped a message that is not from the owner`);
+        return;
+      }
     }
     this.#onInbound({
       channel: 'weixin',
@@ -141,7 +149,10 @@ export class WeixinChannel {
 
   /** Begin a scan-to-connect attempt; resolves with the QR payload for the UI. */
   async startLogin() {
-    if (this.#login) throw new Error('a WeChat login attempt is already running');
+    if (this.#login && !TERMINAL.has(this.#login.state)) {
+      throw new Error('a WeChat login attempt is already running');
+    }
+    this.cancelLogin();
     const { qrcode, qrcodeUrl } = await this.#api.beginLogin();
     const attempt = {
       id: randomUUID(),

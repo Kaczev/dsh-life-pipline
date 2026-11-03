@@ -4,6 +4,19 @@ import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
 import { toIso } from '../time.mjs';
 
+const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
+
+function disposeAttempt(attempt) {
+  const stop = attempt?.stop;
+  attempt.stop = null;
+  if (typeof stop !== 'function') return;
+  try {
+    stop();
+  } catch {
+    // The connector may already have cleaned up after itself.
+  }
+}
+
 /**
  * The QQ half of the channel layer: QQ Open Platform bot through the official
  * SDK. Scan-to-connect is delegated to the connector package.
@@ -66,7 +79,14 @@ export class QqChannel {
     const qq = this.#config().qq ?? {};
     const group = message.kind === 'group';
     // Only the owner gets through. Groups stay closed unless the owner speaks there.
-    if (this.#config().ownerOnly && qq.ownerOpenId && senderId !== qq.ownerOpenId) return;
+    // Without a known owner openid there is no way to tell, so nothing gets through.
+    if (this.#config().ownerOnly) {
+      if (!qq.ownerOpenId) {
+        this.#log.warn?.('[life-chat] qq: ownerOnly is on but no owner openid is set; message dropped');
+        return;
+      }
+      if (senderId !== qq.ownerOpenId) return;
+    }
     const conversationId = group
       ? String(message.groupOpenid ?? message.channelId ?? senderId)
       : senderId;
@@ -100,7 +120,10 @@ export class QqChannel {
 
   /** Show the QQ mobile scan-to-connect flow; resolves with the QR URL. */
   startLogin() {
-    if (this.#login) throw new Error('a QQ login attempt is already running');
+    if (this.#login && !TERMINAL.has(this.#login.state)) {
+      throw new Error('a QQ login attempt is already running');
+    }
+    this.cancelLogin();
     const attempt = {
       id: randomUUID(),
       qrUrl: '',
@@ -116,21 +139,28 @@ export class QqChannel {
       onQrExpired: () => {
         attempt.state = 'expired';
         attempt.error = '二维码已过期，请重新生成。';
+        disposeAttempt(attempt);
       },
       onFailure: (error) => {
         attempt.state = 'failed';
         attempt.error = String(error?.message ?? error);
-        attempt.stop = null;
+        disposeAttempt(attempt);
       },
       onSuccess: (credentials) => {
         const first = Array.isArray(credentials) ? credentials[0] : credentials;
         if (!first?.appId || !first?.appSecret) {
           attempt.state = 'failed';
           attempt.error = '扫码成功，但没有拿到 AppID/AppSecret。';
+          disposeAttempt(attempt);
           return;
         }
         attempt.state = 'connected';
-        attempt.credentials = { appId: first.appId, appSecret: first.appSecret };
+        attempt.credentials = {
+          appId: first.appId,
+          appSecret: first.appSecret,
+          ...(first.userOpenid ? { ownerOpenId: String(first.userOpenid) } : {}),
+        };
+        disposeAttempt(attempt);
       },
     }, { displayQrCodeToConsole: false, source: 'dsh-life-chat' });
     attempt.stop = stop;

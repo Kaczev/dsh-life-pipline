@@ -145,3 +145,33 @@ test('the fetch route speaks the client envelope and rejects bad bodies', async 
   const get = new Request('http://127.0.0.1/api/dsh-life-chat', { method: 'GET' });
   assert.equal((await route.fetch(get)).status, 405);
 });
+
+test('a pending login carries a rendered QR, not just the url', async () => {
+  const { handle } = fixture({ login: { state: 'pending', qrUrl: 'https://qr.example/abc' } });
+  const result = await handle('chat.status', {});
+  assert.match(result.value.channels.weixin.login.qrDataUrl, /^data:image\/png;base64,/);
+});
+
+test('a QQ scan stores the owner openid it was handed', async () => {
+  let config = structuredClone(BASE_CONFIG);
+  const qq = {
+    startLogin: async () => ({ attemptId: 'q1', expiresAt: 1 }),
+    peekLoginState: () => ({ state: 'pending', qrUrl: '' }),
+    loginState: () => ({
+      state: 'connected',
+      credentials: { appId: '1020', appSecret: 'sec', ownerOpenId: 'OWNER_OPENID' },
+    }),
+    cancelLogin: () => true,
+    connect: async () => {},
+  };
+  const handle = createChatRpcHandler({
+    getConfig: () => config,
+    update: (mutator) => { config = mutator(config); },
+    channels: { qq },
+    sessions: { get: () => null },
+  });
+  const result = await handle('chat.login.state', { channel: 'qq' });
+  assert.equal(result.value.connected, true);
+  assert.equal(config.qq.appId, '1020');
+  assert.equal(config.qq.ownerOpenId, 'OWNER_OPENID');
+});
