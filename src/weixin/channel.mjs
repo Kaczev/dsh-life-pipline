@@ -246,6 +246,19 @@ export class WeixinChannel {
     return true;
   }
 
+  /** Read the login state without consuming it; the page polls this often. */
+  peekLoginState() {
+    const attempt = this.#login;
+    if (!attempt) return null;
+    return {
+      attemptId: attempt.id,
+      state: attempt.state,
+      qrUrl: attempt.qrUrl,
+      error: attempt.error,
+      expiresAt: attempt.expiresAt,
+    };
+  }
+
   /** Ask the login poller for its current state; clears it once finished. */
   loginState() {
     const attempt = this.#login;

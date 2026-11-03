@@ -133,6 +133,13 @@ export class QqChannel {
     return { attemptId: attempt.id, expiresAt: Date.now() + 5 * 60_000 };
   }
 
+  /** Read the login state without consuming it. */
+  peekLoginState() {
+    const attempt = this.#login;
+    if (!attempt) return null;
+    return { attemptId: attempt.id, state: attempt.state, qrUrl: attempt.qrUrl, error: attempt.error };
+  }
+
   loginState() {
     const attempt = this.#login;
     if (!attempt) return null;

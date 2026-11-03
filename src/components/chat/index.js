@@ -2,6 +2,7 @@ import { loadConfig, saveConfig, updateConfig } from '../../config.mjs';
 import { appendMessage, queryMessages, lastContextToken } from '../../store.mjs';
 import { InboundGateway } from '../../gateway.mjs';
 import { createChatTools } from '../../tools.mjs';
+import { createChatRpcHandler, registerChatRpc } from '../../rpc.mjs';
 import { WeixinChannel } from '../../weixin/channel.mjs';
 import { QqChannel } from '../../qq/channel.mjs';
 
@@ -53,7 +54,22 @@ export function apply(ctx, config) {
   };
 
   let prompt = null;
+  let sessions = null;
   const gateway = new InboundGateway({ getConfig, log, prompt: (request, source) => prompt(request, source) });
+
+  // The registry can resolve after the handler is built; delegate lazily so a
+  // late `sessions` service still answers title lookups.
+  function currentSessions() {
+    return {
+      get: (id) => {
+        try {
+          return sessions?.get?.(id) ?? null;
+        } catch {
+          return null;
+        }
+      },
+    };
+  }
 
   function acceptInbound(event) {
     try {
@@ -83,6 +99,19 @@ export function apply(ctx, config) {
       return controller.prompt(request, source);
     };
     void startChannels();
+  });
+
+  ctx.inject(['sessions'], (sessionsCtx) => {
+    sessions = sessionsCtx.sessions ?? null;
+  });
+
+  ctx.inject(['connection'], (connectionCtx) => {
+    const handle = createChatRpcHandler({ getConfig, update, channels, sessions: currentSessions() });
+    try {
+      registerChatRpc(connectionCtx, handle);
+    } catch (error) {
+      log.warn(`[life-chat] settings page bridge unavailable: ${error?.message ?? error}`);
+    }
   });
 
   ctx.inject(['tools'], (toolsCtx) => {
