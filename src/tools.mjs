@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import QRCode from 'qrcode';
 import { homeDir, ensureHome } from './paths.mjs';
+import { dshImAccounts, ownershipWarning } from './env-info.mjs';
 
 /** Paint the login QR into the component directory so the agent can show it. */
 async function renderQr(channel, url) {
@@ -206,11 +207,14 @@ export function createChatTools({ getConfig, update, channels, store }) {
           `主会话：${config.mainSessionId || '未设置'}`,
           `兜窗口：${config.windowSeconds} 秒`,
         ];
+        const conflict = ownershipWarning(dshImAccounts(), config);
+        if (conflict) lines.push(`冲突：${conflict}`);
         return {
           weixin,
           qq,
           mainSessionId: config.mainSessionId,
           windowSeconds: config.windowSeconds,
+          dshImConflict: conflict,
           summary: lines.join('\n'),
         };
       },

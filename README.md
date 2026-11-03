@@ -57,7 +57,7 @@ node scripts/install-local.mjs          # 写入 profile package.json 并 pnpm i
 }
 ```
 
-凭据为空时不会连接，所以装上之后不会和 dsh-im 抢同一条通道；扫码成功后才开始抢。
+凭据为空时不会连接，所以装上之后不会和 dsh-im 抢同一条通道；扫码成功后才开始抢。`chat_status` 会读出 `~/.dsh/integrations` 里 dsh-im 的账号，提示还有哪条通道没交接，避免两个轮询器互相踢。
 
 ## 收编说明
 

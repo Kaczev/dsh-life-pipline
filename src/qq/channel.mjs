@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
+import { toIso } from '../time.mjs';
+
 /**
  * The QQ half of the channel layer: QQ Open Platform bot through the official
  * SDK. Scan-to-connect is delegated to the connector package.
@@ -74,7 +76,7 @@ export class QqChannel {
       senderId,
       senderName: String(message.senderName ?? ''),
       text,
-      at: new Date(message.timestamp ?? Date.now()).toISOString(),
+      at: toIso(message.timestamp),
       messageId: String(message.messageId ?? ''),
       replyTarget: {
         scope: group ? 'group' : 'c2c',
