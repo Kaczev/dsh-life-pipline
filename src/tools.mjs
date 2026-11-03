@@ -1,3 +1,20 @@
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import QRCode from 'qrcode';
+import { homeDir, ensureHome } from './paths.mjs';
+
+/** Paint the login QR into the component directory so the agent can show it. */
+async function renderQr(channel, url) {
+  try {
+    ensureHome();
+    const path = join(homeDir(), `qr-${channel}.png`);
+    await QRCode.toFile(path, url, { width: 360, margin: 2 });
+    return path;
+  } catch {
+    return '';
+  }
+}
+
 const textOutput = (description) => ({
   schema: { type: 'object', additionalProperties: true },
   render: (_args, value) => [{ type: 'text', text: typeof value?.summary === 'string' ? value.summary : description }],
@@ -134,11 +151,15 @@ export function createChatTools({ getConfig, update, channels, store }) {
         if (action === 'begin') {
           const started = await adapter.startLogin();
           const state = adapter.loginState?.() ?? null;
+          const qrUrl = started.qrUrl || state?.qrUrl || '';
+          const qrImagePath = qrUrl ? await renderQr(channel, qrUrl) : '';
           return {
             state: 'pending',
-            qrUrl: started.qrUrl || state?.qrUrl || '',
-            summary: started.qrUrl
-              ? `请扫码：${started.qrUrl}`
+            qrUrl,
+            qrImagePath,
+            summary: qrUrl
+              ? `请扫码：${qrUrl}${qrImagePath ? `
+二维码图片：${qrImagePath}` : ''}`
               : '二维码已开始生成，稍后用 action=status 取链接。',
           };
         }

@@ -11,29 +11,23 @@
     "./chat/package.json": "./src/components/chat/package.json",
     "./package.json": "./package.json"
   },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "compatibility": {
-      "dsh": "0.2.1-rc.2",
-      "profiles": [
-        "desktop",
-        "web"
-      ]
-    }
-  },
   "dependencies": {
     "@tencent-connect/qqbot-connector": "1.2.0",
     "@tencent-connect/qqbot-nodejs": "1.0.4",
     "qrcode": "1.5.4"
   },
   "engines": {
-    "node": ">=22.19"
+    "node": "^22.19 || >=24",
+    "dsh": ">=0.2.0-rc.2 <0.2.2-0"
   },
   "license": "MIT",
   "scripts": {
     "test": "node --test",
     "install-local": "node scripts/install-local.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }
