@@ -26,7 +26,7 @@ async function loadClient() {
 
 test('the client bundle exposes a settings plugin and registers one section', async () => {
   const { definition, exports } = await loadClient();
-  assert.equal(definition.id, '@kaczev/dsh-life');
+  assert.equal(definition.id, 'dsh-life-pipline');
   assert.equal(exports.name, 'dsh-life-chat-settings');
   assert.deepEqual([...exports.inject], ['slots', 'connection']);
 

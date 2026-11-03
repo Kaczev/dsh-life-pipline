@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
  * bundler: the body only uses `require('react')`, which the envelope supplies,
  * so this script is the whole build.
  */
-export const LOADER_ID = '@kaczev/dsh-life';
+export const LOADER_ID = 'dsh-life-pipline';
 
 export function wrapClient(body, id = LOADER_ID) {
   return `window.__ModuleLoader__.load({

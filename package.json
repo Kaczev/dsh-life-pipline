@@ -1,5 +1,5 @@
 {
-  "name": "@kaczev/dsh-life",
+  "name": "dsh-life-pipline",
   "version": "0.1.0",
   "private": true,
   "description": "Life pipeline for DSH: self-owned WeChat and QQ channels that funnel into one main session.",

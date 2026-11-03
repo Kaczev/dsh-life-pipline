@@ -2,4 +2,4 @@
 # so renaming an ID silently loads the old module.
 - insert:
     - id: dsh-life-chat
-      name: '@kaczev/dsh-life/chat'
+      name: 'dsh-life-pipline/chat'
