@@ -7,7 +7,7 @@ import {
   weixinMessageId,
 } from './vendor/weixin-api.mjs';
 
-const api = createWeixinApi();
+const defaultApi = createWeixinApi();
 const LOGIN_POLL_MS = 2_000;
 const LOGIN_TTL_MS = 5 * 60_000;
 
@@ -16,6 +16,7 @@ const LOGIN_TTL_MS = 5 * 60_000;
  * directly instead of through dsh-im. Only text is handled in this version.
  */
 export class WeixinChannel {
+  #api;
   #config;
   #log;
   #onInbound;
@@ -23,7 +24,8 @@ export class WeixinChannel {
   #login = null;
   #status = { connected: false, accountId: '', ownerUserId: '', lastError: '' };
 
-  constructor({ config, onInbound, log }) {
+  constructor({ config, onInbound, log, api = defaultApi }) {
+    this.#api = api;
     this.#config = config;
     this.#log = log;
     this.#onInbound = onInbound;
@@ -63,14 +65,14 @@ export class WeixinChannel {
   async #loop({ botToken, baseUrl, signal }) {
     let cursor = '';
     try {
-      await api.notifyStart({ baseUrl, token: botToken, signal }).catch((error) => {
+      await this.#api.notifyStart({ baseUrl, token: botToken, signal }).catch((error) => {
         this.#log.warn?.(`[life-chat] weixin notifyStart failed: ${error?.message ?? error}`);
       });
       this.#status = { ...this.#status, connected: true };
       while (!signal.aborted) {
         let update;
         try {
-          update = await api.getUpdates({ baseUrl, token: botToken, getUpdatesBuf: cursor, signal });
+          update = await this.#api.getUpdates({ baseUrl, token: botToken, getUpdatesBuf: cursor, signal });
         } catch (error) {
           if (signal.aborted) break;
           this.#log.warn?.(`[life-chat] weixin getUpdates failed: ${error?.message ?? error}`);
@@ -125,7 +127,7 @@ export class WeixinChannel {
     const chunks = splitWeixinText(String(text));
     const ids = [];
     for (const chunk of chunks) {
-      const sent = await api.sendText({
+      const sent = await this.#api.sendText({
         baseUrl,
         token: botToken,
         toUserId: target,
@@ -140,7 +142,7 @@ export class WeixinChannel {
   /** Begin a scan-to-connect attempt; resolves with the QR payload for the UI. */
   async startLogin() {
     if (this.#login) throw new Error('a WeChat login attempt is already running');
-    const { qrcode, qrcodeUrl } = await api.beginLogin();
+    const { qrcode, qrcodeUrl } = await this.#api.beginLogin();
     const attempt = {
       id: randomUUID(),
       qrcode,
@@ -169,7 +171,7 @@ export class WeixinChannel {
         }
         let response;
         try {
-          response = await api.pollLogin({
+          response = await this.#api.pollLogin({
             qrcode: attempt.qrcode,
             baseUrl: WEIXIN_QR_BASE_URL,
             verifyCode: attempt.pendingVerifyCode ?? undefined,
@@ -287,7 +289,7 @@ export class WeixinChannel {
     running.abort();
     const { botToken, baseUrl } = this.#credentials();
     if (botToken) {
-      await api.notifyStop({ baseUrl, token: botToken }).catch(() => {});
+      await this.#api.notifyStop({ baseUrl, token: botToken }).catch(() => {});
     }
   }
 }

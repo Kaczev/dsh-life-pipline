@@ -10,13 +10,15 @@ import { toIso } from '../time.mjs';
  */
 export class QqChannel {
   #config;
+  #createBot;
   #log;
   #onInbound;
   #bot = null;
   #login = null;
   #status = { connected: false, appId: '', lastError: '' };
 
-  constructor({ config, onInbound, log }) {
+  constructor({ config, onInbound, log, createBot = (options) => new QQBot(options) }) {
+    this.#createBot = createBot;
     this.#config = config;
     this.#log = log;
     this.#onInbound = onInbound;
@@ -35,7 +37,7 @@ export class QqChannel {
     if (!this.configured) return false;
     if (this.#bot) return true;
     const qq = this.#config().qq;
-    const bot = new QQBot({ appId: qq.appId, appSecret: qq.appSecret });
+    const bot = this.#createBot({ appId: qq.appId, appSecret: qq.appSecret });
     bot.on('ready', () => {
       this.#status = { ...this.#status, connected: true, appId: qq.appId };
     });
