@@ -1,0 +1,5 @@
+# dsh-life components. Row IDs are stable: a saved profile override matches by name,
+# so renaming an ID silently loads the old module.
+- insert:
+    - id: dsh-life-chat
+      name: '@kaczev/dsh-life/chat'

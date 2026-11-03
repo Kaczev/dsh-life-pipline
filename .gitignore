@@ -1,1 +1,3 @@
 /不入库
+node_modules/
+*.log

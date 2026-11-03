@@ -1,0 +1,162 @@
+diff --git a/src/channels/shared/external-inbound-consumers.mjs b/src/channels/shared/external-inbound-consumers.mjs
+new file mode 100644
+index 00000000..ad7c364d
+--- /dev/null
++++ b/src/channels/shared/external-inbound-consumers.mjs
+@@ -0,0 +1,156 @@
++// Shared external-inbound lease registry.
++//
++// A channel adapter that advertises `exclusive-text-consumer` lets exactly one
++// external consumer (for example a DSH plugin) take over plain-text inbound for
++// a bot. While the lease is held the adapter must not submit the message to the
++// Harness itself; the consumer owns delivery and acknowledgement.
++//
++// Semantics intentionally match the Feishu implementation that shipped first:
++// one lease per bot, fingerprint-bound, abortable, and every refusal carries a
++// stable `code` the caller can map to a public error.
++
++import { createHash } from 'node:crypto';
++
++function refusal(code) {
++  const error = new Error(code);
++  error.code = code;
++  return error;
++}
++
++export function identifier(value) {
++  return typeof value === 'string' && value.length > 0 && value.length <= 512 ? value : undefined;
++}
++
++export function isFingerprint(value) {
++  return /^[a-f0-9]{64}$/.test(value ?? '');
++}
++
++export function accountFingerprint(channel, ...parts) {
++  const payload = JSON.stringify({ provider: channel, ...parts });
++  return createHash('sha256').update(payload).digest('hex');
++}
++
++const MAX_TEXT_LENGTH = 16000;
++
++/**
++ * Normalize a platform text message into the frozen evidence object that
++ * consumers receive. Returns `null` when the message is not something a
++ * consumer should see (bot echoes, non-text payloads, unsupported chats) and
++ * throws `invalid-inbound` / `account-changed` when the payload is malformed.
++ */
++export function textEvidence({
++  channel,
++  botId,
++  fingerprint,
++  eventId,
++  messageId,
++  actorId,
++  actorName,
++  conversationId,
++  conversationKind,
++  conversationName,
++  text,
++  at,
++  reply,
++  mentions,
++  mentionedAccount,
++}) {
++  if (!isFingerprint(fingerprint)) throw refusal('invalid-inbound');
++  if (!identifier(botId) || !identifier(messageId) || !identifier(actorId)
++    || !identifier(conversationId) || !identifier(eventId)) throw refusal('invalid-inbound');
++  if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT_LENGTH)
++    throw refusal('invalid-inbound');
++  if (!['dm', 'group', 'room'].includes(conversationKind)) throw refusal('invalid-inbound');
++  const timestamp = new Date(at);
++  if (!Number.isFinite(timestamp.getTime())) throw refusal('invalid-inbound');
++  const frozenMentions = Object.freeze((mentions ?? []).map((mention) => Object.freeze(mention)));
++  return Object.freeze({
++    version: 1,
++    channel,
++    botId,
++    fingerprint,
++    eventId,
++    messageId,
++    actor: Object.freeze({
++      kind: 'user',
++      id: actorId,
++      ...(identifier(actorName) ? { name: actorName } : {}),
++    }),
++    conversation: Object.freeze({
++      kind: conversationKind,
++      id: conversationId,
++      ...(identifier(conversationName) ? { name: conversationName } : {}),
++    }),
++    mentions: frozenMentions,
++    mentionedAccount: mentionedAccount === true,
++    at: timestamp.toISOString(),
++    text,
++    reply: Object.freeze(reply ?? {}),
++    replay: Object.freeze({ kind: 'provider-redelivery', resumeCursor: false, gapPossible: true }),
++  });
++}
++
++export class ExclusiveInboundConsumers {
++  #entries = new Map();
++
++  register(botId, { fingerprint, onEvent, signal }) {
++    if (this.#entries.has(botId)) throw refusal('consumer-conflict');
++    if (!isFingerprint(fingerprint) || typeof onEvent !== 'function') throw refusal('bad-request');
++    signal?.throwIfAborted();
++    const controller = new AbortController();
++    const entry = { fingerprint, onEvent, controller, dispose: undefined };
++    const dispose = () => {
++      if (this.#entries.get(botId) === entry) this.#entries.delete(botId);
++      controller.abort(refusal('consumer-unavailable'));
++      signal?.removeEventListener('abort', dispose);
++    };
++    entry.dispose = dispose;
++    this.#entries.set(botId, entry);
++    signal?.addEventListener('abort', dispose, { once: true });
++    return dispose;
++  }
++
++  has(botId) {
++    return this.#entries.has(botId);
++  }
++
++  async accept(botId, evidence, signal) {
++    const entry = this.#entries.get(botId);
++    if (!entry) throw refusal('consumer-unavailable');
++    if (entry.fingerprint !== evidence.fingerprint) throw refusal('account-changed');
++    const deliverySignal = signal
++      ? AbortSignal.any([signal, entry.controller.signal]) : entry.controller.signal;
++    deliverySignal.throwIfAborted();
++    let abort;
++    const interrupted = new Promise((_, reject) => {
++      abort = () => reject(deliverySignal.reason);
++      deliverySignal.addEventListener('abort', abort, { once: true });
++      if (deliverySignal.aborted) abort();
++    });
++    let result;
++    try {
++      result = await Promise.race([entry.onEvent(evidence, { signal: deliverySignal }), interrupted]);
++    } finally {
++      deliverySignal.removeEventListener('abort', abort);
++    }
++    deliverySignal.throwIfAborted();
++    if (this.#entries.get(botId) !== entry) throw refusal('consumer-unavailable');
++    if (result?.accepted !== true) throw refusal('ingress-not-accepted');
++    return { accepted: true };
++  }
++
++  signalFor(botId, fingerprint) {
++    const entry = this.#entries.get(botId);
++    if (!entry) throw refusal('consumer-unavailable');
++    if (entry.fingerprint !== fingerprint) throw refusal('account-changed');
++    return entry.controller.signal;
++  }
++
++  remove(botId) {
++    this.#entries.get(botId)?.dispose();
++  }
++
++  close() {
++    for (const botId of this.#entries.keys()) this.remove(botId);
++  }
++}

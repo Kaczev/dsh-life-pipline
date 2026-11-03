@@ -1,0 +1,39 @@
+{
+  "name": "@kaczev/dsh-life",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Life pipeline for DSH: self-owned WeChat and QQ channels that funnel into one main session.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./chat": "./src/components/chat/index.js",
+    "./chat/package.json": "./src/components/chat/package.json",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dsh": "0.2.1-rc.2",
+      "profiles": [
+        "desktop",
+        "web"
+      ]
+    }
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-connector": "1.2.0",
+    "@tencent-connect/qqbot-nodejs": "1.0.4",
+    "qrcode": "1.5.4"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test",
+    "install-local": "node scripts/install-local.mjs"
+  }
+}
