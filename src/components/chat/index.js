@@ -117,16 +117,25 @@ export function apply(ctx, config) {
   ctx.inject(['tools'], (toolsCtx) => {
     const tools = createChatTools({ getConfig, update, channels, store });
     for (const tool of tools) {
-      toolsCtx.tools.register(tool);
+      // A name clash with another plugin must not take the whole bundle down.
+      try {
+        toolsCtx.tools.register(tool);
+      } catch (error) {
+        log.warn(`[life-chat] could not register ${tool.name}: ${error?.message ?? error}`);
+      }
     }
   });
 
   ctx.inject(['systemPrompt'], (promptCtx) => {
-    promptCtx.systemPrompt.context({
-      name: 'dsh-life-chat',
-      order: 120,
-      text: 'Messages from WeChat or QQ arrive as a user message with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message. Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
-    });
+    try {
+      promptCtx.systemPrompt.context({
+        name: 'dsh-life-chat',
+        order: 120,
+        text: 'Messages from WeChat or QQ arrive as a user message with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message. Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
+      });
+    } catch (error) {
+      log.warn(`[life-chat] system prompt guidance unavailable: ${error?.message ?? error}`);
+    }
   });
 
   async function startChannels() {
