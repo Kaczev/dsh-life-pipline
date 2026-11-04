@@ -63,3 +63,21 @@ test('the client bundle exposes a settings plugin and registers one section', as
   for (const stop of cleanups) assert.equal(typeof stop, 'function');
   for (const stop of cleanups) stop();
 });
+
+test('a finished login flips the card before the channel is fully up', async () => {
+  const { exports } = await loadClient();
+  const markConnected = exports.__test__.markConnected;
+  const before = {
+    config: {
+      mainSessionId: 'session-x',
+      weixin: { connected: false, enabled: true },
+      qq: { connected: false, enabled: true },
+    },
+  };
+  const after = markConnected(before, 'qq');
+  assert.equal(after.config.qq.connected, true);
+  assert.equal(after.config.weixin.connected, false, 'other channels stay untouched');
+  assert.equal(before.config.qq.connected, false, 'the input is not mutated');
+  assert.equal(after.config.mainSessionId, 'session-x');
+  assert.equal(markConnected(null, 'qq'), null);
+});

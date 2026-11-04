@@ -133,6 +133,18 @@ function ChannelCard({ name, title, accent, state, login, onBegin, onCancel, onC
   );
 }
 
+/** Flip one channel to connected without waiting for the next full status read. */
+function markConnected(status, channel) {
+  if (!status || !status.config || !status.config[channel]) return status;
+  return {
+    ...status,
+    config: {
+      ...status.config,
+      [channel]: { ...status.config[channel], connected: true },
+    },
+  };
+}
+
 function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
@@ -182,6 +194,24 @@ function ChatSettingsPanel({ rpcCall }) {
   const active = Object.entries(login ?? {}).find(([, value]) =>
     ['pending', 'scanned', 'needs_verification'].includes(value?.state))?.[0];
 
+  // A finished login does not mean a live channel: connect() starts right
+  // after the credentials land, so the first status read can still say "not
+  // connected". Re-read on a short schedule instead of freezing that value.
+  const settleTimers = React.useRef([]);
+  const clearSettle = React.useCallback(() => {
+    for (const id of settleTimers.current) clearTimeout(id);
+    settleTimers.current = [];
+  }, []);
+  React.useEffect(() => clearSettle, [clearSettle]);
+
+  const settle = React.useCallback((channel) => {
+    setStatus((current) => markConnected(current, channel));
+    clearSettle();
+    for (const delay of [0, 600, 1500, 3000]) {
+      settleTimers.current.push(setTimeout(() => { void reload(); }, delay));
+    }
+  }, [clearSettle, reload]);
+
   React.useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
@@ -190,7 +220,8 @@ function ChatSettingsPanel({ rpcCall }) {
         const value = await call('chat.login.state', { channel: active });
         if (cancelled) return;
         setLogin((current) => ({ ...current, [active]: value.login }));
-        if (['connected', 'failed', 'expired', 'cancelled'].includes(value.login?.state)) {
+        if (value.connected === true) settle(active);
+        else if (['connected', 'failed', 'expired', 'cancelled'].includes(value.login?.state)) {
           await reload();
         }
       } catch (cause) {
@@ -201,7 +232,17 @@ function ChatSettingsPanel({ rpcCall }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [active, call, reload]);
+  }, [active, call, reload, settle]);
+
+  // Coming back from another tab should not leave a stale card behind.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void reload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
 
   const save = async (patch) => {
     setBusy(true);
@@ -446,4 +487,4 @@ function apply(ctx) {
   }, ChatSettingsPanel));
 }
 
-module.exports = { name, inject, apply };
+module.exports = { name, inject, apply, __test__: { markConnected } };
