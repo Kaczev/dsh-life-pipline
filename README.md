@@ -23,7 +23,7 @@
 
 工具：`chat_send`、`chat_history`、`chat_login`、`chat_status`。
 
-**配置页**：设置 → 社交。主会话 id 输入并回显会话标题、兜窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏带 📌。
+**配置页**：设置 → 插件 → `dsh-life-pipline` 的详情正文里（`plugins.bundle.config` 槽，按包名挂载）。主会话 id 输入并回显会话标题、兜窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏带 📌。面板只用宿主的 `--dsw-alias-*` 设计 token，深浅色主题跟着宿主走。
 
 配置页通过 Host 的 `/api/dsh-life-chat` 管理通道与页面通信（`chat.status` / `chat.config.save` / `chat.session.title` / `chat.login.begin` / `chat.login.state` / `chat.login.code` / `chat.login.cancel`），凭据只留在 Host 侧，页面只能看到"已连接/未连接"。
 

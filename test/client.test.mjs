@@ -50,9 +50,8 @@ test('the client bundle exposes a settings plugin and registers one section', as
   exports.apply(ctx);
   assert.equal(registered.length, 1);
   const [{ options, Component }] = registered;
-  assert.equal(options.name, 'settings.section');
-  assert.equal(options.id, 'dsh-life-chat');
-  assert.equal(options.label(), '社交');
+  assert.equal(options.name, 'plugins.bundle.config');
+  assert.equal(options.key, 'dsh-life-pipline');
   assert.equal(typeof Component, 'function');
   const props = options.inject();
   assert.equal(typeof props.rpcCall, 'function');
