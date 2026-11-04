@@ -54,16 +54,23 @@ export class WeixinChannel {
 
   async connect() {
     if (!this.configured) return false;
-    if (this.#running) return true;
+    if (this.#running) {
+      // Already up: nothing to do. Up but failing to poll means the token is
+      // no longer accepted, so start over with a fresh loop and let the status
+      // keep saying "not connected" until a poll succeeds again.
+      if (this.#status.connected) return true;
+      await this.stop();
+    }
     const { botToken, baseUrl } = this.#credentials();
     const controller = new AbortController();
     this.#running = controller;
     this.#status = { ...this.#status, connected: false, lastError: '' };
-    void this.#loop({ botToken, baseUrl, signal: controller.signal });
+    void this.#loop({ botToken, baseUrl, controller });
     return true;
   }
 
-  async #loop({ botToken, baseUrl, signal }) {
+  async #loop({ botToken, baseUrl, controller }) {
+    const signal = controller.signal;
     let cursor = '';
     try {
       await this.#api.notifyStart({ baseUrl, token: botToken, signal }).catch((error) => {
@@ -76,9 +83,13 @@ export class WeixinChannel {
           update = await this.#api.getUpdates({ baseUrl, token: botToken, getUpdatesBuf: cursor, signal });
         } catch (error) {
           if (signal.aborted) break;
+          this.#status = { ...this.#status, connected: false, lastError: String(error?.message ?? error) };
           this.#log.warn?.(`[life-chat] weixin getUpdates failed: ${error?.message ?? error}`);
           await sleep(2_000, signal);
           continue;
+        }
+        if (!this.#status.connected) {
+          this.#status = { ...this.#status, connected: true, lastError: '' };
         }
         if (typeof update?.get_updates_buf === 'string' && update.get_updates_buf) {
           cursor = update.get_updates_buf;
@@ -93,7 +104,12 @@ export class WeixinChannel {
         this.#log.warn?.(`[life-chat] weixin loop stopped: ${error?.message ?? error}`);
       }
     } finally {
-      this.#status = { ...this.#status, connected: false };
+      // Only the current run may write the final state: a stop() followed by a
+      // new connect() must not be clobbered by the loop that is on its way out.
+      if (this.#running === controller) {
+        this.#running = null;
+        this.#status = { ...this.#status, connected: false };
+      }
     }
   }
 

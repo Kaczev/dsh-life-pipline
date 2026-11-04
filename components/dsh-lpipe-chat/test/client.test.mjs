@@ -17,7 +17,15 @@ async function loadClient() {
   };
   vm.runInNewContext(code, sandbox, { filename: 'client.js' });
   assert.ok(definition, 'bundle must call __ModuleLoader__.load');
-  const react = { createElement: (type, props) => ({ type, props }), useState: (initial) => [initial, () => {}], useEffect: () => {}, useCallback: (fn) => fn };
+  const react = {
+    createElement: (type, props, ...children) => ({
+      type,
+      props: { ...props, children: children.length > 1 ? children : children[0] },
+    }),
+    useState: (initial) => [initial, () => {}],
+    useEffect: () => {},
+    useCallback: (fn) => fn,
+  };
   return { definition, exports: definition.factory((id) => {
     if (id === 'react') return react;
     throw new Error(`unexpected require: ${id}`);
@@ -123,4 +131,38 @@ test('a finished login flips the card before the channel is fully up', async () 
   assert.equal(before.config.qq.connected, false, 'the input is not mutated');
   assert.equal(after.config.mainSessionId, 'session-x');
   assert.equal(markConnected(null, 'qq'), null);
+});
+
+function texts(node, out = []) {
+  if (node == null || node === false || node === true) return out;
+  if (typeof node === 'string' || typeof node === 'number') { out.push(String(node)); return out; }
+  if (Array.isArray(node)) { for (const child of node) texts(child, out); return out; }
+  if (node.props) texts(node.props.children, out);
+  return out;
+}
+
+test('a stored credential offers reconnect, never a dead end', async () => {
+  const { exports } = await loadClient();
+  const card = exports.__test__.ChannelCard;
+  const shared = { name: 'weixin', title: '微信', accent: '#07c160', busy: false };
+
+  const revoked = card({
+    ...shared,
+    state: { configured: true, connected: false, lastError: 'invalid token' },
+    login: { state: 'idle' },
+  });
+  const labels = texts(revoked);
+  assert.ok(labels.includes('重新连接'), 'a stored credential must offer reconnect');
+  assert.ok(labels.includes('重新扫码'), 'a revoked credential must still be replaceable');
+  assert.ok(labels.some((text) => text.includes('上次连接失败')), 'the failure stays visible');
+
+  const live = card({ ...shared, state: { configured: true, connected: true }, login: { state: 'idle' } });
+  const liveLabels = texts(live);
+  assert.ok(liveLabels.includes('已连接'));
+  assert.ok(liveLabels.includes('重新连接'), 'reconnect stays reachable while connected');
+
+  const empty = card({ ...shared, state: { configured: false, connected: false }, login: { state: 'idle' } });
+  const emptyLabels = texts(empty);
+  assert.ok(emptyLabels.includes('扫码接入'));
+  assert.ok(!emptyLabels.includes('重新连接'), 'nothing to reconnect without credentials');
 });

@@ -92,7 +92,8 @@ function note(text, tone) {
   }, text);
 }
 
-function ChannelCard({ name, title, accent, state, login, onBegin, onCancel, onCode, busy }) {
+function ChannelCard({ name, title, accent, state, login, onBegin, onConnect, onCancel, onCode, busy }) {
+  const configured = Boolean(state?.configured);
   const connected = Boolean(state?.connected);
   const status = login?.state ?? 'idle';
   const [code, setCode] = React.useState('');
@@ -105,9 +106,12 @@ function ChannelCard({ name, title, accent, state, login, onBegin, onCancel, onC
         h('span', { style: { display: 'flex', alignItems: 'center', fontSize: 12, color: COLORS.muted } },
           h(StatusDot, { on: connected }),
           connected ? '已连接' : '未连接')),
-      !running && !connected
-        ? h('button', { style: button(), disabled: busy, onClick: onBegin }, '扫码接入')
-        : null),
+      running ? null : h('div', { style: { display: 'flex', gap: 8 } },
+        configured
+          ? h('button', { style: button(), disabled: busy, onClick: onConnect }, '重新连接')
+          : null,
+        h('button', { style: button(configured ? undefined : accent), disabled: busy, onClick: onBegin },
+          configured ? '重新扫码' : '扫码接入'))),
     running ? h('div', { style: { marginTop: 12 } },
       h('div', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 8 } },
         status === 'pending' ? '请用手机扫码确认'
@@ -135,6 +139,9 @@ function ChannelCard({ name, title, accent, state, login, onBegin, onCancel, onC
       h('button', { style: { ...button(), marginTop: 10 }, onClick: onCancel }, '取消'))
       : null,
     login?.error ? note(login.error, 'error') : null,
+    !connected && !running && state?.lastError
+      ? note(`上次连接失败：${state.lastError}`, 'error')
+      : null,
   );
 }
 
@@ -253,8 +260,23 @@ function ChatSettingsPanel({ rpcCall }) {
     }
   };
 
-  const begin = async (channel) => {
+  // Rebuilding the channel from the stored credentials. When the server side
+  // revoked them this comes back "not connected" and the card keeps offering
+  // a fresh scan, which is the only way forward.
+  const reconnect = async (channel) => {
     setBusy(true);
+    try {
+      adopt(await call('chat.connect', { channel }));
+      setError('');
+    } catch (cause) {
+      setError(cause.message);
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const begin = async (channel) => {    setBusy(true);
     try {
       const value = await call('chat.login.begin', { channel });
       // QQ reports its QR a beat later, so the snapshot may be empty here.
@@ -299,15 +321,13 @@ function ChatSettingsPanel({ rpcCall }) {
   return h('div', { style: { maxWidth: 720 } },
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
-      status.config.mainSessionId
-        ? h('span', {
-          style: {
-            fontSize: 11, padding: '2px 8px', borderRadius: 999,
-            background: 'rgba(7, 193, 96, 0.14)', color: COLORS.success,
-            border: '1px solid rgba(7, 193, 96, 0.28)',
-          },
-        }, '主会话')
-        : null),
+      h('span', {
+        style: {
+          fontSize: 11, padding: '2px 8px', borderRadius: 999,
+          background: 'rgba(7, 193, 96, 0.14)', color: COLORS.success,
+          border: '1px solid rgba(7, 193, 96, 0.28)',
+        },
+      }, '社交管线')),
 
     h('div', { style: card },
       h('label', { style: label }, '兜窗口（秒）'),
@@ -335,6 +355,7 @@ function ChatSettingsPanel({ rpcCall }) {
       login: login.weixin,
       busy,
       onBegin: () => begin('weixin'),
+      onConnect: () => reconnect('weixin'),
       onCancel: () => cancel('weixin'),
       onCode: (code) => submitCode('weixin', code),
     }),
@@ -347,6 +368,7 @@ function ChatSettingsPanel({ rpcCall }) {
       login: login.qq,
       busy,
       onBegin: () => begin('qq'),
+      onConnect: () => reconnect('qq'),
       onCancel: () => cancel('qq'),
       onCode: (code) => submitCode('qq', code),
     }),
@@ -466,5 +488,5 @@ module.exports = {
   name,
   inject,
   apply,
-  __test__: { markConnected, MainSessionMark, setMainSessionId, trackMainSession, PANEL_SLOT },
+  __test__: { markConnected, MainSessionMark, setMainSessionId, trackMainSession, PANEL_SLOT, ChannelCard },
 };

@@ -12,9 +12,11 @@ const BASE_CONFIG = {
   qq: { enabled: true, appId: '', appSecret: '', ownerOpenId: 'open' },
 };
 
-function fixture({ login = null } = {}) {
+function fixture({ login = null, live = { connected: true, lastError: '' }, connectResult = true } = {}) {
   let config = structuredClone(BASE_CONFIG);
   const calls = [];
+  // Live state, not the stored credentials: connect() flips this one.
+  const liveNow = { ...live };
   const channel = {
     startLogin: async () => ({ attemptId: 'a1', qrUrl: 'https://qr', expiresAt: 1 }),
     peekLoginState: () => login,
@@ -24,7 +26,12 @@ function fixture({ login = null } = {}) {
     },
     submitVerifyCode: (code) => code === '1234',
     cancelLogin: () => true,
-    connect: async () => { calls.push('connect'); },
+    connect: async () => {
+      calls.push('connect');
+      if (connectResult) Object.assign(liveNow, { connected: true, lastError: '' });
+      return connectResult;
+    },
+    get status() { return liveNow; },
   };
   const handle = createChatRpcHandler({
     getConfig: () => config,
@@ -46,10 +53,29 @@ test('status never leaks channel secrets', async () => {
   const { handle } = fixture({ login: { state: 'pending', qrUrl: 'https://qr' } });
   const result = await handle('chat.status', {});
   assert.equal(result.ok, true);
+  assert.equal(result.value.config.weixin.configured, true);
   assert.equal(result.value.config.weixin.connected, true);
   assert.equal(result.value.config.weixin.botToken, undefined);
   assert.equal(result.value.config.qq.connected, false);
   assert.equal(result.value.channels.weixin.login.qrUrl, 'https://qr');
+});
+
+test('a revoked token reads as not connected while staying reconnectable', async () => {
+  const { handle } = fixture({ live: { connected: false, lastError: 'invalid token' } });
+  const result = await handle('chat.status', {});
+  assert.equal(result.value.config.weixin.connected, false);
+  assert.equal(result.value.config.weixin.configured, true);
+  assert.equal(result.value.config.weixin.lastError, 'invalid token');
+  const again = await handle('chat.connect', { channel: 'weixin' });
+  assert.equal(again.ok, true);
+  assert.equal(again.value.config.weixin.connected, true);
+});
+
+test('connect refuses a channel without credentials', async () => {
+  const { handle } = fixture({ connectResult: false });
+  const result = await handle('chat.connect', { channel: 'qq' });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'chat/not-configured');
 });
 
 test('status uses the non-consuming peek', async () => {

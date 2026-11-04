@@ -48,16 +48,25 @@ export class QqChannel {
 
   async connect() {
     if (!this.configured) return false;
-    if (this.#bot) return true;
+    if (this.#bot && this.#status.connected) return true;
+    // A bot object that is no longer ready cannot be reused: replacing it is
+    // the only way back after the server side dropped the session.
+    if (this.#bot) await this.stop();
     const qq = this.#config().qq;
     const bot = this.#createBot({ appId: qq.appId, appSecret: qq.appSecret });
     bot.on('ready', () => {
-      this.#status = { ...this.#status, connected: true, appId: qq.appId };
+      this.#status = { ...this.#status, connected: true, appId: qq.appId, lastError: '' };
     });
     bot.on('error', (error) => {
       this.#log.warn?.(`[life-chat] qq error: ${error?.message ?? error}`);
-      this.#status = { ...this.#status, lastError: String(error?.message ?? error) };
+      this.#status = { ...this.#status, connected: false, lastError: String(error?.message ?? error) };
     });
+    for (const event of ['close', 'disconnect', 'offline']) {
+      bot.on(event, () => {
+        if (this.#bot !== bot) return;
+        this.#status = { ...this.#status, connected: false };
+      });
+    }
     bot.on('message', (_ctx, message) => {
       try {
         this.#accept(message);

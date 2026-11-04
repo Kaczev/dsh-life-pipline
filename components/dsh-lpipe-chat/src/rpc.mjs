@@ -8,6 +8,7 @@ const METHODS = new Set([
   'chat.status',
   'chat.config.save',
   'chat.session.title',
+  'chat.connect',
   'chat.login.begin',
   'chat.login.state',
   'chat.login.code',
@@ -22,10 +23,29 @@ function channelOf(value) {
   return value === 'weixin' || value === 'qq' ? value : null;
 }
 
-/** Everything the settings page may learn about a channel; never a secret. */
-function publicConfig(config) {
+/** Live channel state, or null when the channel is not wired yet. */
+function liveOf(channels, name) {
+  try {
+    return channels?.[name]?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Everything the settings page may learn about a channel; never a secret.
+ *
+ * `configured` means credentials exist, `connected` means the channel really
+ * is up right now. Keeping them apart is what lets the page offer "reconnect"
+ * after a token was revoked server-side while the config still holds it.
+ */
+function publicConfig(config, channels) {
   const weixin = config.weixin ?? {};
   const qq = config.qq ?? {};
+  const weixinLive = liveOf(channels, 'weixin');
+  const qqLive = liveOf(channels, 'qq');
+  const weixinConfigured = Boolean(String(weixin.botToken ?? '').trim());
+  const qqConfigured = Boolean(String(qq.appId ?? '').trim() && String(qq.appSecret ?? '').trim());
   return {
     mainSessionId: String(config.mainSessionId ?? ''),
     windowSeconds: Number(config.windowSeconds ?? 5),
@@ -33,13 +53,17 @@ function publicConfig(config) {
     ownerName: String(config.ownerName ?? ''),
     weixin: {
       enabled: weixin.enabled !== false,
-      connected: Boolean(String(weixin.botToken ?? '').trim()),
+      configured: weixinConfigured,
+      connected: weixinConfigured && Boolean(weixinLive?.connected),
+      lastError: String(weixinLive?.lastError ?? ''),
       ownerUserId: String(weixin.ownerUserId ?? ''),
       accountId: String(weixin.accountId ?? ''),
     },
     qq: {
       enabled: qq.enabled !== false,
-      connected: Boolean(String(qq.appId ?? '').trim() && String(qq.appSecret ?? '').trim()),
+      configured: qqConfigured,
+      connected: qqConfigured && Boolean(qqLive?.connected),
+      lastError: String(qqLive?.lastError ?? ''),
       ownerOpenId: String(qq.ownerOpenId ?? ''),
       appId: String(qq.appId ?? ''),
     },
@@ -70,7 +94,7 @@ async function loginSnapshot(channel) {
  */
 export function createChatRpcHandler({ getConfig, update, channels, sessions }) {
   const status = async () => ({
-    config: publicConfig(getConfig()),
+    config: publicConfig(getConfig(), channels),
     channels: {
       weixin: { login: await loginSnapshot(channels.weixin) },
       qq: { login: await loginSnapshot(channels.qq) },
@@ -105,6 +129,21 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
     if (!channelName) return failure('chat/bad-request', 'channel 必须是 weixin 或 qq。');
     const channel = channels[channelName];
     if (!channel) return failure('chat/unavailable', `${channelName} 通道不可用。`);
+
+    if (method === 'chat.connect') {
+      // Reconnect with the credentials already on disk. A scan is only needed
+      // when the server side revoked them, which is exactly when this fails
+      // and the page falls back to "扫码接入".
+      try {
+        const started = await channel.connect();
+        if (started === false) {
+          return failure('chat/not-configured', '这个通道还没有凭据，请先扫码接入。');
+        }
+      } catch (error) {
+        return failure('chat/connect-failed', String(error?.message ?? error));
+      }
+      return { ok: true, value: await status() };
+    }
 
     if (method === 'chat.login.begin') {
       try {

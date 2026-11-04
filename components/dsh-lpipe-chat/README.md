@@ -11,7 +11,8 @@ DeepSeek Harness 组件：自己握有微信与 QQ 两条通道，把消息合�
 - **注入**：以 `[微信 · 名字] 原文` 的后台通知形式进入主会话；忙时等下一步读取，空闲时唤醒。
 - **回消息**：模型在当轮调用 `chat_send` 才算回复，沉默是默认。
 - **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only。
-- **配置页**：设置 → **Lpipe 设置**（`settings.section` 槽，不再挂在插件详情页里）。整页由本组件托管，并声明子槽 `lpipe.settings.panel`；本组件把自己的「Lpipe Chat」一块注册进去，改主会话、兜窗口秒数、扫码接入。
+- **配置页**：设置 → **Lpipe 设置**（`settings.section` 槽，不再挂在插件详情页里）。整页由公共包托管，并声明子槽 `lpipe.settings.panel`；本组件把自己的「Lpipe Chat」一块注册进去，改兜窗口秒数、扫码接入。
+- **重连**：卡片上的「已连接」是此刻真的连着，「未连接」会附带最后一次失败原因。卡片常驻「重新连接」（用已存凭据重开通道）与「重新扫码」（换一个账号）；服务端把 token 作废后，前者会失败、后者仍能救回来。
 - **标记**：主会话在会话栏里带一枚青蓝对半的小气泡。
 
 工具：`chat_send`、`chat_history`、`chat_login`、`chat_status`。

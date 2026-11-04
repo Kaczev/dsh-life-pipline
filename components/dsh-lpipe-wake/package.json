@@ -37,7 +37,7 @@
     "directory": "components/dsh-lpipe-wake"
   },
   "dependencies": {
-    "dsh-life-pipline": "^0.5.1"
+    "dsh-life-pipline": "^0.6.0"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
