@@ -60,18 +60,6 @@ const button = (accent) => ({
   whiteSpace: 'nowrap',
 });
 
-const chip = (active) => ({
-  border: `1px solid ${active ? COLORS.success : COLORS.borderStrong}`,
-  background: active ? 'rgba(7, 193, 96, 0.12)' : 'transparent',
-  color: active ? COLORS.success : COLORS.text,
-  borderRadius: 999,
-  padding: '3px 12px',
-  fontSize: 12,
-  cursor: 'pointer',
-  flex: 'none',
-  whiteSpace: 'nowrap',
-});
-
 const track = (on) => ({
   position: 'relative',
   width: 36,
@@ -121,13 +109,6 @@ const numberInput = {
 };
 
 const selectInput = { ...numberInput, width: 'auto', padding: '4px 6px' };
-
-const CHIPS = [
-  { ms: 30 * MINUTE, text: '30 分钟' },
-  { ms: HOUR, text: '1 小时' },
-  { ms: 2 * HOUR, text: '2 小时' },
-  { ms: 4 * HOUR, text: '4 小时' },
-];
 
 /** Milliseconds → the pair shown in the custom field. */
 function splitInterval(ms) {
@@ -227,8 +208,8 @@ function WakePanel({ rpcCall }) {
   const on = status.enabled !== false;
   const cardStyle = { ...card, opacity: on ? 1 : 0.55 };
 
-  // The custom field keeps whatever the user is typing; the chip row and the
-  // saved value only move it when the user asks them to.
+  // The field holds whatever is being typed; the saved value only moves it
+  // when a save actually succeeds.
   const draftValue = draft ?? splitInterval(intervalMs);
   const draftMs = composeInterval(draftValue.amount, draftValue.unit);
   const saveDraft = () => {
@@ -272,32 +253,25 @@ function WakePanel({ rpcCall }) {
     h('div', { style: cardStyle },
       h('label', { style: label }, '默认唤醒间隔'),
       h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
-        ...CHIPS.map((item) => h('button', {
-          key: item.ms,
-          style: chip(item.ms === intervalMs),
-          disabled: busy,
-          onClick: () => {
-            setDraft(splitInterval(item.ms));
-            void run('wake.config.save', { defaultIntervalMs: item.ms });
-          },
-        }, item.text)),
-        h('span', {
-          style: { width: 1, height: 18, background: COLORS.border, flex: 'none', marginLeft: 2 },
-        }),
         h('input', {
           type: 'number',
           inputMode: 'numeric',
           min: 1,
           max: draftValue.unit === 'hours' ? 24 : 1440,
           value: draftValue.amount,
-          'aria-label': '自定义间隔数值',
+          'aria-label': '默认唤醒间隔',
           disabled: busy,
           style: numberInput,
           onChange: (event) => setDraft({ amount: event.target.value, unit: draftValue.unit }),
+          onKeyDown: (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            saveDraft();
+          },
         }),
         h('select', {
           value: draftValue.unit,
-          'aria-label': '自定义间隔单位',
+          'aria-label': '间隔单位',
           disabled: busy,
           style: selectInput,
           onChange: (event) => setDraft({ amount: draftValue.amount, unit: event.target.value }),
@@ -305,13 +279,14 @@ function WakePanel({ rpcCall }) {
           h('option', { value: 'minutes' }, '分钟'),
           h('option', { value: 'hours' }, '小时')),
         h('button', {
-          style: chip(false),
+          style: { ...button(), padding: '4px 14px' },
           disabled: busy || draftMs === null || draftMs === intervalMs,
           onClick: saveDraft,
-        }, draftMs === intervalMs ? '已是这个间隔' : '用这个间隔')),
-      draftMs === null
-        ? note('自己填的话，范围是 1 分钟到 24 小时。', 'error')
-        : note('我一开口说话、开始活动，下次唤醒就清空；停下后从那一刻重新按这个间隔算。')),
+        }, '保存'),
+        draftMs === null
+          ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 分钟到 24 小时')
+          : null),
+      note('我一开口说话、开始活动，下次唤醒就清空；停下后从那一刻重新按这个间隔算。')),
 
     h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
       h('button', { style: button(), disabled: busy, onClick: () => run('wake.now') }, '现在唤醒一次'),
@@ -345,7 +320,6 @@ module.exports = {
     PANEL_SLOT,
     formatClock,
     countdown,
-    CHIPS,
     splitInterval,
     composeInterval,
     MIN_INTERVAL_MS,
