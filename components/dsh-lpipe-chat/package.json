@@ -1,0 +1,41 @@
+{
+  "name": "dsh-lpipe-chat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Own WeChat and QQ channels: scan to connect, batch incoming messages, inject them into the main session.",
+  "type": "module",
+  "main": "src/index.js",
+  "icon": "assets/icon.png",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./assets/icon.png",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-connector": "1.2.0",
+    "@tencent-connect/qqbot-nodejs": "1.0.4",
+    "qrcode": "1.5.4"
+  },
+  "engines": {
+    "node": "^22.19 || >=24",
+    "dsh": ">=0.2.0-rc.2 <0.2.2-0"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test",
+    "build-client": "node scripts/build-client.mjs"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  }
+}

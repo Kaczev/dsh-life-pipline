@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 /**
- * Link this package into a DSH profile so the host loads dsh-life-chat.
+ * Link the bundle and every component package into a DSH profile.
  *
  *   node scripts/install-local.mjs                 # edit + pnpm install
  *   node scripts/install-local.mjs --no-install    # edit only
  *   node scripts/install-local.mjs --revert        # undo the edit
  *
+ * The bundle (`dsh-life-pipline`) mounts the components through
+ * cordis.patch.yml, and each row names a component package, so every package
+ * under components/ has to be resolvable from the profile as well.
+ *
  * Always writes a timestamped backup of the profile package.json first.
  * A restart of DSH is required afterwards; this script never restarts it.
  */
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PACKAGE = 'dsh-life-pipline';
+const BUNDLE = 'dsh-life-pipline';
+const LEGACY = ['dsh-life-piplines'];
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const value = (name, fallback) => {
@@ -28,32 +33,55 @@ const profile = resolve(value('--profile', join(homedir(), '.dsh', 'profiles', '
 const manifestPath = join(profile, 'package.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
+/** Every package under components/ that declares a name. */
+function componentPackages() {
+  const root = join(repo, 'components');
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(root, entry.name, 'package.json'))
+    .filter((path) => existsSync(path))
+    .map((path) => ({ dir: dirname(path), manifest: JSON.parse(readFileSync(path, 'utf8')) }))
+    .filter(({ manifest: own }) => typeof own.name === 'string' && own.name !== '');
+}
+
+const LINK = (dir) => `link:${dir.replaceAll('\\', '/')}`;
 const backup = `${manifestPath}.bak-life-chat-${Date.now()}`;
-copyFileSync(manifestPath, backup);
 
 if (flag('--revert')) {
+  copyFileSync(manifestPath, backup);
   manifest.dependencies = manifest.dependencies ?? {};
-  delete manifest.dependencies[PACKAGE];
+  for (const name of [BUNDLE, ...LEGACY, ...componentPackages().map(({ manifest: own }) => own.name)]) {
+    delete manifest.dependencies[name];
+  }
   const bundles = manifest.dsh?.profile?.bundles;
   if (Array.isArray(bundles)) {
-    manifest.dsh.profile.bundles = bundles.filter((entry) => entry !== PACKAGE);
+    manifest.dsh.profile.bundles = bundles.filter((entry) => entry !== BUNDLE && !LEGACY.includes(entry));
   }
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  console.log(`removed ${PACKAGE} from ${manifestPath}\nbackup: ${backup}`);
+  console.log(`removed ${BUNDLE} and its components from ${manifestPath}\nbackup: ${backup}`);
   process.exit(0);
 }
 
+copyFileSync(manifestPath, backup);
+
 manifest.dependencies = manifest.dependencies ?? {};
-manifest.dependencies[PACKAGE] = `link:${repo.replaceAll('\\', '/')}`;
+for (const legacy of LEGACY) delete manifest.dependencies[legacy];
+manifest.dependencies[BUNDLE] = LINK(repo);
+for (const { dir, manifest: own } of componentPackages()) {
+  manifest.dependencies[own.name] = LINK(dir);
+}
 
 manifest.dsh = manifest.dsh ?? {};
 manifest.dsh.profile = manifest.dsh.profile ?? {};
-const bundles = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [];
-if (!bundles.includes(PACKAGE)) bundles.push(PACKAGE);
+const bundles = (Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [])
+  .filter((entry) => !LEGACY.includes(entry));
+if (!bundles.includes(BUNDLE)) bundles.push(BUNDLE);
 manifest.dsh.profile.bundles = bundles;
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-console.log(`linked ${PACKAGE} -> ${repo}`);
+console.log(`linked ${BUNDLE} -> ${repo}`);
+for (const { dir, manifest: own } of componentPackages()) console.log(`linked ${own.name} -> ${dir}`);
 console.log(`profile: ${manifestPath}`);
 console.log(`backup:  ${backup}`);
 

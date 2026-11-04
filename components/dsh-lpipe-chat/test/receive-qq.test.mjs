@@ -49,7 +49,7 @@ test('a QQ private message reaches the main session with the sender label', asyn
     const gateway = new InboundGateway({
       getConfig: loadConfig,
       log: quiet,
-      prompt: async (request) => prompts.push(request),
+      deliver: async ({ message }) => prompts.push(message),
     });
     const events = [];
     const channel = new QqChannel({

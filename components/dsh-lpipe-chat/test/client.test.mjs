@@ -26,8 +26,8 @@ async function loadClient() {
 
 test('the client bundle exposes a settings plugin and registers one section', async () => {
   const { definition, exports } = await loadClient();
-  assert.equal(definition.id, 'dsh-life-pipline');
-  assert.equal(exports.name, 'dsh-life-chat-settings');
+  assert.equal(definition.id, 'dsh-lpipe-chat');
+  assert.equal(exports.name, 'dsh-lpipe-chat-settings');
   assert.deepEqual([...exports.inject], ['slots', 'connection']);
 
   const registered = [];
@@ -59,7 +59,7 @@ test('the client bundle exposes a settings plugin and registers one section', as
   assert.deepEqual(result, { ok: true, value: {} });
 
   // The sidebar pin installs without a DOM (headless) and cleans up silently.
-  assert.deepEqual(effects, ['dsh-life-chat: main session pin']);
+  assert.deepEqual(effects, ['dsh-lpipe-chat: main session pin']);
   for (const stop of cleanups) assert.equal(typeof stop, 'function');
   for (const stop of cleanups) stop();
 });

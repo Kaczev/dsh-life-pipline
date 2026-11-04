@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
  * bundler: the body only uses `require('react')`, which the envelope supplies,
  * so this script is the whole build.
  */
-export const LOADER_ID = 'dsh-life-pipline';
+export const LOADER_ID = 'dsh-lpipe-chat';
 
 export function wrapClient(body, id = LOADER_ID) {
   return `window.__ModuleLoader__.load({
@@ -25,7 +25,7 @@ ${body}
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function buildClient() {
-  const body = await readFile(resolve(root, 'src/client/panel.js'), 'utf8');
+  const body = await readFile(resolve(root, 'client/panel.js'), 'utf8');
   const output = resolve(root, 'lib/client.js');
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, wrapClient(body), 'utf8');

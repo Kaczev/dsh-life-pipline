@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { apply } from '../src/components/chat/index.js';
+import { apply } from '../src/index.js';
 
 /**
  * A stand-in for the Cordis context: just enough service registration to prove
@@ -55,7 +55,7 @@ function fakeContext() {
 }
 
 async function withHome(run) {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-life-chat-'));
+  const home = await mkdtemp(join(tmpdir(), 'dsh-lpipe-chat-'));
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
   try {
@@ -68,13 +68,13 @@ async function withHome(run) {
 }
 
 function rpcBody(method, payload) {
-  return new Request('http://127.0.0.1/api/dsh-life-chat', {
+  return new Request('http://127.0.0.1/api/dsh-lpipe-chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       type: 'client-request',
       rpcId: 'r1',
-      method: 'dsh-life-chat',
+      method: 'dsh-lpipe-chat',
       payload: { method, payload },
     }),
   });
@@ -88,8 +88,8 @@ test('the component registers tools, the page route and the prompt guidance', as
     assert.deepEqual(state.tools.map((tool) => tool.name).sort(),
       ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
     assert.equal(state.routes.length, 1);
-    assert.equal(state.routes[0].path, '/api/dsh-life-chat');
-    assert.equal(state.prompt[0].name, 'dsh-life-chat');
+    assert.equal(state.routes[0].path, '/api/dsh-lpipe-chat');
+    assert.equal(state.prompt[0].name, 'dsh-lpipe-chat');
 
     const status = await (await state.routes[0].fetch(rpcBody('chat.status', {}))).json();
     assert.equal(status.result.ok, true);

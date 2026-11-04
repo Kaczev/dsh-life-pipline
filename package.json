@@ -1,21 +1,17 @@
 {
   "name": "dsh-life-pipline",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Life pipeline for DSH: self-owned WeChat and QQ channels that funnel into one main session.",
+  "description": "A DSH life bundle that grows one component at a time.",
   "type": "module",
-  "main": "src/index.js",
+  "main": "index.js",
+  "icon": "assets/icon.png",
   "exports": {
-    ".": "./src/index.js",
-    "./chat": "./src/components/chat/index.js",
-    "./chat/package.json": "./src/components/chat/package.json",
-    "./client": "./lib/client.js",
+    ".": "./index.js",
+    "./icon": "./assets/icon.png",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json"
-  },
-  "dependencies": {
-    "@tencent-connect/qqbot-connector": "1.2.0",
-    "@tencent-connect/qqbot-nodejs": "1.0.4",
-    "qrcode": "1.5.4"
   },
   "engines": {
     "node": "^22.19 || >=24",
@@ -23,21 +19,13 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"components/*/test/*.test.mjs\"",
     "install-local": "node scripts/install-local.mjs",
-    "build-client": "node scripts/build-client.mjs"
+    "build-client": "node components/dsh-lpipe-chat/scripts/build-client.mjs"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-slots"
-      ],
-      "platform": "web"
     }
   }
 }

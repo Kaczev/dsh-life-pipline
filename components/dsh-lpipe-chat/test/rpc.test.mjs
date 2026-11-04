@@ -115,16 +115,16 @@ test('the fetch route speaks the client envelope and rejects bad bodies', async 
   let route;
   const ctx = { connection: { fetch: { register: (value) => { route = value; return () => {}; } } } };
   registerChatRpc(ctx, handle);
-  assert.equal(route.path, '/api/dsh-life-chat');
+  assert.equal(route.path, '/api/dsh-lpipe-chat');
   assert.deepEqual([...route.methods], ['POST']);
 
-  const request = new Request('http://127.0.0.1/api/dsh-life-chat', {
+  const request = new Request('http://127.0.0.1/api/dsh-lpipe-chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       type: 'client-request',
       rpcId: 'r1',
-      method: 'dsh-life-chat',
+      method: 'dsh-lpipe-chat',
       payload: { method: 'chat.status', payload: {} },
     }),
   });
@@ -133,7 +133,7 @@ test('the fetch route speaks the client envelope and rejects bad bodies', async 
   assert.equal(answered.rpcId, 'r1');
   assert.equal(answered.result.ok, true);
 
-  const wrongMethod = new Request('http://127.0.0.1/api/dsh-life-chat', {
+  const wrongMethod = new Request('http://127.0.0.1/api/dsh-lpipe-chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ type: 'client-request', rpcId: 'r2', method: 'nope', payload: { method: 'chat.status', payload: {} } }),
@@ -142,7 +142,7 @@ test('the fetch route speaks the client envelope and rejects bad bodies', async 
   assert.equal(refused.result.ok, false);
   assert.equal(refused.result.error.code, 'chat/bad-request');
 
-  const get = new Request('http://127.0.0.1/api/dsh-life-chat', { method: 'GET' });
+  const get = new Request('http://127.0.0.1/api/dsh-lpipe-chat', { method: 'GET' });
   assert.equal((await route.fetch(get)).status, 405);
 });
 

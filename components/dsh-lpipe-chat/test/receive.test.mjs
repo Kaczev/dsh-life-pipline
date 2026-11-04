@@ -13,7 +13,7 @@ const quiet = { info() {}, warn() {} };
 
 /**
  * The receive path end to end: iLink poll → owner filter → event shape →
- * debounce window → sessionController prompt. Only the HTTPS layer is stubbed.
+ * debounce window → notice delivery. Only the HTTPS layer is stubbed.
  */
 function fakeApi(messages) {
   let round = 0;
@@ -62,7 +62,7 @@ test('a WeChat message reaches the main session as a labelled prompt', async () 
     const gateway = new InboundGateway({
       getConfig: loadConfig,
       log: quiet,
-      prompt: async (request, source) => prompts.push({ request, source }),
+      deliver: async ({ sessionId, message }) => prompts.push({ sessionId, message }),
     });
     const events = [];
     const channel = new WeixinChannel({
@@ -85,10 +85,10 @@ test('a WeChat message reaches the main session as a labelled prompt', async () 
       { channel: events[0].channel, kind: events[0].conversationKind, token: events[0].contextToken },
       { channel: 'weixin', kind: 'dm', token: 'ctx-1' },
     );
-    assert.equal(prompts[0].request.sessionId, 'session-main');
-    assert.equal(prompts[0].request.mode, 'queue');
-    assert.equal(prompts[0].request.content[0].text, '[微信 · Kaczev] 在吗');
-    assert.equal(prompts[0].source.kind, 'im');
+    assert.equal(prompts[0].sessionId, 'session-main');
+    assert.equal(prompts[0].message.source.form, 'notice');
+    assert.equal(prompts[0].message.content[0].text, '[微信 · Kaczev] 在吗');
+    assert.equal(prompts[0].message.source.kind, 'dsh-lpipe-chat');
 
     // And the answer goes back out over the same stubbed transport.
     const sent = await channel.sendText('嗯，在', { contextToken: 'ctx-1' });

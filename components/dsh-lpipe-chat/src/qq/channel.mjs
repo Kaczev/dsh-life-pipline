@@ -162,7 +162,7 @@ export class QqChannel {
         };
         disposeAttempt(attempt);
       },
-    }, { displayQrCodeToConsole: false, source: 'dsh-life-chat' });
+    }, { displayQrCodeToConsole: false, source: 'dsh-lpipe-chat' });
     attempt.stop = stop;
     return { attemptId: attempt.id, expiresAt: Date.now() + 5 * 60_000 };
   }

@@ -6,19 +6,21 @@ import { join } from 'node:path';
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'life-chat-component-'));
 
-const { apply, name } = await import('../src/components/chat/index.js');
+const { apply, name } = await import('../src/index.js');
 const { saveConfig, loadConfig } = await import('../src/config.mjs');
 
 function fakeCtx(registrations) {
   const services = {
     sessionController: { prompt: async (request) => registrations.prompts.push(request) },
+    effect: (setup) => registrations.effects.push(setup),
     tools: { register: (tool) => registrations.tools.push(tool.name) },
     systemPrompt: { context: (entry) => registrations.promptsContext.push(entry) },
   };
   return {
     logger: { info() {}, warn() {} },
     effect: (setup) => registrations.effects.push(setup),
-    inject: (names, callback) => callback(Object.fromEntries(names.map((key) => [key, services[key]]).filter(([, value]) => value))),
+    sessionController: services.sessionController,
+    inject: (names, callback) => callback({ effect: services.effect, ...Object.fromEntries(names.map((key) => [key, services[key]]).filter(([, value]) => value)) }),
   };
 }
 
@@ -26,10 +28,10 @@ test('component loads, registers four tools and the prompt guidance', () => {
   saveConfig({ mainSessionId: '', weixin: { botToken: '' }, qq: { appId: '' } });
   const registrations = { tools: [], prompts: [], promptsContext: [], effects: [] };
   apply(fakeCtx(registrations), {});
-  assert.equal(name, 'dsh-life-chat');
+  assert.equal(name, 'dsh-lpipe-chat');
   assert.deepEqual(registrations.tools.sort(), ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
-  assert.equal(registrations.promptsContext[0].name, 'dsh-life-chat');
-  assert.equal(registrations.effects.length, 1);
+  assert.equal(registrations.promptsContext[0].name, 'dsh-lpipe-chat');
+  assert.equal(registrations.effects.length, 2);
   // No credentials: nothing connects, so installing cannot fight dsh-im for the channel.
   assert.equal(registrations.prompts.length, 0);
 });

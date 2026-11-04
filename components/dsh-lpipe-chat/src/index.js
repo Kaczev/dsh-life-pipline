@@ -1,12 +1,13 @@
-import { loadConfig, saveConfig, updateConfig } from '../../config.mjs';
-import { appendMessage, queryMessages, lastContextToken } from '../../store.mjs';
-import { InboundGateway } from '../../gateway.mjs';
-import { createChatTools } from '../../tools.mjs';
-import { createChatRpcHandler, registerChatRpc } from '../../rpc.mjs';
-import { WeixinChannel } from '../../weixin/channel.mjs';
-import { QqChannel } from '../../qq/channel.mjs';
+import { loadConfig, saveConfig, updateConfig } from './config.mjs';
+import { appendMessage, queryMessages, lastContextToken } from './store.mjs';
+import { InboundGateway } from './gateway.mjs';
+import { createNoticeDelivery } from './notice.mjs';
+import { createChatTools } from './tools.mjs';
+import { createChatRpcHandler, registerChatRpc } from './rpc.mjs';
+import { WeixinChannel } from './weixin/channel.mjs';
+import { QqChannel } from './qq/channel.mjs';
 
-export const name = 'dsh-life-chat';
+export const name = 'dsh-lpipe-chat';
 
 const store = {
   appendMessage,
@@ -53,9 +54,15 @@ export function apply(ctx, config) {
     }),
   };
 
-  let prompt = null;
+  let delivery = null;
   let sessions = null;
-  const gateway = new InboundGateway({ getConfig, log, prompt: (request, source) => prompt(request, source) });
+  const gateway = new InboundGateway({
+    getConfig, log,
+    deliver: (request) => {
+      if (!delivery) throw new Error('notice delivery is unavailable');
+      return delivery.deliver(request);
+    },
+  });
 
   // The registry can resolve after the handler is built; delegate lazily so a
   // late `sessions` service still answers title lookups.
@@ -93,11 +100,12 @@ export function apply(ctx, config) {
   }
 
   ctx.inject(['sessionController'], (sessionCtx) => {
-    prompt = async (request, source) => {
-      const controller = sessionCtx.sessionController;
-      if (typeof controller?.prompt !== 'function') throw new Error('sessionController.prompt is unavailable');
-      return controller.prompt(request, source);
-    };
+    const current = createNoticeDelivery(sessionCtx.sessionController);
+    delivery = current;
+    sessionCtx.effect(() => () => {
+      current.dispose();
+      if (delivery === current) delivery = null;
+    }, 'dsh-lpipe-chat: notice delivery teardown');
     void startChannels();
   });
 
@@ -129,9 +137,9 @@ export function apply(ctx, config) {
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
       promptCtx.systemPrompt.context({
-        name: 'dsh-life-chat',
+        name: 'dsh-lpipe-chat',
         order: 120,
-        text: 'Messages from WeChat or QQ arrive as a user message with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message. Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
+        text: 'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message. Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
       });
     } catch (error) {
       log.warn(`[life-chat] system prompt guidance unavailable: ${error?.message ?? error}`);
@@ -152,5 +160,5 @@ export function apply(ctx, config) {
     gateway.dispose();
     void channels.weixin.stop();
     void channels.qq.stop();
-  }, 'dsh-life-chat: channel teardown');
+  }, 'dsh-lpipe-chat: channel teardown');
 }

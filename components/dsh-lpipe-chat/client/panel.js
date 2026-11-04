@@ -9,7 +9,7 @@ const React = require('react');
 
 const h = React.createElement;
 
-const RPC_ENDPOINT = 'dsh-life-chat';
+const RPC_ENDPOINT = 'dsh-lpipe-chat';
 const POLL_MS = 2000;
 
 // Host design tokens: they flip with the light/dark theme, so the panel never
@@ -305,7 +305,7 @@ function ChatSettingsPanel({ rpcCall }) {
 
   return h('div', { style: { maxWidth: 720 } },
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
-      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, '社交管线'),
+      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Life Chat'),
       status.config.mainSessionId
         ? h('span', {
           style: {
@@ -381,7 +381,7 @@ function ChatSettingsPanel({ rpcCall }) {
   );
 }
 
-const PIN_ATTR = 'data-dsh-life-chat-pin';
+const PIN_ATTR = 'data-dsh-lpipe-chat-pin';
 const ROW = '[role="treeitem"][aria-selected]';
 
 function titleNodeOf(row) {
@@ -467,7 +467,7 @@ function installSessionPin(rpcCall) {
   };
 }
 
-const name = 'dsh-life-chat-settings';
+const name = 'dsh-lpipe-chat-settings';
 const inject = ['slots', 'connection'];
 
 function apply(ctx) {
@@ -475,7 +475,7 @@ function apply(ctx) {
     ctx.connection.rpc.call('/api', RPC_ENDPOINT, { method, payload: payload ?? {} }, signal);
 
   if (typeof ctx.effect === 'function') {
-    ctx.effect(() => installSessionPin(rpcCall), 'dsh-life-chat: main session pin');
+    ctx.effect(() => installSessionPin(rpcCall), 'dsh-lpipe-chat: main session pin');
   }
 
   // The plugin page owns this panel: `plugins.bundle.config` is a keyed slot

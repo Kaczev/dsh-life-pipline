@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 
 import { readSessionTitle } from './session-title.mjs';
 
-export const CHAT_RPC_ENDPOINT = 'dsh-life-chat';
+export const CHAT_RPC_ENDPOINT = 'dsh-lpipe-chat';
 
 const METHODS = new Set([
   'chat.status',
@@ -213,7 +213,7 @@ function isRecord(value) {
 export function registerChatRpc(ctx, handle) {
   const registry = ctx?.connection?.fetch;
   if (typeof registry?.register !== 'function') {
-    throw new TypeError('dsh-life-chat needs the Host Connection Fetch registry');
+    throw new TypeError('dsh-lpipe-chat needs the Host Connection Fetch registry');
   }
   const path = `/api/${CHAT_RPC_ENDPOINT}`;
   return registry.register({

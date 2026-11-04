@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = await readFile(new URL('../src/client/panel.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../client/panel.js', import.meta.url), 'utf8');
 
 test('the panel paints with host tokens instead of its own surface colors', () => {
   const token = (name) => new RegExp(`\\b${name}: 'var\\(--dsw-alias-[a-z0-9-]+\\)'`).test(source);
