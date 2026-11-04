@@ -73,10 +73,19 @@ export class WeixinChannel {
     const signal = controller.signal;
     let cursor = '';
     try {
-      await this.#api.notifyStart({ baseUrl, token: botToken, signal }).catch((error) => {
-        this.#log.warn?.(`[life-chat] weixin notifyStart failed: ${error?.message ?? error}`);
-      });
-      this.#status = { ...this.#status, connected: true };
+      // The announce call is the first place a revoked token shows up. Swallow
+      // it and the loop below would keep polling happily, so a refused token is
+      // reported as "not connected" instead of a green light.
+      const startError = await this.#api
+        .notifyStart({ baseUrl, token: botToken, signal })
+        .then(() => '', (error) => String(error?.message ?? error));
+      if (signal.aborted) return;
+      if (startError) {
+        this.#status = { ...this.#status, connected: false, lastError: startError };
+        this.#log.warn?.(`[life-chat] weixin notifyStart failed: ${startError}`);
+        return;
+      }
+      this.#status = { ...this.#status, connected: true, lastError: '' };
       while (!signal.aborted) {
         let update;
         try {
@@ -151,13 +160,22 @@ export class WeixinChannel {
     const chunks = splitWeixinText(String(text));
     const ids = [];
     for (const chunk of chunks) {
-      const sent = await this.#api.sendText({
-        baseUrl,
-        token: botToken,
-        toUserId: target,
-        text: chunk,
-        contextToken,
-      });
+      let sent;
+      try {
+        sent = await this.#api.sendText({
+          baseUrl,
+          token: botToken,
+          toUserId: target,
+          text: chunk,
+          contextToken,
+        });
+      } catch (error) {
+        // A rejected send is proof the token no longer works: stop claiming
+        // "connected" and let the page show the reason.
+        const reason = String(error?.message ?? error);
+        this.#status = { ...this.#status, connected: false, lastError: reason };
+        throw error;
+      }
       ids.push(...(sent?.providerMessageIds ?? []));
     }
     return { messageIds: ids, toUserId: target };

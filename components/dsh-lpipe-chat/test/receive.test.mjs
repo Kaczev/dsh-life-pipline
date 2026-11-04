@@ -136,3 +136,50 @@ async function waitFor(predicate, timeoutMs = 1500) {
   }
   throw new Error('timed out waiting for the receive path');
 }
+
+test('a refused token never reads as connected', async () => {
+  const channel = new WeixinChannel({
+    config: () => ({ weixin: { botToken: 'dead', ownerUserId: OWNER, baseUrl: 'https://x/' } }),
+    log: quiet,
+    onInbound: () => {},
+    api: {
+      async notifyStart() { throw new Error('invalid token'); },
+      async notifyStop() {},
+      async getUpdates() { return { msgs: [] }; },
+      async sendText() { return { providerMessageIds: [] }; },
+    },
+  });
+  assert.equal(channel.configured, true, 'the credentials are still on disk');
+  await channel.connect();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(channel.status.connected, false, 'a refused announce is not a connection');
+  assert.match(channel.status.lastError, /invalid token/);
+  await channel.stop();
+});
+
+test('a refused send drops the channel out of connected', async () => {
+  const channel = new WeixinChannel({
+    config: () => ({ weixin: { botToken: 'tok', ownerUserId: OWNER, baseUrl: 'https://x/' } }),
+    log: quiet,
+    onInbound: () => {},
+    api: {
+      async notifyStart() {},
+      async notifyStop() {},
+      async getUpdates({ signal }) {
+        await new Promise((resolve) => {
+          signal?.addEventListener('abort', resolve, { once: true });
+          setTimeout(resolve, 200);
+        });
+        return { msgs: [] };
+      },
+      async sendText() { throw new Error('微信服务拒绝了回复消息。'); },
+    },
+  });
+  await channel.connect();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(channel.status.connected, true);
+  await assert.rejects(() => channel.sendText('hi'), /拒绝/);
+  assert.equal(channel.status.connected, false, 'a rejected send proves the token is dead');
+  assert.match(channel.status.lastError, /拒绝/);
+  await channel.stop();
+});

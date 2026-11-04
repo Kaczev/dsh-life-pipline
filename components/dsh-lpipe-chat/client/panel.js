@@ -10,6 +10,7 @@ const React = require('react');
 const h = React.createElement;
 
 const RPC_ENDPOINT = 'dsh-lpipe-chat';
+const STATUS_POLL_MS = 5000;
 const POLL_MS = 2000;
 
 // Host design tokens: they flip with the light/dark theme, so the panel never
@@ -160,6 +161,9 @@ function markConnected(status, channel) {
 function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
+  // A failed button must stay readable: the background status poll keeps
+  // clearing `error`, so action failures get their own slot.
+  const [actionError, setActionError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [windowDraft, setWindowDraft] = React.useState('5');
   const [login, setLogin] = React.useState({});
@@ -238,6 +242,15 @@ function ChatSettingsPanel({ rpcCall }) {
     };
   }, [active, call, reload, settle]);
 
+  // The channels can die while this page is open, so re-read on a timer.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') void reload();
+    }, STATUS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [reload]);
+
   // Coming back from another tab should not leave a stale card behind.
   React.useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -267,16 +280,17 @@ function ChatSettingsPanel({ rpcCall }) {
     setBusy(true);
     try {
       adopt(await call('chat.connect', { channel }));
-      setError('');
+      setActionError('');
     } catch (cause) {
-      setError(cause.message);
+      setActionError(`重新连接失败：${cause.message}`);
       await reload();
     } finally {
       setBusy(false);
     }
   };
 
-  const begin = async (channel) => {    setBusy(true);
+  const begin = async (channel) => {
+    setBusy(true);
     try {
       const value = await call('chat.login.begin', { channel });
       // QQ reports its QR a beat later, so the snapshot may be empty here.
@@ -374,6 +388,7 @@ function ChatSettingsPanel({ rpcCall }) {
     }),
 
     error ? note(error, 'error') : null,
+    actionError ? note(actionError, 'error') : null,
   );
 }
 
