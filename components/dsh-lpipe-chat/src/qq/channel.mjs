@@ -21,6 +21,15 @@ function disposeAttempt(attempt) {
  * The QQ half of the channel layer: QQ Open Platform bot through the official
  * SDK. Scan-to-connect is delegated to the connector package.
  */
+/** One line a person can act on; the SDK speaks in access_token codes. */
+function describeStartError(error) {
+  const text = String(error?.message ?? error);
+  const first = text.split("\n")[0];
+  if (/appid invalid|100007/i.test(first)) return 'QQ 应用已失效（机器人可能已被删除），请重新扫码接入。';
+  if (/access_token/i.test(first)) return `QQ 授权失败：${first.slice(0, 80)}`;
+  return first.slice(0, 160);
+}
+
 export class QqChannel {
   #config;
   #createBot;
@@ -61,12 +70,19 @@ export class QqChannel {
       this.#log.warn?.(`[life-chat] qq error: ${error?.message ?? error}`);
       this.#status = { ...this.#status, connected: false, lastError: String(error?.message ?? error) };
     });
-    for (const event of ['close', 'disconnect', 'offline']) {
-      bot.on(event, () => {
-        if (this.#bot !== bot) return;
-        this.#status = { ...this.#status, connected: false };
-      });
-    }
+    // Only the events this SDK actually declares may be subscribed: an unknown
+    // name throws inside `on()`, which would fail the whole connect.
+    const on = (event, handler) => {
+      try {
+        bot.on(event, handler);
+      } catch {
+        // Not every SDK build knows this event.
+      }
+    };
+    on('resumed', () => {
+      if (this.#bot !== bot) return;
+      this.#status = { ...this.#status, connected: true, lastError: '' };
+    });
     bot.on('message', (_ctx, message) => {
       try {
         this.#accept(message);
@@ -76,7 +92,14 @@ export class QqChannel {
     });
     this.#bot = bot;
     this.#status = { ...this.#status, appId: qq.appId, lastError: '' };
-    await bot.start();
+    try {
+      await bot.start();
+    } catch (error) {
+      this.#bot = null;
+      const reason = describeStartError(error);
+      this.#status = { ...this.#status, connected: false, lastError: reason };
+      throw new Error(reason);
+    }
     return true;
   }
 

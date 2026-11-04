@@ -134,3 +134,43 @@ test('QQ without a known owner drops everything instead of guessing', async () =
     await channel.stop();
   });
 });
+
+test('an SDK that rejects unknown events does not break connect', async () => {
+  const bot = {
+    on(event) {
+      // The real SDK throws for any event it does not declare.
+      if (!['ready', 'resumed', 'error', 'message', 'interaction', 'rawEvent'].includes(event)) {
+        throw new TypeError("Cannot read properties of undefined (reading 'add')");
+      }
+      return this;
+    },
+    async start() {},
+  };
+  const channel = new QqChannel({
+    config: () => ({ qq: { appId: 'app', appSecret: 'secret', ownerOpenId: OWNER } }),
+    log: quiet,
+    onInbound: () => {},
+    createBot: () => bot,
+  });
+  await channel.connect();
+  assert.equal(channel.status.connected, false, 'no ready event yet, so not connected');
+  await channel.stop();
+});
+
+test('a deleted QQ app says so instead of leaking an SDK code', async () => {
+  const bot = {
+    on() { return this; },
+    async start() {
+      throw new Error('Failed to get access_token: {"code":100007,"message":"appid invalid"}');
+    },
+  };
+  const channel = new QqChannel({
+    config: () => ({ qq: { appId: 'gone', appSecret: 'secret', ownerOpenId: OWNER } }),
+    log: quiet,
+    onInbound: () => {},
+    createBot: () => bot,
+  });
+  await assert.rejects(() => channel.connect(), /重新扫码接入/);
+  assert.equal(channel.status.connected, false);
+  assert.match(channel.status.lastError, /重新扫码接入/);
+});

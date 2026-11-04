@@ -140,7 +140,10 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
           return failure('chat/not-configured', '这个通道还没有凭据，请先扫码接入。');
         }
       } catch (error) {
-        return failure('chat/connect-failed', String(error?.message ?? error));
+        // The channel already turned the SDK's wording into one actionable
+        // line; fall back to the raw message only when it has nothing better.
+        const detail = String(channel.status?.lastError || error?.message || error).split('\n')[0];
+        return failure('chat/connect-failed', detail);
       }
       return { ok: true, value: await status() };
     }
