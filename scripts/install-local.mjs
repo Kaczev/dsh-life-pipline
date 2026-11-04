@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Link the bundle and every component package into a DSH profile.
+ * Link every component package under components/ into a DSH profile.
  *
  *   node scripts/install-local.mjs                 # edit + pnpm install
  *   node scripts/install-local.mjs --no-install    # edit only
  *   node scripts/install-local.mjs --revert        # undo the edit
  *
- * The bundle (`dsh-life-pipline`) mounts the components through
- * cordis.patch.yml, and each row names a component package, so every package
- * under components/ has to be resolvable from the profile as well.
+ * Each component is its own plugin package with its own cordis.patch.yml, so
+ * the profile names each one directly — that is what makes the Host activate
+ * it. `dsh-life-pipline` is linked too: it is the common package that owns the
+ * shared 「Lpipe 设置」 page, and no component can mount it on its own.
  *
  * Always writes a timestamped backup of the profile package.json first.
  * A restart of DSH is required afterwards; this script never restarts it.
@@ -19,8 +20,10 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BUNDLE = 'dsh-life-pipline';
-const LEGACY = ['dsh-life-piplines'];
+// Former names of the aggregator. They are stripped from the profile so an
+// older setup stops loading a second copy; the current `dsh-life-pipline` is
+// installed normally and carries the shared Settings page.
+const RETIRED = ['dsh-life-piplines'];
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const value = (name, fallback) => {
@@ -29,6 +32,7 @@ const value = (name, fallback) => {
 };
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const BUNDLE = 'dsh-life-pipline';
 const profile = resolve(value('--profile', join(homedir(), '.dsh', 'profiles', 'desktop')));
 const manifestPath = join(profile, 'package.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -51,22 +55,22 @@ const backup = `${manifestPath}.bak-life-chat-${Date.now()}`;
 if (flag('--revert')) {
   copyFileSync(manifestPath, backup);
   manifest.dependencies = manifest.dependencies ?? {};
-  for (const name of [BUNDLE, ...LEGACY, ...componentPackages().map(({ manifest: own }) => own.name)]) {
-    delete manifest.dependencies[name];
-  }
+  const names = [BUNDLE, ...RETIRED, ...componentPackages().map(({ manifest: own }) => own.name)];
+  for (const name of names) delete manifest.dependencies[name];
   const bundles = manifest.dsh?.profile?.bundles;
   if (Array.isArray(bundles)) {
-    manifest.dsh.profile.bundles = bundles.filter((entry) => entry !== BUNDLE && !LEGACY.includes(entry));
+    const ours = new Set(names);
+    manifest.dsh.profile.bundles = bundles.filter((entry) => !ours.has(entry));
   }
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  console.log(`removed ${BUNDLE} and its components from ${manifestPath}\nbackup: ${backup}`);
+  console.log(`removed the dsh-lpipe- components from ${manifestPath}\nbackup: ${backup}`);
   process.exit(0);
 }
 
 copyFileSync(manifestPath, backup);
 
 manifest.dependencies = manifest.dependencies ?? {};
-for (const legacy of LEGACY) delete manifest.dependencies[legacy];
+for (const name of RETIRED) delete manifest.dependencies[name];
 manifest.dependencies[BUNDLE] = LINK(repo);
 for (const { dir, manifest: own } of componentPackages()) {
   manifest.dependencies[own.name] = LINK(dir);
@@ -75,8 +79,12 @@ for (const { dir, manifest: own } of componentPackages()) {
 manifest.dsh = manifest.dsh ?? {};
 manifest.dsh.profile = manifest.dsh.profile ?? {};
 const bundles = (Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : [])
-  .filter((entry) => !LEGACY.includes(entry));
-if (!bundles.includes(BUNDLE)) bundles.push(BUNDLE);
+  .filter((entry) => !RETIRED.includes(entry));
+// The common package and every component are bundles of their own, so the
+// profile has to name each one for the Host to activate it.
+for (const name of [BUNDLE, ...componentPackages().map(({ manifest: own }) => own.name)]) {
+  if (!bundles.includes(name)) bundles.push(name);
+}
 manifest.dsh.profile.bundles = bundles;
 
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');

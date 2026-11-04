@@ -305,7 +305,7 @@ function ChatSettingsPanel({ rpcCall }) {
 
   return h('div', { style: { maxWidth: 720 } },
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
-      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Life Chat'),
+      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
       status.config.mainSessionId
         ? h('span', {
           style: {
@@ -332,7 +332,7 @@ function ChatSettingsPanel({ rpcCall }) {
         }, '保存')),
       h('p', { style: { margin: '8px 0 0', fontSize: 12, color: COLORS.muted } },
         '当前会话：', h('strong', { style: { color: COLORS.text } }, titleText)),
-      note('微信与 QQ 的消息会攒进这个会话；它也是你在会话栏里看到 📌 标记的那个。')),
+      note('微信与 QQ 的消息会攒进这个会话；它也是会话栏里带小气泡图标的那个。')),
 
     h('div', { style: card },
       h('label', { style: label }, '兜窗口（秒）'),
@@ -376,115 +376,120 @@ function ChatSettingsPanel({ rpcCall }) {
       onCode: (code) => submitCode('qq', code),
     }),
 
-    note('主人：', status.config.ownerName || '未设置', ' · 兜窗口秒数', String(status.config.windowSeconds)),
     error ? note(error, 'error') : null,
   );
 }
 
-const PIN_ATTR = 'data-dsh-lpipe-chat-pin';
-const ROW = '[role="treeitem"][aria-selected]';
+const MARK_ATTR = 'data-dsh-lpipe-chat-mark';
+// Designed session mark: one bubble split teal / periwinkle, 64px, inlined
+// so the sidebar decoration costs no extra request.
+const SESSION_MARK = 'data:image/png;base64,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';
+/**
+ * The main session's mark is an official seat: the row's leading cell
+ * (`sidebar.session.row.leading`) belongs to the Host's tree, so the mark is
+ * plain React content — it survives rename, rerender and reordering without
+ * watching the DOM.
+ */
+let mainSessionId = '';
+const listeners = new Set();
 
-function titleNodeOf(row) {
-  if (!row?.matches?.(ROW)) return null;
-  if (row.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return null;
-  const children = [...row.children];
-  const isDiv = row.tagName === 'DIV' && children.some((child) => child.tagName === 'SPAN');
-  if (!isDiv) return null;
-  const title = children.find((child) => child.tagName === 'SPAN'
-    && [...child.classList].some((token) => token.split(/[_-]/u).includes('title')));
-  // Only a plain text node: never cover a rename input or highlighted markup.
-  return title && title.childNodes.length === 1 && title.firstChild.nodeType === 3 ? title : null;
+function setMainSessionId(next) {
+  const value = String(next ?? '').trim();
+  if (value === mainSessionId) return;
+  mainSessionId = value;
+  for (const notify of [...listeners]) notify();
 }
 
-/**
- * Mark the main session in the sidebar. The Host owns the session list, so this
- * is a small, reversible DOM decoration: no React internals, no data writes.
- */
-function installSessionPin(rpcCall) {
-  if (typeof document === 'undefined' || typeof MutationObserver !== 'function') return () => {};
-  let title = '';
+function useMainSessionId() {
+  const [value, setValue] = React.useState(mainSessionId);
+  React.useEffect(() => {
+    const notify = () => setValue(mainSessionId);
+    listeners.add(notify);
+    notify();
+    return () => { listeners.delete(notify); };
+  }, []);
+  return value;
+}
+
+/** One row's leading cell, filled only for the session the settings page marks. */
+function MainSessionMark({ sessionId }) {
+  const main = useMainSessionId();
+  if (!main || sessionId !== main) return null;
+  return h('img', {
+    [MARK_ATTR]: '1',
+    src: SESSION_MARK,
+    alt: '',
+    draggable: false,
+    style: { width: '16px', height: '16px', flex: 'none', display: 'block' },
+  });
+}
+
+/** The settings page can repoint the main session at any time, so keep it fresh. */
+function trackMainSession(rpcCall) {
   let disposed = false;
-  const painted = new Set();
-
-  const clear = (titleNode) => {
-    const pin = titleNode.querySelector?.(`[${PIN_ATTR}]`);
-    if (pin) pin.remove();
-    painted.delete(titleNode);
-  };
-
-  const sync = () => {
-    if (disposed) return;
-    for (const node of painted) if (!node.isConnected) painted.delete(node);
-    for (const row of document.querySelectorAll(ROW)) {
-      const titleNode = titleNodeOf(row);
-      if (!titleNode) continue;
-      const text = String(titleNode.textContent ?? '').trim();
-      if (title && text === title) {
-        if (painted.has(titleNode)) continue;
-        const pin = document.createElement('span');
-        pin.setAttribute(PIN_ATTR, '1');
-        pin.textContent = '\u{1F4CC}';
-        pin.style.marginLeft = '6px';
-        pin.style.fontSize = '11px';
-        titleNode.appendChild(pin);
-        painted.add(titleNode);
-      } else if (painted.has(titleNode)) {
-        clear(titleNode);
-      }
-    }
-  };
-
-  let refreshing = false;
-  const refreshTitle = async () => {
-    if (disposed || refreshing) return;
-    refreshing = true;
+  let busy = false;
+  const read = async () => {
+    if (disposed || busy) return;
+    busy = true;
     try {
-      const status = await rpcCall('chat.status', {});
-      const id = status?.config?.mainSessionId ?? '';
-      const next = id ? (await rpcCall('chat.session.title', { sessionId: id }))?.title ?? '' : '';
-      if (next !== title) {
-        title = String(next ?? '').trim();
-        for (const node of painted) clear(node);
-        sync();
-      }
+      // The RPC envelope is `{ ok, value }`; the payload sits under `value`.
+      const reply = await rpcCall('chat.status', {});
+      const status = reply && reply.ok === false ? null : reply?.value;
+      setMainSessionId(status?.config?.mainSessionId ?? '');
     } catch {
       // A closed settings page or a Host restart must not break the sidebar.
     } finally {
-      refreshing = false;
+      busy = false;
     }
   };
-
-  void refreshTitle();
-  const timer = setInterval(() => { void refreshTitle(); }, 8000);
-  const observer = new MutationObserver(sync);
-  observer.observe(document.body, { childList: true, subtree: true });
-
+  void read();
+  // Headless loaders (tests, SSR) have no timers: polling is optional there.
+  const timer = typeof setInterval === 'function'
+    ? setInterval(() => { void read(); }, 8000)
+    : undefined;
   return () => {
     disposed = true;
-    clearInterval(timer);
-    observer.disconnect();
-    for (const node of painted) clear(node);
+    if (timer !== undefined) clearInterval(timer);
+    setMainSessionId('');
   };
 }
 
 const name = 'dsh-lpipe-chat-settings';
 const inject = ['slots', 'connection'];
 
+// The page itself belongs to dsh-life-pipline (the series' common package).
+// This plugin only contributes its own block to the child slot it declares.
+const PANEL_SLOT = 'lpipe.settings.panel';
+
 function apply(ctx) {
   const rpcCall = (method, payload, signal) =>
     ctx.connection.rpc.call('/api', RPC_ENDPOINT, { method, payload: payload ?? {} }, signal);
 
   if (typeof ctx.effect === 'function') {
-    ctx.effect(() => installSessionPin(rpcCall), 'dsh-lpipe-chat: main session pin');
+    ctx.effect(() => trackMainSession(rpcCall), 'dsh-lpipe-chat: main session mark');
   }
 
-  // The plugin page owns this panel: `plugins.bundle.config` is a keyed slot
-  // whose key is the bundle's package name.
-  ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
-    name: 'plugins.bundle.config',
-    key: 'dsh-life-pipline',
+  if (typeof ctx.slots?.inject === 'function') {
+    ctx.slots.inject('sidebar.session.row.leading', () => ctx.slots.register({
+      name: 'sidebar.session.row.leading',
+      id: 'main-session-mark',
+      order: 20,
+      inject: () => ({}),
+    }, MainSessionMark));
+  }
+
+  ctx.slots.inject(PANEL_SLOT, () => ctx.slots.register({
+    name: PANEL_SLOT,
+    id: 'chat',
+    order: 10,
+    label: () => 'Lpipe Chat',
     inject: () => ({ rpcCall }),
   }, ChatSettingsPanel));
 }
 
-module.exports = { name, inject, apply, __test__: { markConnected } };
+module.exports = {
+  name,
+  inject,
+  apply,
+  __test__: { markConnected, MainSessionMark, setMainSessionId, trackMainSession, PANEL_SLOT },
+};

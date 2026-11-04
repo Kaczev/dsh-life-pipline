@@ -14,8 +14,13 @@ test('the panel paints with host tokens instead of its own surface colors', () =
   assert.ok(!/color: '#(?:111827|6b7280|0f7a45)'/.test(source));
 });
 
-test('the panel lives on the plugin page, keyed by the bundle name', () => {
-  assert.match(source, /name: 'plugins\.bundle\.config'/);
-  assert.match(source, /key: 'dsh-life-pipline'/);
-  assert.ok(!source.includes("'settings.section'"));
+test('chat contributes one block and leaves the page to the common package', () => {
+  assert.match(source, /const PANEL_SLOT = 'lpipe\.settings\.panel'/);
+  assert.match(source, /ctx\.slots\.inject\(PANEL_SLOT/);
+  assert.match(source, /id: 'chat'/);
+  // The page itself lives in dsh-life-pipline; hosting it here would be the
+  // second copy of the same container.
+  assert.ok(!source.includes("name: 'settings.section'"), 'chat must not host the page');
+  assert.ok(!source.includes('LpipeSettingsPage'), 'the page component belongs to dsh-life-pipline');
+  assert.ok(!source.includes("'plugins.bundle.config'"));
 });

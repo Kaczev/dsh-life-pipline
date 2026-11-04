@@ -1,6 +1,9 @@
 /**
- * This package is the bundle, not a plugin. It ships only the patch that mounts
- * the component packages under `components/`; nothing imports this module at
- * runtime. It exists so the manifest has a valid entry point.
+ * The common package of the dsh-lpipe- series. Its Host half is intentionally
+ * empty: this package exists for the client-side settings page that every
+ * component registers a block into. A component's patch mounts this row, so
+ * installing any one dsh-lpipe- plugin brings the shared page along.
  */
 export const name = 'dsh-life-pipline';
+
+export function apply() {}

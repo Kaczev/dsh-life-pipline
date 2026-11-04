@@ -1,0 +1,29 @@
+# dsh-lpipe-chat
+
+DeepSeek Harness 组件：自己握有微信与 QQ 两条通道，把消息合并后注入主会话。
+
+本组件只负责往「Lpipe 设置」里添加自己那一块；那个页面由公共包 [`dsh-life-pipline`](https://www.npmjs.com/package/dsh-life-pipline) 注册。**安装本组件前必须先安装 `dsh-life-pipline`**（它同时在本包的 `dependencies` 里），否则设置里不会有「Lpipe 设置」页。
+
+## 做什么
+
+- **接入**：微信走 iLink 官方机器人协议，QQ 走开放平台机器人，各自扫码登录，凭据只留在 Host 侧。
+- **收消息**：长轮询，只放行主人；第一条立即注入，其后 `windowSeconds` 内的消息合并成一次。
+- **注入**：以 `[微信 · 名字] 原文` 的后台通知形式进入主会话；忙时等下一步读取，空闲时唤醒。
+- **回消息**：模型在当轮调用 `chat_send` 才算回复，沉默是默认。
+- **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only。
+- **配置页**：设置 → **Lpipe 设置**（`settings.section` 槽，不再挂在插件详情页里）。整页由本组件托管，并声明子槽 `lpipe.settings.panel`；本组件把自己的「Lpipe Chat」一块注册进去，改主会话、兜窗口秒数、扫码接入。
+- **标记**：主会话在会话栏里带一枚青蓝对半的小气泡。
+
+工具：`chat_send`、`chat_history`、`chat_login`、`chat_status`。
+
+## 安装
+
+先装公共包，再装本组件（插件页里搜名字，或）：
+
+```bash
+pnpm add dsh-life-pipline
+pnpm add dsh-lpipe-chat
+```
+
+未安装 `dsh-life-pipline` 就不会有「Lpipe 设置」页，本组件的配置也就无处可放——那属于安装方式不完整，不是组件的猫病。
+

@@ -1,0 +1,12 @@
+# This component is its own bundle: installing the package activates it as a
+# plugin card of its own, and the single row below is how its Host plugin and
+# client half get composed. The row name must stay this bare package name —
+# a subpath would drop the client half, and a renamed id would silently load
+# the old module for profiles that already saved an override.
+#
+# The common 「Lpipe 设置」 page is not mounted here: it belongs to
+# dsh-life-pipline (a dependency of this package), whose own patch adds that
+# row. Inserting it from every component would compose duplicate rows.
+- insert:
+    - id: dsh-lpipe-chat
+      name: dsh-lpipe-chat

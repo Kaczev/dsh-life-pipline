@@ -1,7 +1,6 @@
 {
   "name": "dsh-lpipe-chat",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.4.1",
   "description": "Own WeChat and QQ channels: scan to connect, batch incoming messages, inject them into the main session.",
   "type": "module",
   "main": "src/index.js",
@@ -17,18 +16,22 @@
   "dependencies": {
     "@tencent-connect/qqbot-connector": "1.2.0",
     "@tencent-connect/qqbot-nodejs": "1.0.4",
-    "qrcode": "1.5.4"
+    "qrcode": "1.5.4",
+    "dsh-life-pipline": "^0.5.1"
   },
   "engines": {
     "node": "^22.19 || >=24",
     "dsh": ">=0.2.0-rc.2 <0.2.2-0"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "test": "node --test",
     "build-client": "node scripts/build-client.mjs"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-connection",
@@ -37,5 +40,28 @@
       ],
       "platform": "web"
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaczev/dsh-life-pipline.git",
+    "directory": "components/dsh-lpipe-chat"
+  },
+  "files": [
+    "src",
+    "lib",
+    "client",
+    "assets",
+    "locale",
+    "THIRD_PARTY",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "wechat",
+    "qq"
+  ]
 }

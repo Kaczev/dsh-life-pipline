@@ -1,7 +1,10 @@
-# dsh-life components. Row IDs are stable: a saved profile override matches by name,
-# so renaming an ID silently loads the old module. One row per component package, and
-# the row name must stay a bare package name: the host reads that package's own locale
-# and icon for the row, and a subpath name would drop the client half.
+# The common package of the dsh-lpipe- series is a bundle so that a profile can
+# enable it like any other plugin: this row mounts its Host half and the client
+# half that owns the shared 「Lpipe 设置」 page.
+#
+# Components do NOT insert this row themselves. Two bundles inserting the same
+# id would compose two entries with one id, so exactly one package — this one —
+# declares it, and components pull it in as a dependency.
 - insert:
-    - id: dsh-lpipe-chat
-      name: dsh-lpipe-chat
+    - id: dsh-life-pipline
+      name: dsh-life-pipline

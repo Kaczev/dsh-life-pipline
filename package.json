@@ -1,13 +1,37 @@
 {
   "name": "dsh-life-pipline",
-  "version": "0.2.0",
-  "private": true,
-  "description": "A DSH life bundle that grows one component at a time.",
+  "version": "0.5.1",
+  "description": "Common settings for the dsh-lpipe- series: every component registers a block into one shared Settings page.",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\" \"components/*/test/*.test.mjs\"",
+    "install-local": "node scripts/install-local.mjs",
+    "build-client": "node scripts/build-client.mjs && node components/dsh-lpipe-chat/scripts/build-client.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaczev/dsh-life-pipline.git"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "client",
+    "assets",
+    "locale",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness"
+  ],
   "type": "module",
   "main": "index.js",
   "icon": "assets/icon.png",
   "exports": {
     ".": "./index.js",
+    "./client": "./lib/client.js",
     "./icon": "./assets/icon.png",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
@@ -17,13 +41,14 @@
     "node": "^22.19 || >=24",
     "dsh": ">=0.2.0-rc.2 <0.2.2-0"
   },
-  "license": "MIT",
-  "scripts": {
-    "test": "node --test \"components/*/test/*.test.mjs\"",
-    "install-local": "node scripts/install-local.mjs",
-    "build-client": "node components/dsh-lpipe-chat/scripts/build-client.mjs"
-  },
   "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
