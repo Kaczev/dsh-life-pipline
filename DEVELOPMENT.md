@@ -15,7 +15,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 ├── scripts/build-client.mjs  # 包模块壳
 ├── scripts/install-local.mjs # 把本包与 components/* 装进 profile
 └── components/
-    └── dsh-lpipe-chat/       # 组件：自己的 bundle + 自己的插件，依赖 dsh-life-pipline
+    ├── dsh-lpipe-chat/       # 组件：自己的 bundle + 自己的插件，依赖 dsh-life-pipline
         ├── package.json      # name / icon / exports / dsh.bundle / dsh.client / dependencies
         ├── cordis.patch.yml  # 只插自己这一行 → 插件列表里独立一张卡片
         ├── src/index.js      # 插件本体
@@ -23,6 +23,13 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
         ├── lib/client.js     # 构建产物（提交进仓库）
         ├── locale/{en,zh}.json
         └── assets/icon.png   # 组件图标：两个气泡合流
+    └── dsh-lpipe-wake/       # 组件：唤醒管线（同样自带 bundle 与 patch）
+        ├── src/engine.mjs    # 三个时间戳与开关的唯一规则
+        ├── src/runner.mjs    # 30s 心跳 → agent.followup
+        ├── src/rpc.mjs       # /api/dsh-lpipe-wake
+        ├── src/tools.mjs     # wake_set
+        ├── client/panel.js   # 设置里的「唤醒管线」块（含开关）
+        └── assets/icon.png   # 组件图标：日出与地平线
 ```
 
 每个包带一份自己的 `cordis.patch.yml`，各插自己一行：
@@ -51,20 +58,22 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | --- | --- | --- | --- |
 | 插件列表卡片（公共包） | `dsh-life-pipline` | **Life Pipline** | [`assets/icon.png`](assets/icon.png) |
 | 插件列表卡片（组件） | `dsh-lpipe-chat` | **Lpipe Chat** | [`components/dsh-lpipe-chat/assets/icon.png`](components/dsh-lpipe-chat/assets/icon.png) |
+| 插件列表卡片（组件） | `dsh-lpipe-wake` | **Lpipe Wake** / 唤醒管线 | [`components/dsh-lpipe-wake/assets/icon.png`](components/dsh-lpipe-wake/assets/icon.png) |
 | 设置侧栏条目与页面标题 | 由 `dsh-life-pipline` 渲染整页 | **Lpipe 设置** | — |
 
 标题和简介来自包导出的 `locale/en.json`、`locale/zh.json` 的 `meta.title` / `meta.description`，由宿主的 `readPluginMeta` 读取，缺失时才回退 `package.json` 的 `name` / `description`；图标来自 `package.json` 的 `icon` 字段，必须在包目录内、≤256 KiB。两条路径都要在 `exports` 里放行，否则宿主解析不到。
 
 同一个包只能有一个身份：卡片、组件行都读包自己的元信息。想让每个组件都有自己的名字和图标，就必须各做一个包——这就是 `components/` 下按组件分包、并且每个包自带 patch 的原因。
 
-图标用 ComfyUI（Krea 2 Turbo）出原型，再用 Photoshop 去白底、居中留白、缩到 512² 导出；候选留在 `不入库/设计/图标/candidates/`。
+图标用 ComfyUI（Krea 2 Turbo）出原型，再用 Photoshop 去白底、居中留白、缩到 512² 导出；候选留在 `不入库/设计/图标/candidates/`。亮形的几何图标（如唤醒的日出）可以直接用 PIL 画：写 `不入库/设计/图标/work/wake_icon.py` 这类脚本，4 倍超采样后降到 512²，颜色沿用同一套 `#6ecbbb` / `#7389d3`。
 
 ## 组件
 
 | 组件 | 包 | 状态 |
 | --- | --- | --- |
-| 社交（微信 / QQ） | `dsh-lpipe-chat` | 实现中 |
-| 记忆、星图、回忆、联想、想象、唤醒、B站 | — | 未开始 |
+| 社交（微信 / QQ） | `dsh-lpipe-chat` | 已实现 |
+| 唤醒 | `dsh-lpipe-wake` | 已实现 |
+| 记忆、星图、回忆、联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
 
@@ -139,3 +148,18 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 ## 收编说明
 
 见 [`vendor/MANIFEST.md`](vendor/MANIFEST.md)：微信协议层取自 dsh-im 5.9.1（MIT），QQ 用官方 SDK。
+
+### dsh-lpipe-wake
+
+- **规则**（`src/engine.mjs` 的纯函数 `step`，测试直接打这里）：
+  - 开关关掉 → `nextWakeAt = null`，什么都不决定。
+  - 我开始活动（`status !== 'idle'`）→ `nextWakeAt = null`、`lastActivityEndedAt = null`。
+  - 空闲且没有结束时间 → 以此刻为结束时间，`nextWakeAt = now + interval`。
+  - 空闲且没有截止时间 → `nextWakeAt = lastActivityEndedAt + interval`。
+  - `now >= nextWakeAt` → 注入一条，然后从这一刻重新起算（否则旧基准会让下一个心跳再醒一次，形成循环）。
+- **心跳**：`src/runner.mjs` 每 30 秒读一次 `sessionController.resolveAgent(主会话)` 的 `status`；投递走 `agent.followup`，与 chat 同一条路径，只在对方 `idle` 时发。
+- **投递**：`source.kind = 'dsh-lpipe-wake'`、`form: 'notice'`，正文是「（自己醒来）已经过了 2 小时 06 分，现在是 23:47。想做什么就做什么，没事也可以什么都不做。」——陈述，不带指令。
+- **状态**：`~/.dsh/life-wake/state.json`，`{ enabled, defaultIntervalMs, lastActivityEndedAt, nextWakeAt, lastWokeAt, lastSeenAt }`，0600。
+- **公共配置**：主会话与 chat 共用 `~/.dsh/life-pipline/config.json`，同一处配置，不重复填。
+- **工具**：`wake_set` 接受 `in`（`45m`）、`at`（ISO 时刻）、`clear`，无参只读；时长与时刻随意，过去的时间就是下一次心跳立刻醒。
+- **设置块**：`lpipe.settings.panel` 的 `id: 'wake'`、`order: 20`；标题右侧是开关，关掉时卡片变淡并写明「不会自行醒来」。

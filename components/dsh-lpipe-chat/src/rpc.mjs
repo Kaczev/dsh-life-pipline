@@ -89,7 +89,6 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
 
     if (method === 'chat.config.save') {
       const patch = {};
-      if (Object.hasOwn(input, 'mainSessionId')) patch.mainSessionId = String(input.mainSessionId ?? '').trim();
       if (Object.hasOwn(input, 'windowSeconds')) {
         const seconds = Number(input.windowSeconds);
         if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {

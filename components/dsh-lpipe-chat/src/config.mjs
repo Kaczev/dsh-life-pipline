@@ -1,5 +1,37 @@
-import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { configPath, ensureHome } from './paths.mjs';
+
+/**
+ * The main session belongs to the series' common package (dsh-life-pipline).
+ * This component only reads it, so chat and wake always agree on the target.
+ */
+export const commonConfigPath = () => join(
+  process.env.DSH_HOME || join(homedir(), '.dsh'),
+  'life-pipline',
+  'config.json',
+);
+
+function readCommon() {
+  try {
+    const raw = JSON.parse(readFileSync(commonConfigPath(), 'utf8'));
+    return String(raw?.mainSessionId ?? '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function writeCommon(mainSessionId) {
+  try {
+    mkdirSync(dirname(commonConfigPath()), { recursive: true });
+    writeFileSync(commonConfigPath(), `${JSON.stringify({ mainSessionId }, null, 2)}
+`, 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Defaults. Everything here can be overridden by ~/.dsh/life-chat/config.json. */
 export function defaultConfig() {
@@ -42,17 +74,31 @@ function merge(base, patch) {
 
 export function loadConfig() {
   ensureHome();
+  let merged = defaultConfig();
   try {
-    const raw = readFileSync(configPath(), 'utf8');
-    return merge(defaultConfig(), JSON.parse(raw));
+    merged = merge(defaultConfig(), JSON.parse(readFileSync(configPath(), 'utf8')));
   } catch {
-    return defaultConfig();
+    merged = defaultConfig();
   }
+  // The common package owns this value now. Adopt a legacy local value once,
+  // so an existing install does not lose its main session on upgrade.
+  const common = readCommon();
+  if (common) {
+    merged.mainSessionId = common;
+  } else if (merged.mainSessionId) {
+    writeCommon(merged.mainSessionId);
+  }
+  return merged;
 }
 
 export function saveConfig(next) {
   ensureHome();
   const merged = merge(defaultConfig(), next);
+  // The shared value is stored once, in the common package's file. Whatever
+  // still hands it to us (a patch row, an old page) lands there too.
+  const shared = String(merged.mainSessionId ?? '').trim();
+  if (shared) writeCommon(shared);
+  merged.mainSessionId = '';
   writeFileSync(configPath(), `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
   try {
     // Holds bot tokens: keep it owner-readable only where the platform allows.

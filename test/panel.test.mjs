@@ -31,7 +31,7 @@ test('the common client half owns the shared Settings page', async () => {
   const { definition, exports } = await loadClient();
   assert.equal(definition.id, 'dsh-life-pipline');
   assert.equal(exports.name, 'dsh-life-pipline-settings');
-  assert.deepEqual([...exports.inject], ['slots']);
+  assert.deepEqual([...exports.inject], ['slots', 'connection']);
 
   const registered = [];
   const ctx = {
@@ -64,6 +64,7 @@ test('the page renders whatever the installed components registered', async () =
 
   const asked = [];
   const tree = LpipeSettingsPage({
+    rpcCall: async () => ({ ok: true, value: { mainSessionId: '', session: null } }),
     renderSlot: (slot, props) => {
       asked.push([slot, props]);
       return { type: 'blocks' };
@@ -73,12 +74,15 @@ test('the page renders whatever the installed components registered', async () =
   assert.equal(asked.length, 1);
   assert.equal(asked[0][0], 'lpipe.settings.panel');
   assert.deepEqual(Object.keys(asked[0][1]), []);
-  const body = tree.children[1];
+  const column = tree.children[1];
+  const body = column.children[1];
   assert.equal(JSON.stringify(body.children), JSON.stringify([{ type: 'blocks' }]), 'the blocks are rendered in order');
+  assert.ok(column.children[0]?.type, 'the common block sits above the component blocks');
 
   // A host that hands no binding still paints the page shell.
   const bare = LpipeSettingsPage({});
-  assert.equal(bare.children[1].children[0], null, 'an unbound host renders an empty body, not a crash');
+  assert.equal(bare.children[1].children[0], null, 'without an RPC binding the common block is skipped');
+  assert.equal(bare.children[1].children[1].children[0], null, 'an unbound host renders an empty body, not a crash');
 });
 
 test('a plugin without slots does not throw', async () => {

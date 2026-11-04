@@ -65,7 +65,12 @@ const button = (accent) => ({
   borderRadius: 'var(--dsw-radius-sm)',
   padding: '7px 14px',
   fontSize: 13,
+  lineHeight: '18px',
   cursor: 'pointer',
+  // A flex sibling with width:100% would otherwise squeeze the label into
+  // two lines ("保" / "存").
+  flex: 'none',
+  whiteSpace: 'nowrap',
 });
 
 function StatusDot({ on }) {
@@ -149,9 +154,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [sessionDraft, setSessionDraft] = React.useState('');
   const [windowDraft, setWindowDraft] = React.useState('5');
-  const [title, setTitle] = React.useState(null);
   const [login, setLogin] = React.useState({});
 
   const call = React.useCallback(async (method, payload) => {
@@ -167,17 +170,11 @@ function ChatSettingsPanel({ rpcCall }) {
 
   const adopt = React.useCallback((value) => {
     setStatus(value);
-    setSessionDraft((current) => (current === '' ? value.config.mainSessionId : current));
     setWindowDraft((current) => (current === '5' ? String(value.config.windowSeconds) : current));
     setLogin((current) => ({
       weixin: value.channels?.weixin?.login ?? current.weixin,
       qq: value.channels?.qq?.login ?? current.qq,
     }));
-    if (value.config.mainSessionId) {
-      call('chat.session.title', { sessionId: value.config.mainSessionId })
-        .then(setTitle)
-        .catch(() => setTitle(null));
-    }
   }, [call]);
 
   const reload = React.useCallback(async () => {
@@ -299,10 +296,6 @@ function ChatSettingsPanel({ rpcCall }) {
       error ? `社交管线读取失败：${error}` : '正在读取社交管线状态…');
   }
 
-  const titleText = title?.found
-    ? (title.title || '（这个会话还没有标题）')
-    : (sessionDraft.trim() ? '找不到这个会话' : '还没有绑定主会话');
-
   return h('div', { style: { maxWidth: 720 } },
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
@@ -315,24 +308,6 @@ function ChatSettingsPanel({ rpcCall }) {
           },
         }, '主会话')
         : null),
-
-    h('div', { style: card },
-      h('label', { style: label }, '主会话'),
-      h('div', { style: { display: 'flex', gap: 8 } },
-        h('input', {
-          style: input,
-          value: sessionDraft,
-          placeholder: 'session-…（粘贴会话 id）',
-          onChange: (event) => setSessionDraft(event.target.value),
-        }),
-        h('button', {
-          style: button(),
-          disabled: busy,
-          onClick: () => save({ mainSessionId: sessionDraft.trim() }),
-        }, '保存')),
-      h('p', { style: { margin: '8px 0 0', fontSize: 12, color: COLORS.muted } },
-        '当前会话：', h('strong', { style: { color: COLORS.text } }, titleText)),
-      note('微信与 QQ 的消息会攒进这个会话；它也是会话栏里带小气泡图标的那个。')),
 
     h('div', { style: card },
       h('label', { style: label }, '兜窗口（秒）'),
