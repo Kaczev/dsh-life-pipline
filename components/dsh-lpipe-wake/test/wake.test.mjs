@@ -19,6 +19,13 @@ test('the first idle tick starts the clock from now', () => {
   assert.equal(state.nextWakeAt, T0 + DEFAULT_INTERVAL_MS);
 });
 
+test('a custom interval sets the deadline instead of the default one', () => {
+  const fortyFive = 45 * 60 * 1000;
+  const { state } = step({ defaultIntervalMs: fortyFive }, { now: T0, status: 'idle' });
+  assert.equal(state.nextWakeAt, T0 + fortyFive);
+  assert.notEqual(state.nextWakeAt, T0 + DEFAULT_INTERVAL_MS);
+});
+
 test('activity clears the pending wake immediately', () => {
   const before = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
   const { state, action } = step(before, { now: T0 + 10_000, status: 'running' });
@@ -247,4 +254,32 @@ test('countdown and clock formatting stay readable', async () => {
   assert.equal(countdown(at, T0), '2 小时 30 分后');
   assert.equal(countdown(new Date(T0 - 1000).toISOString(), T0), '已到点，等下一次心跳');
   assert.match(formatClock(at), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+});
+
+test('the interval field accepts anything from a minute to a day', async () => {
+  const { exports } = await loadClient();
+  const { splitInterval, composeInterval, MIN_INTERVAL_MS, MAX_INTERVAL_MS } = exports.__test__;
+
+  // The helpers come from the client bundle's own realm, so compare fields.
+  const pair = (ms) => {
+    const { amount, unit } = splitInterval(ms);
+    return `${amount} ${unit}`;
+  };
+  assert.equal(pair(2 * HOUR), '2 hours');
+  assert.equal(pair(90 * 60_000), '90 minutes');
+  assert.equal(pair(45 * 60_000), '45 minutes');
+
+  assert.equal(composeInterval('45', 'minutes'), 45 * 60_000, 'a custom minute value survives');
+  assert.equal(composeInterval('3', 'hours'), 3 * HOUR);
+  assert.equal(composeInterval(' 90 ', 'minutes'), 90 * 60_000, 'stray spaces are tolerated');
+  assert.equal(composeInterval('1440', 'minutes'), MAX_INTERVAL_MS);
+  assert.equal(composeInterval('24', 'hours'), MAX_INTERVAL_MS);
+  assert.equal(MIN_INTERVAL_MS, 60_000);
+
+  assert.equal(composeInterval('0', 'minutes'), null);
+  assert.equal(composeInterval('1441', 'minutes'), null);
+  assert.equal(composeInterval('25', 'hours'), null);
+  assert.equal(composeInterval('', 'hours'), null);
+  assert.equal(composeInterval('1.5', 'hours'), null);
+  assert.equal(composeInterval('abc', 'minutes'), null);
 });

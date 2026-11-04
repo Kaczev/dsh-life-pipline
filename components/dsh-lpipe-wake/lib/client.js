@@ -108,12 +108,50 @@ function note(text, tone) {
   }, text);
 }
 
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const MIN_INTERVAL_MS = MINUTE;
+const MAX_INTERVAL_MS = 24 * HOUR;
+
+const numberInput = {
+  width: 64,
+  padding: '4px 8px',
+  fontSize: 13,
+  lineHeight: '18px',
+  color: COLORS.text,
+  background: COLORS.soft,
+  border: `1px solid ${COLORS.borderStrong}`,
+  borderRadius: 'var(--dsw-radius-sm)',
+  flex: 'none',
+};
+
+const selectInput = { ...numberInput, width: 'auto', padding: '4px 6px' };
+
 const CHIPS = [
-  { ms: 30 * 60 * 1000, text: '30 分钟' },
-  { ms: 60 * 60 * 1000, text: '1 小时' },
-  { ms: 2 * 60 * 60 * 1000, text: '2 小时' },
-  { ms: 4 * 60 * 60 * 1000, text: '4 小时' },
+  { ms: 30 * MINUTE, text: '30 分钟' },
+  { ms: HOUR, text: '1 小时' },
+  { ms: 2 * HOUR, text: '2 小时' },
+  { ms: 4 * HOUR, text: '4 小时' },
 ];
+
+/** Milliseconds → the pair shown in the custom field. */
+function splitInterval(ms) {
+  const total = Number(ms);
+  if (!Number.isFinite(total) || total <= 0) return { amount: '2', unit: 'hours' };
+  if (total % HOUR === 0) return { amount: String(total / HOUR), unit: 'hours' };
+  return { amount: String(Math.round(total / MINUTE)), unit: 'minutes' };
+}
+
+/** The custom field → milliseconds, or null when it is out of range. */
+function composeInterval(amount, unit) {
+  const text = String(amount ?? '').trim();
+  if (!/^\d+$/.test(text)) return null;
+  const count = Number(text);
+  if (count <= 0) return null;
+  const ms = unit === 'minutes' ? count * MINUTE : count * HOUR;
+  if (ms < MIN_INTERVAL_MS || ms > MAX_INTERVAL_MS) return null;
+  return ms;
+}
 
 function formatClock(iso) {
   if (!iso) return '—';
@@ -141,6 +179,7 @@ function WakePanel({ rpcCall }) {
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [nowMs, setNowMs] = React.useState(Date.now());
+  const [draft, setDraft] = React.useState(null);
 
   const call = React.useCallback(async (method, payload) => {
     const result = await rpcCall(method, payload ?? {});
@@ -193,6 +232,15 @@ function WakePanel({ rpcCall }) {
   const on = status.enabled !== false;
   const cardStyle = { ...card, opacity: on ? 1 : 0.55 };
 
+  // The custom field keeps whatever the user is typing; the chip row and the
+  // saved value only move it when the user asks them to.
+  const draftValue = draft ?? splitInterval(intervalMs);
+  const draftMs = composeInterval(draftValue.amount, draftValue.unit);
+  const saveDraft = () => {
+    if (draftMs === null) return;
+    void run('wake.config.save', { defaultIntervalMs: draftMs }).then(() => setDraft(splitInterval(draftMs)));
+  };
+
   return h('section', null,
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Wake'),
@@ -233,9 +281,42 @@ function WakePanel({ rpcCall }) {
           key: item.ms,
           style: chip(item.ms === intervalMs),
           disabled: busy,
-          onClick: () => run('wake.config.save', { defaultIntervalMs: item.ms }),
-        }, item.text))),
-      note('我一开口说话、开始活动，下次唤醒就清空；停下后从那一刻重新按这个间隔算。')),
+          onClick: () => {
+            setDraft(splitInterval(item.ms));
+            void run('wake.config.save', { defaultIntervalMs: item.ms });
+          },
+        }, item.text)),
+        h('span', {
+          style: { width: 1, height: 18, background: COLORS.border, flex: 'none', marginLeft: 2 },
+        }),
+        h('input', {
+          type: 'number',
+          inputMode: 'numeric',
+          min: 1,
+          max: draftValue.unit === 'hours' ? 24 : 1440,
+          value: draftValue.amount,
+          'aria-label': '自定义间隔数值',
+          disabled: busy,
+          style: numberInput,
+          onChange: (event) => setDraft({ amount: event.target.value, unit: draftValue.unit }),
+        }),
+        h('select', {
+          value: draftValue.unit,
+          'aria-label': '自定义间隔单位',
+          disabled: busy,
+          style: selectInput,
+          onChange: (event) => setDraft({ amount: draftValue.amount, unit: event.target.value }),
+        },
+          h('option', { value: 'minutes' }, '分钟'),
+          h('option', { value: 'hours' }, '小时')),
+        h('button', {
+          style: chip(false),
+          disabled: busy || draftMs === null || draftMs === intervalMs,
+          onClick: saveDraft,
+        }, draftMs === intervalMs ? '已是这个间隔' : '用这个间隔')),
+      draftMs === null
+        ? note('自己填的话，范围是 1 分钟到 24 小时。', 'error')
+        : note('我一开口说话、开始活动，下次唤醒就清空；停下后从那一刻重新按这个间隔算。')),
 
     h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
       h('button', { style: button(), disabled: busy, onClick: () => run('wake.now') }, '现在唤醒一次'),
@@ -264,7 +345,17 @@ module.exports = {
   name,
   inject,
   apply,
-  __test__: { WakePanel, PANEL_SLOT, formatClock, countdown, CHIPS },
+  __test__: {
+    WakePanel,
+    PANEL_SLOT,
+    formatClock,
+    countdown,
+    CHIPS,
+    splitInterval,
+    composeInterval,
+    MIN_INTERVAL_MS,
+    MAX_INTERVAL_MS,
+  },
 };
 
     return module.exports;
