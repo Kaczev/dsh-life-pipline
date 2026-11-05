@@ -64,3 +64,13 @@ node scripts/install-local.mjs
 - 冷归档与分卷轮转。
 
 许可：AGPL-3.0-or-later。
+
+## 从 DeepSeek 网页备份导入历史
+
+`scripts/import-deepseek-web.mjs` 把网页版导出的 `history_messages`（`原始数据/015.json`）投影成记忆行：`REQUEST` → `user/message`，`RESPONSE` + `THINK` → `assistant/message`（正文与思考分开存），`TOOL_SEARCH` / `TOOL_OPEN` → `tool/call` 与 `tool/result`，`TIP` 丢弃。
+
+```bash
+node components/dsh-lpipe-memory/scripts/import-deepseek-web.mjs   --backup "C:/path/to/备份/2026-11-05_212359" --dry-run
+```
+
+会话名默认 `deepseek-web-<chat_session.id>`，标题取会话标题。重复跑是幂等的（按会话内事件序号去重）。附件只有文件名，字节当年没有导出，所以只能留名字并标注 `mediaError`。

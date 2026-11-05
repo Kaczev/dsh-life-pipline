@@ -199,3 +199,7 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 - **工具**：`wake_set`（`in` / `at` + `reason`，`cancel` 取消一条或全部，`lock` / `unlock` 设定时锁）、`wake_check`（只读：下次主动唤醒及其缘由 + 下次自然唤醒，含是否锁着）。
 - **设置块**：`lpipe.settings.panel` 的 `id: 'wake'`、`order: 20`；第一行两张卡（自然 / 主动）各带自己的开关，第二行是默认间隔与心跳间隔。
 - **不用宿主的 schedule**：它按墙钟走、有自己的开关、投递的是普通用户消息，表达不了「从我停下那一刻起算」。
+
+### 导入网页历史
+
+`components/dsh-lpipe-memory/scripts/import-deepseek-web.mjs` 读 DeepSeek 网页版的 `history_messages` JSON，投影成 `user/message` / `assistant/message` / `tool/call` / `tool/result` 四类行，直接写进同一个记忆根（`~/.dsh/life-memory`）。网页消息的片段类型：`REQUEST`、`RESPONSE`、`THINK`、`FILE`（只有名字）、`TOOL_SEARCH`、`TOOL_OPEN`、`TIP`（丢弃）。
