@@ -50,12 +50,28 @@ function naturalLine(natural) {
   return `${natural.enabled ? '' : '（已关闭）'}自然唤醒：${when}，即上次结束行动 + ${Math.round(natural.intervalMs / 60000)} 分钟。`;
 }
 
+/** `30 分钟后`, `2 小时后` — how far a planned moment is from now. */
+function gapText(at, now) {
+  const minutes = Math.round((at - now) / 60_000);
+  if (minutes <= 0) return '就在此刻';
+  if (minutes < 60) return `${minutes} 分钟后`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} 小时后` : `${hours} 小时 ${rest} 分钟后`;
+}
+
+/** Reasons I type often end in a full stop; never stack two. */
+function trimStop(text) {
+  return String(text ?? '').trim().replace(/[。．.！!？?，,；;、\s]+$/u, '');
+}
+
 function manualLine(manual) {
   if (!manual.next) return '主动唤醒：没有安排。';
   const when = clockText(Date.parse(manual.next.at));
-  const reason = manual.next.reason ? `缘由：${manual.next.reason}` : '没有写缘由';
-  const more = manual.count > 1 ? `（另有 ${manual.count - 1} 个）` : '';
-  return `${manual.enabled ? '' : '（已关闭）'}主动唤醒：${when}${more}，${reason}。`;
+  const reason = trimStop(manual.next.reason);
+  const why = reason ? `缘由：${reason}。` : '没有写缘由。';
+  const more = manual.count > 1 ? `另有 ${manual.count - 1} 个，` : '';
+  return `${manual.enabled ? '' : '（已关闭）'}主动唤醒：${when}，${more}${why}`;
 }
 
 /**
@@ -92,7 +108,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     const after = readSchedule(runner, now);
     return {
       ...after,
-      summary: `主动唤醒定在 ${clockText(at)}${reason ? `，缘由：${reason}` : ''}。${after.manual.count > 1 ? `现在一共 ${after.manual.count} 个安排。` : ''}`,
+      summary: `主动唤醒定在 ${clockText(at)}（${gapText(at, now())}）。${after.manual.count > 1 ? `现在一共 ${after.manual.count} 个安排。` : ''}`,
     };
   };
 
