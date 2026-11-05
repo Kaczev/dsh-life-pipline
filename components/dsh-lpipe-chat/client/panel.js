@@ -161,9 +161,6 @@ function markConnected(status, channel) {
 function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
-  // A failed button must stay readable: the background status poll keeps
-  // clearing `error`, so action failures get their own slot.
-  const [actionError, setActionError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [windowDraft, setWindowDraft] = React.useState('5');
   const [login, setLogin] = React.useState({});
@@ -280,9 +277,9 @@ function ChatSettingsPanel({ rpcCall }) {
     setBusy(true);
     try {
       adopt(await call('chat.connect', { channel }));
-      setActionError('');
-    } catch (cause) {
-      setActionError(`重新连接失败：${cause.message}`);
+    } catch {
+      // The card carries the reason: `chat.connect` records it on the channel,
+      // so a refresh is enough and the same sentence is not printed twice.
       await reload();
     } finally {
       setBusy(false);
@@ -388,7 +385,6 @@ function ChatSettingsPanel({ rpcCall }) {
     }),
 
     error ? note(error, 'error') : null,
-    actionError ? note(actionError, 'error') : null,
   );
 }
 
