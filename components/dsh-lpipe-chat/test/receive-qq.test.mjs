@@ -151,9 +151,10 @@ test('an SDK that rejects unknown events does not break connect', async () => {
     log: quiet,
     onInbound: () => {},
     createBot: () => bot,
+    readyTimeoutMs: 30,
   });
-  await channel.connect();
-  assert.equal(channel.status.connected, false, 'no ready event yet, so not connected');
+  await assert.rejects(() => channel.connect(), /连接超时/);
+  assert.equal(channel.status.connected, false, 'no ready event, so never connected');
   await channel.stop();
 });
 

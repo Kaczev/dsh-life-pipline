@@ -178,8 +178,23 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
         return { ok: true, value: { login: qrDataUrl ? { ...login, qrDataUrl } : login } };
       }
       update((current) => adoptCredentials(channelName, current, state.credentials));
-      await channel.connect().catch(() => {});
-      return { ok: true, value: { login: { state: 'connected' }, connected: true } };
+      // Adopting credentials is not the same as being online: report what the
+      // channel actually managed, so a scan that cannot connect says why.
+      let connected = false;
+      let reason = '';
+      try {
+        connected = (await channel.connect()) === true;
+      } catch (error) {
+        const detail = String(channel.status?.lastError || error?.message || error);
+        reason = detail.split('\n')[0];
+      }
+      return {
+        ok: true,
+        value: {
+          login: reason ? { state: 'connected', error: reason } : { state: 'connected' },
+          connected,
+        },
+      };
     }
 
     if (method === 'chat.login.code') {

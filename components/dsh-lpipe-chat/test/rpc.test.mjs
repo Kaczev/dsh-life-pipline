@@ -188,7 +188,7 @@ test('a QQ scan stores the owner openid it was handed', async () => {
       credentials: { appId: '1020', appSecret: 'sec', ownerOpenId: 'OWNER_OPENID' },
     }),
     cancelLogin: () => true,
-    connect: async () => {},
+    connect: async () => true,
   };
   const handle = createChatRpcHandler({
     getConfig: () => config,
@@ -200,4 +200,31 @@ test('a QQ scan stores the owner openid it was handed', async () => {
   assert.equal(result.value.connected, true);
   assert.equal(config.qq.appId, '1020');
   assert.equal(config.qq.ownerOpenId, 'OWNER_OPENID');
+});
+
+test('a scan that cannot connect says so instead of claiming success', async () => {
+  let config = structuredClone(BASE_CONFIG);
+  const qq = {
+    startLogin: async () => ({ attemptId: 'q1', expiresAt: 1 }),
+    peekLoginState: () => ({ state: 'pending', qrUrl: '' }),
+    loginState: () => ({
+      state: 'connected',
+      credentials: { appId: '1020', appSecret: 'sec', ownerOpenId: 'OWNER_OPENID' },
+    }),
+    cancelLogin: () => true,
+    status: { connected: false, lastError: 'QQ 连接超时：20 秒内没有就绪，请重试或重新扫码。' },
+    connect: async () => {
+      throw new Error('timeout');
+    },
+  };
+  const handle = createChatRpcHandler({
+    getConfig: () => config,
+    update: (mutator) => { config = mutator(config); },
+    channels: { qq },
+    sessions: { get: () => null },
+  });
+  const result = await handle('chat.login.state', { channel: 'qq' });
+  assert.equal(result.value.connected, false, 'the scan alone must not read as online');
+  assert.match(result.value.login.error, /连接超时/);
+  assert.equal(config.qq.appId, '1020', 'the credentials are still adopted');
 });
