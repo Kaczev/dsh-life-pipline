@@ -14,6 +14,7 @@ function fakeContext() {
   const state = {
     tools: [],
     prompt: [],
+    promptContext: [],
     effects: [],
     routes: [],
     promptCalls: [],
@@ -34,7 +35,8 @@ function fakeContext() {
       register: (tool) => state.tools.push(tool),
     },
     systemPrompt: {
-      context: (value) => state.prompt.push(value),
+      section: (value) => state.prompt.push(value),
+      context: (value) => state.promptContext.push(value),
     },
     sessions: {
       get: (id) => (id === 'session-x' ? { events: [{ type: 'session/title', data: { title: '主会话标题' } }] } : null),

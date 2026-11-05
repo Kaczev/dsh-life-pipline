@@ -154,9 +154,10 @@ export function apply(ctx, config) {
 
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
-      promptCtx.systemPrompt.context({
+      promptCtx.systemPrompt.section({
         name: 'dsh-lpipe-chat',
-        order: 120,
+        order: 700,
+        interpolate: false,
         text: [
           'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message.',
           'Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',

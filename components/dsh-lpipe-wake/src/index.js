@@ -113,9 +113,10 @@ export function apply(ctx) {
 
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
-      promptCtx.systemPrompt.context({
+      promptCtx.systemPrompt.section({
         name: 'dsh-lpipe-wake',
-        order: 130,
+        order: 705,
+        interpolate: false,
         text: [
           'Wake notices arrive as dsh-lpipe-wake background messages.',
           '（自己醒来）means I stopped for a while and am being given the turn on my own: nothing is required, and doing nothing is a valid answer.',

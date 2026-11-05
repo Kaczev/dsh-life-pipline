@@ -14,7 +14,10 @@ function fakeCtx(registrations) {
     sessionController: { prompt: async (request) => registrations.prompts.push(request) },
     effect: (setup) => registrations.effects.push(setup),
     tools: { register: (tool) => registrations.tools.push(tool.name) },
-    systemPrompt: { context: (entry) => registrations.promptsContext.push(entry) },
+    systemPrompt: {
+      section: (entry) => registrations.promptsSection.push(entry),
+      context: (entry) => registrations.promptsContext.push(entry),
+    },
   };
   return {
     logger: { info() {}, warn() {} },
@@ -26,18 +29,19 @@ function fakeCtx(registrations) {
 
 test('component loads, registers four tools and the prompt guidance', () => {
   saveConfig({ mainSessionId: '', weixin: { botToken: '' }, qq: { appId: '' } });
-  const registrations = { tools: [], prompts: [], promptsContext: [], effects: [] };
+  const registrations = { tools: [], prompts: [], promptsContext: [], promptsSection: [], effects: [] };
   apply(fakeCtx(registrations), {});
   assert.equal(name, 'dsh-lpipe-chat');
   assert.deepEqual(registrations.tools.sort(), ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
-  assert.equal(registrations.promptsContext[0].name, 'dsh-lpipe-chat');
+  assert.equal(registrations.promptsSection[0].name, 'dsh-lpipe-chat');
+  assert.equal(registrations.promptsContext.length, 0, 'the rules belong in the system prompt, not runtime context');
   assert.equal(registrations.effects.length, 2);
   // No credentials: nothing connects, so installing cannot fight dsh-im for the channel.
   assert.equal(registrations.prompts.length, 0);
 });
 
 test('apply tolerates a patch-row config and writes it through', () => {
-  const registrations = { tools: [], prompts: [], promptsContext: [], effects: [] };
+  const registrations = { tools: [], prompts: [], promptsContext: [], promptsSection: [], effects: [] };
   apply(fakeCtx(registrations), { windowSeconds: 9, ownerName: 'Kaczev' });
   const config = loadConfig();
   assert.equal(config.windowSeconds, 9);
