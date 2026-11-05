@@ -15,7 +15,7 @@ function store() {
 }
 
 function appendText(writer, { sessionId, eventSeq, at, text, kind = 'user/message' }) {
-  return writer.append({ sessionId, eventSeq, at, kind, payload: { text, parts: [{ type: 'text', text }] } })
+  return writer.append({ sessionId, eventSeq, at, kind, payload: { text } })
 }
 
 test('the day boundary sits at 4am local time', () => {

@@ -2,6 +2,7 @@
 import { readSessionTitle } from 'dsh-life-pipline/session-title'
 
 import { captureMedia } from './media.mjs'
+import { migrateIfNeeded } from './compact.mjs'
 import { memoryRoot } from './paths.mjs'
 import { project } from './project.mjs'
 import { MemoryReader } from './reader.mjs'
@@ -21,13 +22,15 @@ const TURN_END = 'turn/end'
 
 export function apply(ctx, options = {}) {
   const root = options.root ?? memoryRoot()
+  const warn = (message) => ctx.logger?.warn?.(message)
+  // 旧格式（行里重复存 parts）在开写之前先重建，哈希链整条重算；失败就继续用旧格式。
+  if (!options.writer) migrateIfNeeded({ root, log: warn })
   const writer = options.writer ?? new MemoryWriter({ root })
   const reader = new MemoryReader({ root })
   const stats = createStatsCache({ reader, root })
   let attachments = null
   /** sessionId -> 这一轮已经攒下的行 */
   const buffered = new Map()
-  const warn = (message) => ctx.logger?.warn?.(message)
 
   /** 把某个会话正在攒的轮次落盘；没有就什么也不做。 */
   const commit = (sessionId) => {

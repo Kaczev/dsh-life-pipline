@@ -27,6 +27,21 @@ function reasoningOf(parts) {
   return chunks.join('\n')
 }
 
+/**
+ * 只留搬不走的结构块：文本与思考已经单独存在 `text` / `reasoning` 里，
+ * 再存一份就是纯重复（历史上一度让 42% 的体积变成副本）。
+ * 图片、文件、工具结构化结果没有别的落点，必须留着。
+ */
+export function carriedParts(parts) {
+  if (!Array.isArray(parts)) return []
+  return parts.filter((part) => part && part.type !== 'text' && part.type !== 'reasoning')
+}
+
+function payloadWith(parts, extra) {
+  const carried = carriedParts(parts)
+  return carried.length > 0 ? { ...extra, parts: carried } : extra
+}
+
 /** 一条事件要么投影成行，要么返回 null（不入档）。 */
 export function project(event) {
   const kind = KIND[event?.type]
@@ -37,7 +52,7 @@ export function project(event) {
 
   if (kind === 'user/message') {
     const { text, parts } = splitContent(data.content)
-    return { kind, turn, step, payload: { source: data.source ?? null, text, parts } }
+    return { kind, turn, step, payload: payloadWith(parts, { source: data.source ?? null, text }) }
   }
 
   if (kind === 'assistant/message') {
@@ -46,13 +61,12 @@ export function project(event) {
       kind,
       turn,
       step,
-      payload: {
+      payload: payloadWith(parts, {
         text,
         reasoning: reasoningOf(parts),
-        parts,
         usage: data.usage ?? null,
         interrupted: data.interrupted === true || undefined,
-      },
+      }),
     }
   }
 
@@ -65,11 +79,10 @@ export function project(event) {
     kind,
     turn,
     step,
-    payload: {
+    payload: payloadWith(parts, {
       text,
-      parts,
       isError: data.message?.isError === true || undefined,
       error: data.error ? { name: data.error.name, code: data.error.code, reason: data.error.reason ?? '' } : undefined,
-    },
+    }),
   }
 }

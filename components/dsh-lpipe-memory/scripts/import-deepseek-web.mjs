@@ -142,15 +142,13 @@ export function projectWebMessage(message) {
   if (String(message?.role).toUpperCase() === 'USER') {
     const text = textOf(by.REQUEST)
     if (!text && files.length === 0) return []
-    const parts = [{ type: 'text', text }]
-    for (const file of files) parts.push(file)
     return [
       {
         kind: 'user/message',
         payload: {
           source: { kind: 'import', origin: 'deepseek-web', messageId: common.messageId },
           text,
-          parts,
+          ...(files.length > 0 ? { parts: files } : {}),
         },
       },
     ]
@@ -158,14 +156,6 @@ export function projectWebMessage(message) {
   const text = textOf(by.RESPONSE)
   const reasoning = textOf(by.THINK)
   if (!text && !reasoning) return []
-  const parts = []
-  if (text) parts.push({ type: 'text', text })
-  for (const fragment of by.THINK) {
-    if (typeof fragment?.content === 'string' && fragment.content.trim()) {
-      parts.push({ type: 'reasoning', text: fragment.content.trim() })
-    }
-  }
-  for (const file of files) parts.push(file)
   return [
     {
       kind: 'assistant/message',
@@ -173,7 +163,7 @@ export function projectWebMessage(message) {
         ...common,
         text,
         reasoning,
-        parts,
+        ...(files.length > 0 ? { parts: files } : {}),
         status: message?.status ?? null,
         interrupted: message?.incomplete_message === true || message?.status === 'INCOMPLETE',
       },

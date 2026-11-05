@@ -68,7 +68,7 @@ export class MemoryWriter {
     this.now = now
     this.sinks = new Map()
     this.meta = new Map()
-    this.state = readJson(stateFile(root), { version: 1, seq: -1, hash: GENESIS, day: null, sessions: {} })
+    this.state = readJson(stateFile(root), { version: 2, seq: -1, hash: GENESIS, day: null, sessions: {} })
   }
 
   /** 该会话已经写到的事件序号，用来做幂等去重。 */

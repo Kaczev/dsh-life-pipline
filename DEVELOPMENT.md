@@ -207,3 +207,9 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 ### 记忆大小的显示
 
 `components/dsh-lpipe-memory/src/stats.mjs` 逐轮累计字节（行 JSON + 去重后的 media），`createStatsCache` 按 `state.seq` 缓存；`src/rpc.mjs` 在 `/api/dsh-lpipe-memory` 上暴露只读的 `memory.stats`；`client/panel.js` 往 `lpipe.settings.panel` 注册一块（id `memory`、order 30），画总量、最近一轮增量与最近 30 轮的累计曲线，纵横轴都按数据自适应。落盘后 `index.js` 会 `reader.reload()` 并清缓存，页面下一次轮询就看得见新的一轮。
+
+### 记忆行的格式（v2）
+
+一行只存一遍：正文进 `text`，思考进 `reasoning`，`parts` 只留「文本之外」的结构块（图片、文件引用、工具的结构化结果）。早期版本把文本块也复制进 `parts`，实测占过整库体积的 42%；现在 `project()` 的 `carriedParts()` 会滤掉 `text` / `reasoning` 两种块，导入脚本也不再写它们。
+
+格式版本记在 `state.json` 的 `version`。`src/compact.mjs` 提供 `compact({ root })`（整库重建：行照旧、`seq` 照旧，重新焊哈希链，旧目录改名成 `<root>.bak-<时间>`，并保留 `lastEventSeq` 游标与 `meta.title`）与 `migrateIfNeeded({ root })`；`index.js` 在创建 writer 之前调用它，所以旧库会在宿主启动时自动升级一次，失败只 warn、继续用旧格式。
