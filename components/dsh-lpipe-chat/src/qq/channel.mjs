@@ -29,6 +29,21 @@ function disposeAttempt(attempt) {
  * SDK. Scan-to-connect is delegated to the connector package.
  */
 /** One line a person can act on; the SDK speaks in access_token codes. */
+/**
+ * Send failures are usually about the relationship, not the connection: a bot
+ * the person removed from their friends list stays "connected" but cannot
+ * deliver, and the SDK's raw answer reads like a stack trace.
+ */
+function describeSendError(error) {
+  const text = String(error?.message ?? error);
+  const first = text.split("\n")[0];
+  if (/无好友关系|not\s*friend/i.test(first)) {
+    return 'QQ 机器人不在你的好友列表里：先把它加为好友，或重新扫码接入。';
+  }
+  if (/appid invalid|100007/i.test(first)) return 'QQ 应用已失效（机器人可能已被删除），请重新扫码接入。';
+  return first.slice(0, 160);
+}
+
 function describeStartError(error) {
   const text = String(error?.message ?? error);
   const first = text.split("\n")[0];
@@ -208,7 +223,12 @@ export class QqChannel {
     const qq = this.#config().qq ?? {};
     const target = targetId || qq.ownerOpenId;
     if (!target) throw new Error('QQ has no target: set the owner openid on the config page');
-    const sent = await bot.sendText({ scope, targetId: target, ...(msgId ? { msgId } : {}) }, String(text));
+    let sent;
+    try {
+      sent = await bot.sendText({ scope, targetId: target, ...(msgId ? { msgId } : {}) }, String(text));
+    } catch (error) {
+      throw new Error(describeSendError(error));
+    }
     return { messageId: sent?.id ?? '', scope, targetId: target };
   }
 

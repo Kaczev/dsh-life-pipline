@@ -175,3 +175,24 @@ test('a deleted QQ app says so instead of leaking an SDK code', async () => {
   assert.equal(channel.status.connected, false);
   assert.match(channel.status.lastError, /重新扫码接入/);
 });
+
+test('a bot removed from the friends list says so without losing the connection', async () => {
+  await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
+    const bot = fakeBot();
+    bot.sendText = async () => {
+      throw new Error('API Error [/v2/users/AAAA/messages]: 消息发送失败, 无好友关系');
+    };
+    const channel = new QqChannel({
+      config: loadConfig,
+      log: quiet,
+      createBot: () => bot,
+      onInbound: () => {},
+    });
+    await channel.connect();
+    await assert.rejects(() => channel.sendText('你好'), /好友/);
+    // The socket is fine; only the relationship is missing. Keeping the light
+    // green means "reconnect" would be the wrong advice.
+    assert.equal(channel.status.connected, true);
+    await channel.stop();
+  });
+});
