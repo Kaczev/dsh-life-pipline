@@ -51,7 +51,9 @@ export function createRunner({
       ]);
       if (probe) {
         const record = { at: now(), sessionId, status, activityAt: lastActivityAt };
-        const key = JSON.stringify(record);
+        // Deduplicate on the inputs that can change the verdict, never on the
+        // clock: otherwise every tick would write a line.
+        const key = JSON.stringify({ sessionId, status, activityAt: lastActivityAt });
         if (key !== lastProbe) {
           lastProbe = key;
           try { probe(record); } catch { /* diagnostics never break a tick */ }
