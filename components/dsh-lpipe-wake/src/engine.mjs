@@ -15,13 +15,18 @@ import { formatStamp } from 'dsh-life-pipline/clock';
 
 export const DEFAULT_INTERVAL_MS = 2 * 60 * 60 * 1000;
 export const TICK_MS = 30 * 1000;
+/** The heartbeat is only as fine as the deadline needs it to be; let the owner tune it. */
+export const MIN_HEARTBEAT_MS = 1000;
+export const MAX_HEARTBEAT_MS = 60 * 60 * 1000;
 
 export function defaultState(now = Date.now()) {
   return {
     enabled: true,
     defaultIntervalMs: DEFAULT_INTERVAL_MS,
+    heartbeatMs: TICK_MS,
     lastActivityEndedAt: null,
     nextWakeAt: null,
+    nextWakeSource: 'natural',
     lastWokeAt: null,
     wakeSetAt: null,
     lastSeenAt: now,
@@ -35,13 +40,21 @@ export function normalizeState(raw, now = Date.now()) {
   const base = defaultState(now);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
   const interval = Number(raw.defaultIntervalMs);
+  const heartbeat = Number(raw.heartbeatMs);
+  const manual = asTime(raw.wakeSetAt);
   return {
     enabled: raw.enabled !== false,
     defaultIntervalMs: Number.isFinite(interval) && interval > 0 ? interval : base.defaultIntervalMs,
+    heartbeatMs: Number.isFinite(heartbeat) && heartbeat > 0
+      ? Math.min(MAX_HEARTBEAT_MS, Math.max(MIN_HEARTBEAT_MS, heartbeat))
+      : base.heartbeatMs,
     lastActivityEndedAt: asTime(raw.lastActivityEndedAt),
     nextWakeAt: asTime(raw.nextWakeAt),
+    // Whether the deadline was placed by hand (`wake_set`) or computed from the
+    // interval: the page names it, so it has to survive on disk.
+    nextWakeSource: manual !== null ? 'manual' : 'natural',
     lastWokeAt: asTime(raw.lastWokeAt),
-    wakeSetAt: asTime(raw.wakeSetAt),
+    wakeSetAt: manual,
     lastSeenAt: asTime(raw.lastSeenAt) ?? now,
   };
 }
@@ -104,6 +117,7 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
     if (state.wakeSetAt !== null && activity > state.wakeSetAt) {
       state.wakeSetAt = null;
       state.nextWakeAt = null;
+      state.nextWakeSource = 'natural';
     }
     // With no live manual point the deadline is always base + interval, so it
     // moves with the conversation instead of pointing at a stale moment.
@@ -146,6 +160,7 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
   state.lastActivityEndedAt = now;
   state.nextWakeAt = now + state.defaultIntervalMs;
   state.wakeSetAt = null;
+  state.nextWakeSource = 'natural';
   return {
     state,
     action: { kind: 'wake', at: now, text: wakeText({ now, since }) },

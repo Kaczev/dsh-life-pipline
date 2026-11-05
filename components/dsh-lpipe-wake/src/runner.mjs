@@ -22,6 +22,7 @@ export function createRunner({
   probe = null,
 } = {}) {
   let timer = null;
+  let timerMs = 0;
   let busy = false;
   let disposed = false;
   let warnedNoSession = false;
@@ -78,8 +79,11 @@ export function createRunner({
 
   function start() {
     if (timer || disposed) return;
+    // The owner may have tuned the heartbeat; honour the saved value.
+    const interval = Number(snapshot().heartbeatMs) || tickMs;
     void tick();
-    timer = setIntervalFn(() => { void tick(); }, tickMs);
+    timerMs = interval;
+    timer = setIntervalFn(() => { void tick(); }, interval);
     if (typeof timer?.unref === 'function') timer.unref();
   }
 
@@ -117,6 +121,21 @@ export function createRunner({
     return writeState(state);
   }
 
+  /** How often the engine looks at the world. Takes effect without a restart. */
+  function setHeartbeatMs(ms) {
+    const next = Math.round(Number(ms));
+    const state = snapshot();
+    state.heartbeatMs = next;
+    writeState(state);
+    if (timer && next !== timerMs) {
+      clearIntervalFn(timer);
+      timerMs = next;
+      timer = setIntervalFn(() => { void tick(); }, next);
+      if (typeof timer?.unref === 'function') timer.unref();
+    }
+    return state;
+  }
+
   function setIntervalMs(ms) {
     const state = snapshot();
     state.defaultIntervalMs = ms;
@@ -125,7 +144,9 @@ export function createRunner({
     return writeState(state);
   }
 
-  return { start, dispose, tick, snapshot, setNextWake, clearNextWake, setIntervalMs, setEnabled };
+  return {
+    start, dispose, tick, snapshot, setNextWake, clearNextWake, setIntervalMs, setEnabled, setHeartbeatMs,
+  };
 }
 
 /** Best-effort activity read: an unreachable session counts as active. */

@@ -128,9 +128,10 @@ function fakeRunner(initial = {}) {
   let state = { defaultIntervalMs: HOUR, ...initial };
   return {
     snapshot: () => state,
-    setNextWake: (at) => { state = { ...state, nextWakeAt: at }; },
-    clearNextWake: () => { state = { ...state, nextWakeAt: null }; },
+    setNextWake: (at) => { state = { ...state, nextWakeAt: at, wakeSetAt: T0 }; },
+    clearNextWake: () => { state = { ...state, nextWakeAt: null, wakeSetAt: null }; },
     setIntervalMs: (ms) => { state = { ...state, defaultIntervalMs: ms }; },
+    setHeartbeatMs: (ms) => { state = { ...state, heartbeatMs: ms }; },
     setEnabled: (on) => { state = { ...state, enabled: on !== false, nextWakeAt: null }; },
     tick: async () => {},
   };
@@ -326,4 +327,79 @@ test('the interval field accepts anything from a minute to a day', async () => {
   assert.equal(composeInterval('', 'hours'), null);
   assert.equal(composeInterval('1.5', 'hours'), null);
   assert.equal(composeInterval('abc', 'minutes'), null);
+});
+
+test('the heartbeat is a setting, and every save survives the trip over RPC', async () => {
+  const runner = fakeRunner({ lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR });
+  const handle = createWakeRpcHandler({ runner, now: () => T0 });
+
+  const first = await handle('wake.status', {});
+  assert.equal(first.value.heartbeatMs, 30_000, 'thirty seconds unless the owner says otherwise');
+  assert.equal(first.value.nextWakeSource, 'natural');
+
+  const slower = await handle('wake.config.save', { heartbeatMs: 5_000 });
+  assert.equal(slower.value.heartbeatMs, 5_000);
+
+  const tooFast = await handle('wake.config.save', { heartbeatMs: 10 });
+  assert.equal(tooFast.ok, false, 'a ten millisecond heartbeat is refused');
+  const tooSlow = await handle('wake.config.save', { heartbeatMs: 3_700_000 });
+  assert.equal(tooSlow.ok, false, 'an hour and a minute is refused');
+});
+
+test('a hand-set deadline reads as 主动, a computed one as 自然', async () => {
+  const runner = fakeRunner({ lastActivityEndedAt: T0, defaultIntervalMs: HOUR });
+  const handle = createWakeRpcHandler({ runner, now: () => T0 });
+
+  await handle('wake.now', {});
+  const manual = await handle('wake.status', {});
+  assert.equal(manual.value.nextWakeSource, 'manual', 'the page can name who asked for it');
+
+  await handle('wake.reset', {});
+  const natural = await handle('wake.status', {});
+  assert.equal(natural.value.nextWakeSource, 'natural');
+});
+
+test('the runner adopts the saved heartbeat instead of the built-in one', async () => {
+  let state = { defaultIntervalMs: HOUR, heartbeatMs: 5_000 };
+  const delays = [];
+  let cleared = 0;
+  const runner = createRunner({
+    statusOf: async () => 'idle',
+    activityOf: () => null,
+    deliver: async () => true,
+    readMain: () => 'session-live',
+    readState: () => state,
+    writeState: (next) => { state = next; },
+    now: () => T0,
+    tickMs: 30_000,
+    setIntervalFn: (_fn, ms) => { delays.push(ms); return { unref() {} }; },
+    clearIntervalFn: () => { cleared += 1; },
+  });
+
+  runner.start();
+  assert.equal(delays[0], 5_000, 'the saved heartbeat wins over the constant');
+
+  runner.setHeartbeatMs(10_000);
+  assert.equal(delays[1], 10_000, 'a new heartbeat takes effect without a restart');
+  assert.equal(cleared, 1, 'the old timer is cleared first');
+  runner.dispose();
+});
+
+test('the heartbeat field and its progress bar stay readable', async () => {
+  const { exports } = await loadClient();
+  const { splitHeartbeat, composeHeartbeat, beatProgress, beatText } = exports.__test__;
+
+  assert.equal(`${splitHeartbeat(30_000).amount} ${splitHeartbeat(30_000).unit}`, '30 seconds');
+  assert.equal(`${splitHeartbeat(5 * 60_000).amount} ${splitHeartbeat(5 * 60_000).unit}`, '5 minutes');
+
+  assert.equal(composeHeartbeat('30', 'seconds'), 30_000);
+  assert.equal(composeHeartbeat('5', 'minutes'), 5 * 60_000);
+  assert.equal(composeHeartbeat('0', 'seconds'), null);
+  assert.equal(composeHeartbeat('61', 'minutes'), null);
+
+  const half = beatProgress(new Date(T0 - 15_000).toISOString(), 30_000, T0);
+  assert.ok(half > 0.49 && half < 0.51, 'half of the heartbeat reads as half done');
+  assert.equal(beatProgress(new Date(T0 + 60_000).toISOString(), 30_000, T0), 0, 'never negative');
+
+  assert.equal(beatText(new Date(T0 - 12_000).toISOString(), 30_000, T0), '上次心跳 12 秒前 · 每 30 秒看一次');
 });

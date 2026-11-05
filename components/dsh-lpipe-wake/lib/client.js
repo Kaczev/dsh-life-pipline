@@ -30,6 +30,7 @@ const COLORS = {
   danger: 'var(--dsw-alias-state-error-primary)',
 };
 
+const row = { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 };
 const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
@@ -100,6 +101,9 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const MIN_INTERVAL_MS = MINUTE;
 const MAX_INTERVAL_MS = 24 * HOUR;
+const SECOND = 1000;
+const MIN_HEARTBEAT_MS = SECOND;
+const MAX_HEARTBEAT_MS = 60 * MINUTE;
 
 const numberInput = {
   width: 64,
@@ -114,6 +118,66 @@ const numberInput = {
 };
 
 const selectInput = { ...numberInput, width: 'auto', padding: '4px 6px' };
+
+/** Milliseconds → the pair shown in the heartbeat field. */
+function splitHeartbeat(ms) {
+  const total = Number(ms);
+  if (!Number.isFinite(total) || total <= 0) return { amount: '30', unit: 'seconds' };
+  if (total % MINUTE === 0) return { amount: String(total / MINUTE), unit: 'minutes' };
+  return { amount: String(Math.round(total / SECOND)), unit: 'seconds' };
+}
+
+/** The heartbeat field → milliseconds, or null when it is out of range. */
+function composeHeartbeat(amount, unit) {
+  const text = String(amount ?? '').trim();
+  if (!/^\d+$/.test(text)) return null;
+  const count = Number(text);
+  if (count <= 0) return null;
+  const ms = unit === 'minutes' ? count * MINUTE : count * SECOND;
+  if (ms < MIN_HEARTBEAT_MS || ms > MAX_HEARTBEAT_MS) return null;
+  return ms;
+}
+
+/** How far the current heartbeat has run, 0..1. */
+function beatProgress(lastSeenAt, heartbeatMs, nowMs) {
+  const at = lastSeenAt ? new Date(lastSeenAt).getTime() : NaN;
+  const span = Number(heartbeatMs);
+  if (!Number.isFinite(at) || !Number.isFinite(span) || span <= 0) return 0;
+  return Math.min(1, Math.max(0, (nowMs - at) / span));
+}
+
+/** "54 分钟前" — the same shape as the wake sentence, without the clock. */
+function agoText(iso, nowMs) {
+  if (!iso) return '';
+  const at = new Date(iso).getTime();
+  if (!Number.isFinite(at)) return '';
+  const minutes = Math.max(0, Math.round((nowMs - at) / MINUTE));
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} 小时前` : `${hours} 小时 ${rest} 分前`;
+}
+
+/** Seconds until the next beat, never negative. */
+function beatRemaining(lastSeenAt, heartbeatMs, nowMs) {
+  const at = lastSeenAt ? new Date(lastSeenAt).getTime() : NaN;
+  const span = Number(heartbeatMs);
+  if (!Number.isFinite(at) || !Number.isFinite(span) || span <= 0) return 0;
+  return Math.max(0, Math.round((at + span - nowMs) / SECOND));
+}
+
+/** "上次心跳 12 秒前 · 每 30 秒" */
+function beatText(lastSeenAt, heartbeatMs, nowMs) {
+  const span = Number(heartbeatMs);
+  const every = span >= MINUTE
+    ? `${Math.round(span / MINUTE)} 分钟`
+    : `${Math.round(span / SECOND)} 秒`;
+  const at = lastSeenAt ? new Date(lastSeenAt).getTime() : NaN;
+  if (!Number.isFinite(at)) return `每 ${every}看一次`;
+  const age = Math.max(0, Math.round((nowMs - at) / SECOND));
+  return `上次心跳 ${age} 秒前 · 每 ${every}看一次`;
+}
 
 /** Milliseconds → the pair shown in the custom field. */
 function splitInterval(ms) {
@@ -161,6 +225,7 @@ function WakePanel({ rpcCall }) {
   const [busy, setBusy] = React.useState(false);
   const [nowMs, setNowMs] = React.useState(Date.now());
   const [draft, setDraft] = React.useState(null);
+  const [beatDraft, setBeatDraft] = React.useState(null);
 
   const call = React.useCallback(async (method, payload) => {
     const result = await rpcCall(method, payload ?? {});
@@ -190,6 +255,12 @@ function WakePanel({ rpcCall }) {
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [reload]);
+
+  // The display ticks every second; the engine keeps its own slower rhythm.
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), SECOND);
+    return () => clearInterval(timer);
+  }, []);
 
   const run = async (method, payload) => {
     setBusy(true);
@@ -222,6 +293,29 @@ function WakePanel({ rpcCall }) {
     void run('wake.config.save', { defaultIntervalMs: draftMs }).then(() => setDraft(splitInterval(draftMs)));
   };
 
+  const heartbeatMs = status.heartbeatMs;
+  const beatValue = beatDraft ?? splitHeartbeat(heartbeatMs);
+  const beatMs = composeHeartbeat(beatValue.amount, beatValue.unit);
+  const saveBeat = () => {
+    if (beatMs === null) return;
+    void run('wake.config.save', { heartbeatMs: beatMs }).then(() => setBeatDraft(splitHeartbeat(beatMs)));
+  };
+  const manual = status.nextWakeSource === 'manual';
+  const sourceBadge = h('span', {
+    title: manual ? '这个时间是我自己设的' : '这个时间是按「上次结束行动 + 间隔」算的',
+    style: {
+      fontSize: 11,
+      lineHeight: '16px',
+      padding: '1px 7px',
+      borderRadius: 999,
+      marginLeft: 0,
+      verticalAlign: '1px',
+      color: manual ? 'rgb(115, 137, 211)' : COLORS.muted,
+      background: manual ? 'rgba(115, 137, 211, 0.16)' : COLORS.soft,
+      border: `1px solid ${manual ? 'rgba(115, 137, 211, 0.45)' : COLORS.border}`,
+    },
+  }, manual ? '主动' : '自然');
+
   return h('section', null,
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Wake'),
@@ -244,55 +338,111 @@ function WakePanel({ rpcCall }) {
     on ? null : note('已关闭：不会自行醒来，下面是它本来会醒的时间。'),
     mainMissing ? note('还没有设置主会话：去上面的「公共」里填一个，唤醒才会生效。', 'error') : null,
 
-    h('div', { style: cardStyle },
-      h('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 } },
-        h('div', null,
-          h('span', { style: label }, '下次唤醒'),
-          h('span', { style: value }, formatClock(status.nextWakeAt))),
-        h('span', { style: { fontSize: 12, color: COLORS.muted } }, countdown(status.nextWakeAt, nowMs))),
-      h('div', { style: { display: 'flex', gap: 24, marginTop: 14, flexWrap: 'wrap' } },
-        h('div', null,
-          h('span', { style: label }, '上次结束行动'),
-          h('span', { style: { fontSize: 13, color: COLORS.text } }, formatClock(status.lastActivityEndedAt))))),
+    h('div', { style: row },
+      h('div', { style: { ...cardStyle, flex: '1 1 230px', marginBottom: 0 } },
+        h('span', { style: label }, '下次唤醒'),
+        h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
+          h('span', { style: value }, formatClock(status.nextWakeAt)),
+          sourceBadge,
+          h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
+            countdown(status.nextWakeAt, nowMs)))),
+      h('div', { style: { ...cardStyle, flex: '1 1 185px', marginBottom: 0 } },
+        h('span', { style: label }, '上次结束行动'),
+        h('span', { style: { fontSize: 13, color: COLORS.text } }, formatClock(status.lastActivityEndedAt)),
+        h('div', { style: { marginTop: 4, fontSize: 12, color: COLORS.muted } },
+          agoText(status.lastActivityEndedAt, nowMs)))),
 
-    h('div', { style: cardStyle },
-      h('label', { style: label }, '默认唤醒间隔'),
-      h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
-        h('input', {
-          type: 'number',
-          inputMode: 'numeric',
-          min: 1,
-          max: draftValue.unit === 'hours' ? 24 : 1440,
-          value: draftValue.amount,
-          'aria-label': '默认唤醒间隔',
-          disabled: busy,
-          style: numberInput,
-          onChange: (event) => setDraft({ amount: event.target.value, unit: draftValue.unit }),
-          onKeyDown: (event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            saveDraft();
+    h('div', { style: row },
+      h('div', { style: { ...cardStyle, flex: '1 1 250px', marginBottom: 0 } },
+        h('label', { style: label }, '默认唤醒间隔'),
+        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+          h('input', {
+            type: 'number',
+            inputMode: 'numeric',
+            min: 1,
+            max: draftValue.unit === 'hours' ? 24 : 1440,
+            value: draftValue.amount,
+            'aria-label': '默认唤醒间隔',
+            disabled: busy,
+            style: numberInput,
+            onChange: (event) => setDraft({ amount: event.target.value, unit: draftValue.unit }),
+            onKeyDown: (event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              saveDraft();
+            },
+          }),
+          h('select', {
+            value: draftValue.unit,
+            'aria-label': '间隔单位',
+            disabled: busy,
+            style: selectInput,
+            onChange: (event) => setDraft({ amount: draftValue.amount, unit: event.target.value }),
           },
-        }),
-        h('select', {
-          value: draftValue.unit,
-          'aria-label': '间隔单位',
-          disabled: busy,
-          style: selectInput,
-          onChange: (event) => setDraft({ amount: draftValue.amount, unit: event.target.value }),
+            h('option', { value: 'minutes' }, '分钟'),
+            h('option', { value: 'hours' }, '小时')),
+          h('button', {
+            style: { ...button(), padding: '4px 14px' },
+            disabled: busy || draftMs === null || draftMs === intervalMs,
+            onClick: saveDraft,
+          }, '保存'),
+          draftMs === null
+            ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 分钟到 24 小时')
+            : null),
+        note('我停下之后，过这么久再叫我。')),
+      h('div', { style: { ...cardStyle, flex: '1 1 250px', marginBottom: 0 } },
+        h('label', { style: label }, '心跳间隔'),
+        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+          h('input', {
+            type: 'number',
+            inputMode: 'numeric',
+            min: 1,
+            max: beatValue.unit === 'minutes' ? 60 : 3600,
+            value: beatValue.amount,
+            'aria-label': '心跳间隔',
+            disabled: busy,
+            style: numberInput,
+            onChange: (event) => setBeatDraft({ amount: event.target.value, unit: beatValue.unit }),
+            onKeyDown: (event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              saveBeat();
+            },
+          }),
+          h('select', {
+            value: beatValue.unit,
+            'aria-label': '心跳单位',
+            disabled: busy,
+            style: selectInput,
+            onChange: (event) => setBeatDraft({ amount: beatValue.amount, unit: event.target.value }),
+          },
+            h('option', { value: 'seconds' }, '秒'),
+            h('option', { value: 'minutes' }, '分钟')),
+          h('button', {
+            style: { ...button(), padding: '4px 14px' },
+            disabled: busy || beatMs === null || beatMs === heartbeatMs,
+            onClick: saveBeat,
+          }, '保存'),
+          beatMs === null
+            ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 秒到 60 分钟')
+            : null),
+        h('div', {
+          style: {
+            position: 'relative', height: 3, marginTop: 12, borderRadius: 999,
+            background: COLORS.soft, overflow: 'hidden',
+          },
+        }, h('div', {
+          style: {
+            height: '100%', width: `${Math.round(beatProgress(status.lastSeenAt, heartbeatMs, nowMs) * 100)}%`,
+            borderRadius: 999, background: manual ? 'rgb(115, 137, 211)' : COLORS.success,
+            transition: 'width 900ms linear',
+          },
+        })),
+        h('div', {
+          style: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: COLORS.muted },
         },
-          h('option', { value: 'minutes' }, '分钟'),
-          h('option', { value: 'hours' }, '小时')),
-        h('button', {
-          style: { ...button(), padding: '4px 14px' },
-          disabled: busy || draftMs === null || draftMs === intervalMs,
-          onClick: saveDraft,
-        }, '保存'),
-        draftMs === null
-          ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 分钟到 24 小时')
-          : null),
-      note('我一开口说话、开始活动，下次唤醒就清空；停下后从那一刻重新按这个间隔算。')),
-
+          h('span', null, beatText(status.lastSeenAt, heartbeatMs, nowMs)),
+          h('span', null, on ? `${beatRemaining(status.lastSeenAt, heartbeatMs, nowMs)} 秒后` : '已关闭')))),
     h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
       h('button', { style: button(), disabled: busy, onClick: () => run('wake.now') }, '现在唤醒一次'),
       h('button', { style: button(), disabled: busy, onClick: () => run('wake.reset') }, '改回默认推算')),
@@ -327,8 +477,16 @@ module.exports = {
     countdown,
     splitInterval,
     composeInterval,
+    splitHeartbeat,
+    composeHeartbeat,
+    beatProgress,
+    beatText,
+    beatRemaining,
+    agoText,
     MIN_INTERVAL_MS,
     MAX_INTERVAL_MS,
+    MIN_HEARTBEAT_MS,
+    MAX_HEARTBEAT_MS,
   },
 };
 

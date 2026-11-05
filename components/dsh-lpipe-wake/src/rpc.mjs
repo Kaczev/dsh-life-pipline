@@ -1,4 +1,4 @@
-import { normalizeState } from './engine.mjs';
+import { MAX_HEARTBEAT_MS, MIN_HEARTBEAT_MS, normalizeState } from './engine.mjs';
 import { readMainSessionId, statePath } from './state.mjs';
 
 export const WAKE_RPC_ENDPOINT = 'dsh-lpipe-wake';
@@ -22,8 +22,11 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
     return {
       enabled: state.enabled !== false,
       defaultIntervalMs: state.defaultIntervalMs,
+      heartbeatMs: state.heartbeatMs,
       lastActivityEndedAt: asIso(state.lastActivityEndedAt),
       nextWakeAt: asIso(state.nextWakeAt),
+      nextWakeSource: state.nextWakeSource,
+      lastSeenAt: asIso(state.lastSeenAt),
       lastWokeAt: asIso(state.lastWokeAt),
       mainSessionId: readMainSessionId(),
       statePath: statePath(),
@@ -49,6 +52,14 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
           return failure('wake/bad-request', '默认间隔必须在 1 分钟到 24 小时之间。');
         }
         runner.setIntervalMs(Math.round(ms));
+        touched = true;
+      }
+      if (Object.hasOwn(input, 'heartbeatMs')) {
+        const ms = Number(input.heartbeatMs);
+        if (!Number.isFinite(ms) || ms < MIN_HEARTBEAT_MS || ms > MAX_HEARTBEAT_MS) {
+          return failure('wake/bad-request', '心跳间隔必须在 1 秒到 60 分钟之间。');
+        }
+        runner.setHeartbeatMs(Math.round(ms));
         touched = true;
       }
       if (!touched) return failure('wake/bad-request', '没有可保存的字段。');
