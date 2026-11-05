@@ -65,6 +65,10 @@ node scripts/install-local.mjs
 
 许可：AGPL-3.0-or-later。
 
+## 写入时机
+
+一轮说完（`turn/end`）才把这一轮的行压成帧写进去：盘上不会出现半截的轮次。中间的消息、思考、工具调用都先攒在内存里；万一某轮没有 `turn/end`（60 秒保险计时到点）也会落一次，不会一直攒着。
+
 ## 从 DeepSeek 网页备份导入历史
 
 `scripts/import-deepseek-web.mjs` 把网页版导出的 `history_messages`（`原始数据/015.json`）投影成记忆行：`REQUEST` → `user/message`，`RESPONSE` + `THINK` → `assistant/message`（正文与思考分开存），`TOOL_SEARCH` / `TOOL_OPEN` → `tool/call` 与 `tool/result`，`TIP` 丢弃。

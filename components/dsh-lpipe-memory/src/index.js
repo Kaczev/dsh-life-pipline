@@ -11,8 +11,14 @@ export const name = 'dsh-lpipe-memory'
 
 export const inject = []
 
-/** 攒行多久落一次盘。崩溃最多丢这么久的内容，已有行不受影响。 */
-export const FLUSH_MS = 5000
+/**
+ * 一轮结束就落一次盘：这是主要时机。
+ * 保险业务：万一某轮没有 turn/end（比如崩溃后重建），也不能一直攒着。
+ */
+export const FLUSH_MS = 60_000
+
+/** 一轮结束的事件。 */
+const TURN_END = 'turn/end'
 
 export function apply(ctx, options = {}) {
   const root = options.root ?? memoryRoot()
@@ -37,7 +43,7 @@ export function apply(ctx, options = {}) {
       if (timer) clearInterval(timer)
       writer.close()
     }
-  }, 'dsh-lpipe-memory: flush timer')
+  }, 'dsh-lpipe-memory: turn-end flush')
 
   ctx.inject(['attachments'], (attachmentCtx) => {
     attachments = attachmentCtx.attachments ?? null
@@ -46,6 +52,11 @@ export function apply(ctx, options = {}) {
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessionsCtx.on('session/event', (session, event) => {
       try {
+        // 轮次结束本身不入档，但它是落盘的信号：这一轮的行到此为止。
+        if (event?.type === TURN_END) {
+          flush()
+          return
+        }
         const projected = project(event)
         if (!projected) return
         let payload = projected.payload
