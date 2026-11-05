@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { stampFor } from 'dsh-life-pipline/clock';
+import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
 
 /** First message immediately; later messages coalesce within the window. */
 export class InboundGateway {
   #getConfig;
   #log;
   #deliver;
+  #saveImages;
   #buffer = [];
   #timer = null;
   #sending = false;
@@ -14,10 +16,11 @@ export class InboundGateway {
   // re-announce a stamp the owner has already seen.
   #lastAt = null;
 
-  constructor({ getConfig, log, deliver, lastAt = null }) {
+  constructor({ getConfig, log, deliver, saveImages = null, lastAt = null }) {
     this.#getConfig = getConfig;
     this.#log = log;
     this.#deliver = deliver;
+    this.#saveImages = saveImages;
     this.#lastAt = Number.isFinite(Number(lastAt)) ? Number(lastAt) : null;
   }
 
@@ -55,16 +58,34 @@ export class InboundGateway {
       // Public UserMessage contract: notice provenance, not human prompt input
       // and not a fabricated tool result. Freeze before publication.
       const channels = Object.freeze([...new Set(batch.map((row) => row.channel))]);
-      const message = Object.freeze({
-        id: randomUUID(),
-        role: 'user',
-        content: Object.freeze([Object.freeze({ type: 'text', text: this.#render(batch) })]),
-        source: Object.freeze({
-          kind: 'dsh-lpipe-chat', form: 'notice',
-          summary: `微信 / QQ 入站消息 · ${batch.length} 条`, channels,
-        }),
-      });
-      await this.#deliver({ sessionId: mainSessionId, message });
+      const { refs, note } = await this.#persistImages(batch);
+      // Rendered once: the stamp baseline moves as it is rendered.
+      const body = this.#render(batch);
+      const publish = (extra, images) => {
+        const text = [body, note, extra].filter(Boolean).join('\n');
+        const content = [{ type: 'text', text }];
+        for (const ref of images) content.push({ type: 'image', attachment: ref });
+        return Object.freeze({
+          id: randomUUID(),
+          role: 'user',
+          content: Object.freeze(content.map((part) => Object.freeze(part))),
+          source: Object.freeze({
+            kind: 'dsh-lpipe-chat', form: 'notice',
+            summary: `微信 / QQ 入站消息 · ${batch.length} 条`, channels,
+          }),
+        });
+      };
+      try {
+        await this.#deliver({ sessionId: mainSessionId, message: publish('', refs) });
+      } catch (error) {
+        // A model without vision rejects the whole request. The words still
+        // matter, so the pictures are what gets dropped, once.
+        if (refs.length === 0) throw error;
+        const reason = String(error?.message ?? error).split('\n')[0];
+        this.#log.warn?.(`[life-chat] notice with images refused: ${reason}`);
+        const extra = `（图片没能随这条消息进入：${reason}）`;
+        await this.#deliver({ sessionId: mainSessionId, message: publish(extra, []) });
+      }
     } catch (error) {
       if (!this.#disposed) {
         this.#buffer.unshift(...batch);
@@ -73,6 +94,37 @@ export class InboundGateway {
     } finally {
       this.#sending = false;
       if (this.#buffer.length > 0) this.#schedule();
+    }
+  }
+
+  /**
+   * Turn the pictures in this batch into durable attachments. A batch is one
+   * message, so the cap applies across all of it, not per channel message.
+   * Failing to store them never blocks the words around them.
+   */
+  async #persistImages(batch) {
+    const wanted = [];
+    for (const row of batch) {
+      for (const image of row.images ?? []) {
+        if (wanted.length >= MAX_IMAGES_PER_MESSAGE) break;
+        wanted.push(image);
+      }
+    }
+    if (wanted.length === 0) return { refs: [], note: '' };
+    if (typeof this.#saveImages !== 'function') {
+      return { refs: [], note: `（有 ${wanted.length} 张图片，但这个宿主没有附件服务，看图看不到。）` };
+    }
+    try {
+      const refs = await this.#saveImages(wanted.map((image) => ({
+        data: image.data,
+        mediaType: image.mediaType,
+        name: image.name,
+      })));
+      return { refs: Array.isArray(refs) ? refs : [], note: '' };
+    } catch (error) {
+      const reason = String(error?.message ?? error).split('\n')[0];
+      this.#log.warn?.(`[life-chat] inbound image refused: ${reason}`);
+      return { refs: [], note: `（${wanted.length} 张图片没能取过来：${reason}）` };
     }
   }
 
@@ -85,13 +137,17 @@ export class InboundGateway {
       const head = row.conversationKind === 'group'
         ? `${row.channelLabel} · ${shortId(row.conversationId)} · ${who}`
         : `${row.channelLabel} · ${who}`;
-      return { head, text: row.text, at: row.at };
+      return { head, text: row.text, at: row.at, images: row.images ?? [] };
     }).reduce((lines, row) => {
       // WeChat shows a time only when the conversation paused; a burst reads as
       // one block. The stamp sits on its own line so the notice keeps its shape.
       const stamp = stampFor(row.at, this.#lastAt);
       if (stamp) lines.push(stamp);
-      lines.push(`[${row.head}] ${row.text}`);
+      const count = row.images?.length ?? 0;
+      // The pictures travel as image parts; the line still has to read like a
+      // message when there are no words around them.
+      const body = row.text || (count > 0 ? `（${count} 张图片）` : '');
+      lines.push(`[${row.head}] ${body}`);
       const parsed = Date.parse(row.at);
       if (Number.isFinite(parsed)) this.#lastAt = parsed;
       return lines;

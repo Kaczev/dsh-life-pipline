@@ -4,6 +4,7 @@ import { InboundGateway } from './gateway.mjs';
 import { createNoticeDelivery } from './notice.mjs';
 import { createChatTools } from './tools.mjs';
 import { createChatRpcHandler, registerChatRpc } from './rpc.mjs';
+import { imageRecord } from './images.mjs';
 import { WeixinChannel } from './weixin/channel.mjs';
 import { QqChannel } from './qq/channel.mjs';
 
@@ -56,9 +57,16 @@ export function apply(ctx, config) {
 
   let delivery = null;
   let sessions = null;
+  let attachments = null;
   const gateway = new InboundGateway({
     getConfig, log,
     lastAt: lastInboundAt(),
+    // Pictures become durable attachments before the message is published; the
+    // service resolves late, so this stays lazy.
+    saveImages: (inputs) => {
+      if (!attachments?.saveImages) throw new Error('附件服务还没就绪，这次图片没能存下来。');
+      return attachments.saveImages(inputs);
+    },
     deliver: (request) => {
       if (!delivery) throw new Error('notice delivery is unavailable');
       return delivery.deliver(request);
@@ -106,6 +114,7 @@ export function apply(ctx, config) {
         senderId: event.senderId,
         senderName: event.senderName,
         text: event.text,
+        images: (event.images ?? []).map(imageRecord),
         at: event.at,
         messageId: event.messageId,
         contextToken: event.contextToken,
@@ -129,6 +138,10 @@ export function apply(ctx, config) {
 
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessions = sessionsCtx.sessions ?? null;
+  });
+
+  ctx.inject(['attachments'], (attachmentCtx) => {
+    attachments = attachmentCtx.attachments ?? null;
   });
 
   ctx.inject(['connection'], (connectionCtx) => {
@@ -161,6 +174,7 @@ export function apply(ctx, config) {
         text: [
           'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · User] ...`; a burst is bundled into one message.',
           'Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
+          'Pictures he sends arrive as image attachments on the notice message; look at them before answering, and do not ask him to describe them.',
           'After replying with chat_send, do not repeat the same words in the Harness reply; different information is fine.',
           'Pass completed: true to chat_send when the message is the whole answer, so the turn ends there instead of spending another request.',
           'A turn started by a dsh-lpipe-chat notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',

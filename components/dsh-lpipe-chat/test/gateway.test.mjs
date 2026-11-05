@@ -5,9 +5,9 @@ import { InboundGateway } from '../src/gateway.mjs';
 const quiet = { warn() {} };
 const message = (text, at) => ({ channel: 'weixin', channelLabel: '微信', conversationKind: 'dm', senderName: 'Kaczev', text, ...(at ? { at } : {}) });
 const tick = () => new Promise(setImmediate);
-function setup(t, deliver, config = { mainSessionId: 'session-main', windowSeconds: 3 }) {
+function setup(t, deliver, config = { mainSessionId: 'session-main', windowSeconds: 3 }, saveImages = null) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const gateway = new InboundGateway({ getConfig: () => config, log: quiet, deliver });
+  const gateway = new InboundGateway({ getConfig: () => config, log: quiet, deliver, saveImages });
   t.after(() => gateway.dispose());
   return gateway;
 }
@@ -88,6 +88,9 @@ test('dispose during delivery prevents requeue, timers and late accepts', async 
   let reject;
   const gateway = setup(t, () => new Promise((_, fail) => { reject = fail; }));
   gateway.accept(message('one'));
+  // Storing pictures happens before delivery, so the promise starts a microtask
+  // later; let it start, then pull the plug mid-flight.
+  await tick();
   gateway.dispose();
   reject(new Error('late failure'));
   await tick();
@@ -120,4 +123,92 @@ test('a burst gets one timestamp at its head, not one per message', async (t) =>
     '09:30',
     '[微信 · Kaczev] 错过了什么',
   ]);
+});
+
+const picture = (name = 'image') => ({ name, mediaType: 'image/png', data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) });
+
+test('a picture rides in the same notice as the words', async (t) => {
+  const notices = [];
+  const saved = [];
+  const gateway = setup(
+    t,
+    async (r) => notices.push(r),
+    undefined,
+    async (inputs) => {
+      saved.push(...inputs);
+      return [{ attachmentId: 'att-1', mediaType: 'image/png', bytes: 4, width: 1, height: 1 }];
+    },
+  );
+  gateway.accept({ ...message('看这个'), images: [picture()] });
+  await tick();
+  const [text, image] = notices[0].message.content;
+  assert.equal(text.type, 'text');
+  assert.match(text.text, /看这个/);
+  assert.equal(image.type, 'image');
+  assert.equal(image.attachment.attachmentId, 'att-1');
+  assert.ok(Object.isFrozen(image), 'every content part is frozen before publication');
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].mediaType, 'image/png');
+});
+
+test('a picture on its own still reads as a message', async (t) => {
+  const notices = [];
+  const gateway = setup(t, async (r) => notices.push(r), undefined, async () => [
+    { attachmentId: 'att-1', mediaType: 'image/png', bytes: 4, width: 1, height: 1 },
+  ]);
+  gateway.accept({ ...message(''), images: [picture()] });
+  await tick();
+  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev] （1 张图片）');
+});
+
+test('a batch never carries more pictures than one message may hold', async (t) => {
+  const notices = [];
+  const counts = [];
+  const gateway = setup(t, async (r) => notices.push(r), undefined, async (inputs) => {
+    counts.push(inputs.length);
+    return inputs.map((_input, index) => ({ attachmentId: `att-${index}`, mediaType: 'image/png', bytes: 4 }));
+  });
+  // One message, six pictures: the cap belongs to the injected batch.
+  gateway.accept({ ...message(''), images: [picture(), picture(), picture(), picture(), picture(), picture()] });
+  await tick();
+  assert.deepEqual(counts, [4]);
+  assert.equal(notices[0].message.content.filter((part) => part.type === 'image').length, 4);
+});
+
+test('a refused picture still delivers the words, with a note', async (t) => {
+  const notices = [];
+  const gateway = setup(t, async (r) => notices.push(r), undefined, async () => {
+    throw new Error('Image is too large for one message.');
+  });
+  gateway.accept({ ...message('这张图很大'), images: [picture()] });
+  await tick();
+  const content = notices[0].message.content;
+  assert.equal(content.length, 1, 'no image part survives a refusal');
+  assert.match(content[0].text, /这张图很大/);
+  assert.match(content[0].text, /1 张图片没能取过来：Image is too large/);
+});
+
+test('a host without an attachment service says so instead of silently dropping the picture', async (t) => {
+  const notices = [];
+  const gateway = setup(t, async (r) => notices.push(r));
+  gateway.accept({ ...message('看图'), images: [picture()] });
+  await tick();
+  assert.match(notices[0].message.content[0].text, /没有附件服务/);
+  assert.equal(notices[0].message.content.length, 1);
+});
+
+test('a model without vision still gets the words, and the pictures are dropped once', async (t) => {
+  const attempts = [];
+  const gateway = setup(t, async (r) => {
+    attempts.push(r.message);
+    if (r.message.content.some((part) => part.type === 'image')) {
+      throw new Error('DeepSeek Messages image input requires a vision model');
+    }
+  }, undefined, async () => [{ attachmentId: 'att-1', mediaType: 'image/png', bytes: 4 }]);
+  gateway.accept({ ...message('这张图'), images: [picture()] });
+  await tick();
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[1].content.length, 1);
+  assert.match(attempts[1].content[0].text, /这张图/);
+  assert.match(attempts[1].content[0].text, /图片没能随这条消息进入：DeepSeek Messages image input requires a vision model/);
 });

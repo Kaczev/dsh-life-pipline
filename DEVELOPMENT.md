@@ -98,7 +98,8 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 - **标注**：注入正文形如 `[微信 · Kaczev] 原文`，群聊为 `[QQ · 群 · 昵称] 原文`。
 - **时间**：微信的分隔规则，实现在 `src/clock.mjs`（由公共包导出为 `dsh-life-pipline/clock`）。间隔不足 5 分钟不加时间；更久则在自己那一行写 `14:22` / `昨天 14:22` / `周二 14:22` / `11月1日 14:22` / `2025年11月1日 14:22`。时间永不落进消息正文，宿主重启时用归档里最后一条入站消息做基准，不重复播报已经见过的时间。
 - **出站**：`chat_send` 按渠道回复；回不回由当轮决定。`completed` 是选填布尔（默认 false）：发送成功且为 true 时调用 `exec.concludeTurn()`，这一轮当场结束，不再产生一次「在宿主里复述」的请求；发送失败不 conclude，错误照常抛出。
-- **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only，进出都记，不改写。
+- **图片**：一条消息里的图会被下载、按魔数认格式（png / jpeg / webp / gif），交给宿主的 `attachments` 服务落成附件，再作为 `image` 内容块挂在同一条通知上——文字和图片是同一条消息。微信的图是密文（AES-128-ECB + `aeskey`），解密在 `src/weixin/vendor/weixin-api.mjs`；QQ 的图是 CDN 链接，只走 HTTPS、不跟随重定向。单图上限 8 MB、一批最多 4 张（`src/images.mjs` 的 `MAX_IMAGE_BYTES` / `MAX_IMAGES_PER_MESSAGE`）。单张图失败只丢这张并记一条 warn，不拖累这条消息；存不下时正文会补一句「N 张图片没能取过来：…」。
+- **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only，进出都记，不改写。图片只在归档里留 `{name, mediaType, bytes}` 三个事实，字节不进日志；`chat_history` 会把它们显示成「（N 张图片）」。
 
 数据目录仍然叫 `life-chat`，改名会丢已扫码的凭据，所以不动。
 

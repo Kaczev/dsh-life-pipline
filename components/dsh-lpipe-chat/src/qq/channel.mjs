@@ -3,6 +3,7 @@ import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
 import { toIso } from '../time.mjs';
+import { MAX_IMAGES_PER_MESSAGE, downloadImage } from '../images.mjs';
 
 const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
 
@@ -213,11 +214,11 @@ export class QqChannel {
       settle(new Error(reason));
     });
     on('message', (_ctx, message) => {
-      try {
-        this.#accept(message);
-      } catch (error) {
+      // Pictures download before they are archived, so this is async; a broken
+      // attachment must never take the message down with it.
+      void this.#accept(message).catch((error) => {
         this.#log.warn?.(`[life-chat] qq inbound failed: ${error?.message ?? error}`);
-      }
+      });
     });
 
     this.#bot = bot;
@@ -247,11 +248,14 @@ export class QqChannel {
     return true;
   }
 
-  #accept(message) {
+  async #accept(message) {
     if (!message) return;
     const text = String(message.content ?? '').trim();
     const senderId = String(message.senderId ?? '').trim();
-    if (!text || !senderId || message.senderIsBot) return;
+    const images = await this.#imagesOf(message);
+    // A picture on its own is a message too; only a message with neither is
+    // nothing we can act on.
+    if ((!text && images.length === 0) || !senderId || message.senderIsBot) return;
     const qq = this.#config().qq ?? {};
     const group = message.kind === 'group';
     // Only the owner gets through. Groups stay closed unless the owner speaks there.
@@ -274,6 +278,7 @@ export class QqChannel {
       senderId,
       senderName: String(message.senderName ?? ''),
       text,
+      images,
       at: toIso(message.timestamp),
       messageId: String(message.messageId ?? ''),
       replyTarget: {
@@ -282,6 +287,26 @@ export class QqChannel {
         msgId: String(message.messageId ?? '') || undefined,
       },
     });
+  }
+
+  /**
+   * Download the pictures attached to one inbound message. QQ publishes them as
+   * CDN links; a failure on one image drops that image, not the message.
+   */
+  async #imagesOf(message) {
+    const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+    const images = [];
+    for (const attachment of attachments.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+      const type = String(attachment?.content_type ?? '');
+      if (!type.startsWith('image/')) continue;
+      try {
+        const image = await downloadImage(attachment?.url, { name: attachment?.filename });
+        images.push({ ...image, name: String(attachment?.filename ?? '') });
+      } catch (error) {
+        this.#log.warn?.(`[life-chat] qq: inbound image failed: ${error?.message ?? error}`);
+      }
+    }
+    return images;
   }
 
   async sendText(text, { scope = 'c2c', targetId, msgId } = {}) {

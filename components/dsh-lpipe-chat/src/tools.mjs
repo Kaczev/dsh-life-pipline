@@ -134,11 +134,14 @@ export function createChatTools({ getConfig, update, channels, store }) {
         if (rows.length === 0) return { count: 0, summary: '查无记录。' };
         const lines = rows.map((row) => {
           const who = row.direction === 'out' ? '我' : (row.senderName || row.senderId.slice(-6));
-          return `${row.at} [${row.channel === 'qq' ? 'QQ' : '微信'}] ${who}: ${row.text}`;
+          const count = Array.isArray(row.images) ? row.images.length : 0;
+          // The bytes are gone from the archive by design; only the fact stays.
+          const body = count > 0 ? `${row.text || ''}${row.text ? ' ' : ''}（${count} 张图片）` : row.text;
+          return `${row.at} [${row.channel === 'qq' ? 'QQ' : '微信'}] ${who}: ${body}`;
         });
         return {
           count: rows.length,
-          messages: rows.map(({ id, at, channel, direction, senderId, senderName, text }) => ({ id, at, channel, direction, senderId, senderName, text })),
+          messages: rows.map(({ id, at, channel, direction, senderId, senderName, text, images }) => ({ id, at, channel, direction, senderId, senderName, text, images })),
           summary: lines.join('\n'),
         };
       },

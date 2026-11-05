@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import {
   WEIXIN_QR_BASE_URL,
   createWeixinApi,
+  extractWeixinImages,
   extractWeixinText,
   splitWeixinText,
   weixinMessageId,
 } from './vendor/weixin-api.mjs';
+import { MAX_IMAGES_PER_MESSAGE, MAX_IMAGE_BYTES, toInboundImage } from '../images.mjs';
 
 const defaultApi = createWeixinApi();
 const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
@@ -18,6 +20,7 @@ const LOGIN_TTL_MS = 5 * 60_000;
  */
 export class WeixinChannel {
   #api;
+  #fetchImpl;
   #config;
   #log;
   #onInbound;
@@ -30,11 +33,12 @@ export class WeixinChannel {
   #contextTokens = new Map();
   #tokenOwner = '';
 
-  constructor({ config, onInbound, log, api = defaultApi }) {
+  constructor({ config, onInbound, log, api = defaultApi, fetchImpl = fetch }) {
     this.#api = api;
     this.#config = config;
     this.#log = log;
     this.#onInbound = onInbound;
+    this.#fetchImpl = fetchImpl;
   }
 
   get status() {
@@ -115,7 +119,9 @@ export class WeixinChannel {
           cursor = update.get_updates_buf;
         }
         for (const message of update?.msgs ?? []) {
-          this.#accept(message);
+          // Sequential on purpose: two pictures from the same conversation must
+          // reach the session in the order he sent them.
+          await this.#accept(message, signal);
         }
       }
     } catch (error) {
@@ -133,11 +139,14 @@ export class WeixinChannel {
     }
   }
 
-  #accept(message) {
+  async #accept(message, signal) {
     if (!message || message.message_type === 2) return;
     const text = (extractWeixinText(message) ?? '').trim();
     const senderId = String(message.from_user_id ?? '').trim();
-    if (!text || !senderId) return;
+    // A picture on its own is a message too; only a message with neither is
+    // nothing we can act on.
+    const images = await this.#imagesOf(message, signal);
+    if ((!text && images.length === 0) || !senderId) return;
     const { ownerUserId } = this.#credentials();
     if (this.#config().ownerOnly) {
       // An unknown owner is not permission to accept everyone.
@@ -163,10 +172,19 @@ export class WeixinChannel {
       senderId,
       senderName: '',
       text,
+      images,
       at: new Date(Number(message.create_time_ms) || Date.now()).toISOString(),
       messageId: weixinMessageId(message),
       contextToken: String(message.context_token ?? ''),
     });
+  }
+
+  /**
+   * Decrypt and bound the pictures in one inbound message. A failure on one
+   * image drops that image and is reported, never the message around it.
+   */
+  #imagesOf(message, signal) {
+    return weixinInboundImages(message, { fetchImpl: this.#fetchImpl, log: this.#log, signal });
   }
 
   async sendText(text, { toUserId, contextToken } = {}) {
@@ -382,4 +400,26 @@ function sleep(ms, signal) {
       resolve();
     }, { once: true });
   });
+}
+
+/**
+ * Download and decrypt the pictures of one inbound WeChat message.
+ * @param {object} message - one iLink message.
+ * @param {{ fetchImpl?: typeof fetch, log?: object, signal?: AbortSignal }} [options]
+ * @returns {Promise<Array<{ name: string, mediaType: string, data: Uint8Array }>>} decoded images, in message order.
+ */
+export async function weixinInboundImages(message, { fetchImpl = fetch, log = null, signal } = {}) {
+  const items = extractWeixinImages(message, { fetchImpl });
+  const images = [];
+  for (const item of items.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+    try {
+      const bytes = await item.load({ signal, maxBytes: MAX_IMAGE_BYTES });
+      const image = toInboundImage(bytes, { name: item.name });
+      if (image) images.push(image);
+      else log?.warn?.('[life-chat] weixin: dropped an inbound image in an unsupported format');
+    } catch (error) {
+      log?.warn?.(`[life-chat] weixin: inbound image failed: ${error?.message ?? error}`);
+    }
+  }
+  return images;
 }
