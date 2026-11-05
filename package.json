@@ -1,6 +1,6 @@
 {
   "name": "dsh-life-pipline",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Common settings for the dsh-lpipe- series: every component registers a block into one shared Settings page.",
   "license": "AGPL-3.0-or-later",
   "scripts": {
