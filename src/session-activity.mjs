@@ -13,10 +13,35 @@
  */
 
 export function eventsOf(session) {
-  const events = typeof session?.snapshotEvents === 'function'
-    ? session.snapshotEvents()
-    : session?.events;
-  return Array.isArray(events) ? events : [];
+  if (typeof session?.snapshotEvents === 'function') {
+    const events = session.snapshotEvents();
+    if (Array.isArray(events) && events.length > 0) return events;
+  }
+  if (Array.isArray(session?.events) && session.events.length > 0) return session.events;
+  if (typeof session?.ownEvents === 'function') {
+    const own = session.ownEvents();
+    if (Array.isArray(own) && own.length > 0) return own;
+  }
+  return [];
+}
+
+/** What the last tick actually saw, so a wrong number can be diagnosed. */
+export function describeActivity(sessions, sessionId) {
+  const id = String(sessionId ?? '').trim();
+  const report = { service: typeof sessions?.get === 'function', found: false, events: 0, lastAt: null, error: null };
+  if (!report.service || !id) return report;
+  try {
+    const session = sessions.get(id);
+    report.found = Boolean(session);
+    if (!session) return report;
+    const events = eventsOf(session);
+    report.events = events.length;
+    report.lastAt = lastEventAt(session);
+    return report;
+  } catch (error) {
+    report.error = String(error?.message ?? error);
+    return report;
+  }
 }
 
 /** Newest event time in the session, or null when it has none. */

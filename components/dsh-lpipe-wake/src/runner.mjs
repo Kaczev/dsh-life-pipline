@@ -19,12 +19,14 @@ export function createRunner({
   tickMs = TICK_MS,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
+  probe = null,
 } = {}) {
   let timer = null;
   let busy = false;
   let disposed = false;
   let warnedNoSession = false;
   let lastError = '';
+  let lastProbe = '';
 
   const snapshot = () => normalizeState(readState(), now());
 
@@ -47,6 +49,14 @@ export function createRunner({
         // Host restart cannot erase it.
         Promise.resolve(activityOf(sessionId)).catch(() => null),
       ]);
+      if (probe) {
+        const record = { at: now(), sessionId, status, activityAt: lastActivityAt };
+        const key = JSON.stringify(record);
+        if (key !== lastProbe) {
+          lastProbe = key;
+          try { probe(record); } catch { /* diagnostics never break a tick */ }
+        }
+      }
       const state = normalizeState(readState(), now());
       const result = step(state, { now: now(), activityAt: lastActivityAt, status });
       writeState(result.state);

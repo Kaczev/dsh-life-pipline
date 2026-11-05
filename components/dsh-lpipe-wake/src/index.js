@@ -1,8 +1,12 @@
-import { lastActivityAt } from 'dsh-life-pipline/session';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { describeActivity, lastActivityAt } from 'dsh-life-pipline/session';
 
 import { createRunner, createWakeDelivery, statusReader } from './runner.mjs';
 import { createWakeRpcHandler, registerWakeRpc } from './rpc.mjs';
 import { createWakeTools } from './tools.mjs';
+import { homeDir } from './state.mjs';
 
 export const name = 'dsh-lpipe-wake';
 
@@ -40,6 +44,17 @@ export function apply(ctx) {
       // The main session's own log answers "when did the conversation last
       // end"; the sessions service is read lazily so a late mount still works.
       activityOf: (sessionId) => lastActivityAt(sessions?.(), sessionId),
+      // One line per change of mind, so a wrong number can be traced back to
+      // what the tick actually saw instead of guessed at.
+      probe: (record) => {
+        try {
+          appendFileSync(join(homeDir(), 'probe.jsonl'), `${JSON.stringify({
+            ...record,
+            ...describeActivity(sessions?.(), record.sessionId),
+          })}
+`);
+        } catch { /* diagnostics never break the engine */ }
+      },
       deliver: (request) => current.deliver(request),
       log,
     });
