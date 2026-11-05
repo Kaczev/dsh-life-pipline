@@ -121,7 +121,7 @@ export function apply(ctx) {
           'Wake notices arrive as dsh-lpipe-wake background messages.',
           '（自己醒来）means I stopped for a while and am being given the turn on my own: nothing is required, and doing nothing is a valid answer.',
           '（主动醒来）means a moment I planned earlier with wake_set has come; it carries the reason I wrote for it.',
-          'A turn started by a dsh-lpipe-wake notice may run while the owner is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI.',
+          'A turn started by a dsh-lpipe-wake notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI.',
         ].join(' '),
       });
     } catch (error) {

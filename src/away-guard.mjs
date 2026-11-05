@@ -69,7 +69,7 @@ export function startedAway(session) {
   return AWAY_KINDS.has(lastUserSourceKind(session));
 }
 
-export const AWAY_REASON = 'Denied: this turn started from a WeChat/QQ or wake notice, so the owner may be away from the Harness UI and cannot click question options. Ask in plain text instead (over the same channel when the turn came from chat), or continue with what you can decide yourself.';
+export const AWAY_REASON = 'Denied: this turn started from a WeChat/QQ or wake notice, so the user may be away from the Harness UI and cannot click question options. Ask in plain text instead (over the same channel when the turn came from chat), or continue with what you can decide yourself.';
 
 /**
  * Append one evaluation to `$DSH_HOME/life-pipline/guard.jsonl`.

@@ -159,11 +159,11 @@ export function apply(ctx, config) {
         order: 700,
         interpolate: false,
         text: [
-          'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · Kaczev] ...`; a burst is bundled into one message.',
+          'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · User] ...`; a burst is bundled into one message.',
           'Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
           'After replying with chat_send, do not repeat the same words in the Harness reply; different information is fine.',
           'Pass completed: true to chat_send when the message is the whole answer, so the turn ends there instead of spending another request.',
-          'A turn started by a dsh-lpipe-chat notice may run while the owner is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',
+          'A turn started by a dsh-lpipe-chat notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',
         ].join(' '),
       });
     } catch (error) {
