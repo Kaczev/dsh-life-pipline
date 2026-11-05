@@ -128,14 +128,14 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
       if (Object.hasOwn(input, 'windowSeconds')) {
         const seconds = Number(input.windowSeconds);
         if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {
-          return failure('chat/bad-request', '兜窗口必须在 3 到 120 秒之间。');
+          return failure('chat/bad-request', '收集窗口必须在 3 到 120 秒之间。');
         }
         patch.windowSeconds = Math.round(seconds);
       }
       if (Object.hasOwn(input, 'quietSeconds')) {
         const seconds = Number(input.quietSeconds);
         if (!Number.isFinite(seconds) || seconds < 0.2 || seconds > 60) {
-          return failure('chat/bad-request', '静默间隔必须在 0.2 到 60 秒之间。');
+          return failure('chat/bad-request', '合并间隔必须在 0.2 到 60 秒之间。');
         }
         patch.quietSeconds = Math.round(seconds * 10) / 10;
       }

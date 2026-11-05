@@ -93,7 +93,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 
 自己持有微信（iLink 官方机器人协议）和 QQ（开放平台机器人）两条通道，不再依赖 dsh-im。
 
-- **入站**：扫码接入 → 长轮询收消息 → 只放行主人 → 两个兜。小兜 `quietSeconds`（默认 1 秒）：每来一条都把截止时刻推到「现在 + 小兜」，安静满它才把这一串送出去。兜窗口 `windowSeconds`（默认 5 秒）：一串送出后开一个窗口，窗口内继续来的消息先攒着，到窗口末尾再合并补一次。判定都是 `Date.now() >= 截止时刻`，定时器只负责醒来。
+- **入站**：扫码接入 → 长轮询收消息 → 只放行主人 → 两个计时。**合并间隔** `quietSeconds`（默认 1 秒）：每来一条都把截止时刻推到「现在 + 合并间隔」，要安静满它这一串才算说完。**收集窗口** `windowSeconds`（默认 5 秒）：一串送出后开一个窗口，窗口内继续来的消息先攒着，到窗口末尾再合并补一次。送达条件是 `Date.now() >= max(两个截止时刻)`——两个都到点才发。定时器只负责醒来比时间戳。
 - **注入**：独立来源 `dsh-lpipe-chat`、`form: notice` 的后台通知；通过 `sessionController.resolveAgent` 恢复目标会话，忙时 `agent.inject` 等下一步读取，空闲时 `agent.followup` 唤醒。不走普通用户 `prompt`，不使用 `steer`。
 - **标注**：注入正文形如 `[微信 · Kaczev] 原文`，群聊为 `[QQ · 群 · 昵称] 原文`。
 - **时间**：微信的分隔规则，实现在 `src/clock.mjs`（由公共包导出为 `dsh-life-pipline/clock`）。间隔不足 5 分钟不加时间；更久则在自己那一行写 `14:22` / `昨天 14:22` / `周二 14:22` / `11月1日 14:22` / `2025年11月1日 14:22`。时间永不落进消息正文，宿主重启时用归档里最后一条入站消息做基准，不重复播报已经见过的时间。
@@ -105,7 +105,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 
 工具：`chat_send`、`chat_history`、`chat_login`、`chat_status`。
 
-**配置页**：设置 → **Lpipe 设置**（宿主 `settings.section` 槽，`id: lpipe`、`order: 60`）。整个 `dsh-lpipe-` 系列只有这一个侧栏条目：这一页由公共包 `dsh-life-pipline` 渲染，它声明子槽 `lpipe.settings.panel`（`kind: 'list'`），每个组件把自己的那一块注册进去，按 `order` 从上往下排——加组件不需要新增侧栏条目，也不改这一页的代码。主会话 id 输入并回显会话标题、小兜与兜窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏的行首带一枚小气泡标记（公共包根目录的 `assets/session-mark.png`，青蓝对半，内联成 data URL；挂在宿主的 `sidebar.session.row.leading` 槽位上，按 `sessionId` 判断是不是主会话）。这枚标记归公共包：主会话是共用状态，组件不各自去占这个座位。面板只用宿主的 `--dsw-alias-*` 设计 token，深浅色主题跟着宿主走。
+**配置页**：设置 → **Lpipe 设置**（宿主 `settings.section` 槽，`id: lpipe`、`order: 60`）。整个 `dsh-lpipe-` 系列只有这一个侧栏条目：这一页由公共包 `dsh-life-pipline` 渲染，它声明子槽 `lpipe.settings.panel`（`kind: 'list'`），每个组件把自己的那一块注册进去，按 `order` 从上往下排——加组件不需要新增侧栏条目，也不改这一页的代码。主会话 id 输入并回显会话标题、合并间隔与收集窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏的行首带一枚小气泡标记（公共包根目录的 `assets/session-mark.png`，青蓝对半，内联成 data URL；挂在宿主的 `sidebar.session.row.leading` 槽位上，按 `sessionId` 判断是不是主会话）。这枚标记归公共包：主会话是共用状态，组件不各自去占这个座位。面板只用宿主的 `--dsw-alias-*` 设计 token，深浅色主题跟着宿主走。
 
 配置页通过 Host 的 `/api/dsh-lpipe-chat` 管理通道与页面通信（`chat.status` / `chat.config.save` / `chat.session.title` / `chat.login.begin` / `chat.login.state` / `chat.login.code` / `chat.login.cancel`），凭据只留在 Host 侧，页面只能看到「已连接/未连接」。
 
