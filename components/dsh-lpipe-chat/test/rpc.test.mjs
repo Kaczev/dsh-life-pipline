@@ -12,7 +12,7 @@ const BASE_CONFIG = {
   qq: { enabled: true, appId: '', appSecret: '', ownerOpenId: 'open' },
 };
 
-function fixture({ login = null, live = { connected: true, lastError: '' }, connectResult = true } = {}) {
+function fixture({ login = null, live = { connected: true, lastError: '' }, connectResult = true, connectResults = null } = {}) {
   let config = structuredClone(BASE_CONFIG);
   const calls = [];
   // Live state, not the stored credentials: connect() flips this one.
@@ -28,8 +28,9 @@ function fixture({ login = null, live = { connected: true, lastError: '' }, conn
     cancelLogin: () => true,
     connect: async () => {
       calls.push('connect');
-      if (connectResult) Object.assign(liveNow, { connected: true, lastError: '' });
-      return connectResult;
+      const queued = connectResults && connectResults.length ? connectResults.shift() : connectResult;
+      if (queued) Object.assign(liveNow, { connected: true, lastError: '' });
+      return queued;
     },
     get status() { return liveNow; },
   };
@@ -227,4 +228,31 @@ test('a scan that cannot connect says so instead of claiming success', async () 
   assert.equal(result.value.connected, false, 'the scan alone must not read as online');
   assert.match(result.value.login.error, /连接超时/);
   assert.equal(config.qq.appId, '1020', 'the credentials are still adopted');
+});
+
+test('a WeChat scan whose handshake races connects on the retry, not a second scan', async () => {
+  const { handle, calls } = fixture({
+    login: {
+      state: 'connected',
+      credentials: { botToken: 'new', accountId: 'acc', ownerUserId: 'owner@wx', baseUrl: 'https://x/' },
+    },
+    connectResults: [false, true],
+  });
+  const result = await handle('chat.login.state', { channel: 'weixin' });
+  assert.equal(result.value.connected, true);
+  assert.equal(result.value.login.error, undefined);
+  assert.equal(calls.filter((call) => call === 'connect').length, 2);
+});
+
+test('QQ does not retry a refused connect: a dead appid is an answer, not a hiccup', async () => {
+  const { handle, calls } = fixture({
+    login: {
+      state: 'connected',
+      credentials: { appId: '123', appSecret: 'sec', ownerOpenId: 'o' },
+    },
+    connectResults: [false],
+  });
+  const result = await handle('chat.login.state', { channel: 'qq' });
+  assert.equal(result.value.connected, false);
+  assert.equal(calls.filter((call) => call === 'connect').length, 1);
 });

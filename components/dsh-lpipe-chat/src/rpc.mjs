@@ -190,13 +190,26 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
       update((current) => adoptCredentials(channelName, current, state.credentials));
       // Adopting credentials is not the same as being online: report what the
       // channel actually managed, so a scan that cannot connect says why.
+      //
+      // WeChat needs a moment after the scan before the new bot answers the
+      // handshake; one immediate attempt used to read as "the scan failed",
+      // which is why people had to scan twice. Retrying is cheap for WeChat and
+      // wrong for QQ (a dead appid fails fast and honestly).
+      const attempts = channelName === 'weixin' ? 3 : 1;
       let connected = false;
       let reason = '';
-      try {
-        connected = (await channel.connect()) === true;
-      } catch (error) {
-        const detail = String(channel.status?.lastError || error?.message || error);
-        reason = detail.split('\n')[0];
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          connected = (await channel.connect()) === true;
+        } catch (error) {
+          const detail = String(channel.status?.lastError || error?.message || error);
+          reason = detail.split('\n')[0];
+        }
+        if (connected) {
+          reason = '';
+          break;
+        }
+        if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 800));
       }
       return {
         ok: true,
