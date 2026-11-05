@@ -289,16 +289,24 @@ function WakePanel({ rpcCall }) {
   const planned = Array.isArray(status.plannedWakes) ? status.plannedWakes : [];
   const nextPlan = planned[0] ?? null;
 
-  const heading = (title, on, toggle) => h('div', {
-    style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 },
+  // The card's whole action set lives on the title line: the numbers below stay
+  // a clean read, and the row never wraps into a second deck of buttons.
+  const heading = (title, on, toggle, actions = []) => h('div', {
+    style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   },
     h('span', { style: { ...label, marginBottom: 0 } }, title),
+    ...actions.map((action, index) => h('button', {
+      key: action.label,
+      style: { ...button(), padding: '3px 10px', marginLeft: index === 0 ? 'auto' : 0 },
+      disabled: busy || action.disabled === true,
+      onClick: action.onClick,
+    }, action.label)),
     h('button', {
       role: 'switch',
       'aria-checked': on,
       'aria-label': `${title}开关`,
       title: on ? `关掉：${title}不再叫我` : `打开：${title}继续叫`,
-      style: { ...track(on), marginLeft: 'auto' },
+      style: { ...track(on), marginLeft: actions.length > 0 ? 0 : 'auto' },
       disabled: busy,
       onClick: toggle,
     }, h('span', { style: knob(on) })));
@@ -348,7 +356,15 @@ function WakePanel({ rpcCall }) {
 
       // Manual: a moment I picked, untouched by my own activity.
       h('div', { style: { ...card, marginBottom: 0, opacity: manualOn ? 1 : 0.55 } },
-        heading('主动唤醒', manualOn, () => run('wake.config.save', { manualEnabled: !manualOn })),
+        heading('主动唤醒', manualOn, () => run('wake.config.save', { manualEnabled: !manualOn }), [
+          { label: '现在唤醒', disabled: !manualOn, onClick: () => run('wake.plan', { at: Date.now(), reason: '手动点了一次' }) },
+          nextPlan
+            ? { label: planned.length > 1 ? '取消最近一个' : '取消', onClick: () => run('wake.cancel', { id: nextPlan.id }) }
+            : null,
+          planned.length > 1
+            ? { label: '全部取消', onClick: () => run('wake.cancel', {}) }
+            : null,
+        ].filter(Boolean)),
         nextPlan
           ? h('div', null,
             h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
@@ -361,26 +377,6 @@ function WakePanel({ rpcCall }) {
               ? h('div', { style: { marginTop: 4, fontSize: 12, color: COLORS.muted } }, `另有 ${planned.length - 1} 个安排`)
               : null)
           : h('span', { style: { fontSize: 13, color: COLORS.muted } }, '没有安排'),
-        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 } },
-          h('button', {
-            style: { ...button(), padding: '4px 12px' },
-            disabled: busy || !manualOn,
-            onClick: () => run('wake.plan', { at: Date.now(), reason: '手动点了一次' }),
-          }, '现在醒来一次'),
-          nextPlan
-            ? h('button', {
-              style: { ...button(), padding: '4px 12px' },
-              disabled: busy,
-              onClick: () => run('wake.cancel', { id: nextPlan.id }),
-            }, planned.length > 1 ? '取消最近一个' : '取消')
-            : null,
-          planned.length > 1
-            ? h('button', {
-              style: { ...button(), padding: '4px 12px' },
-              disabled: busy,
-              onClick: () => run('wake.cancel', {}),
-            }, '全部取消')
-            : null),
         manualOn ? null : note('已关闭：到点也不会醒，安排还留着。'))),
 
     h('div', { style: row },

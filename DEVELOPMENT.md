@@ -21,7 +21,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
         ├── package.json      # name / icon / exports / dsh.bundle / dsh.client / dependencies
         ├── cordis.patch.yml  # 只插自己这一行 → 插件列表里独立一张卡片
         ├── src/index.js      # 插件本体
-        ├── client/panel.js   # chat 自己那块设置与主会话小气泡标记
+        ├── client/panel.js   # chat 自己那块设置
         ├── lib/client.js     # 构建产物（提交进仓库）
         ├── locale/{en,zh}.json
         └── assets/icon.png   # 组件图标：两个气泡合流
@@ -92,7 +92,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 
 工具：`chat_send`、`chat_history`、`chat_login`、`chat_status`。
 
-**配置页**：设置 → **Lpipe 设置**（宿主 `settings.section` 槽，`id: lpipe`、`order: 60`）。整个 `dsh-lpipe-` 系列只有这一个侧栏条目：这一页由公共包 `dsh-life-pipline` 渲染，它声明子槽 `lpipe.settings.panel`（`kind: 'list'`），每个组件把自己的那一块注册进去，按 `order` 从上往下排——加组件不需要新增侧栏条目，也不改这一页的代码。主会话 id 输入并回显会话标题、兜窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏的行首带一枚小气泡标记（`assets/session-mark.png`，青蓝对半，内联成 data URL；挂在宿主的 `sidebar.session.row.leading` 槽位上，按 `sessionId` 判断是不是主会话）。面板只用宿主的 `--dsw-alias-*` 设计 token，深浅色主题跟着宿主走。
+**配置页**：设置 → **Lpipe 设置**（宿主 `settings.section` 槽，`id: lpipe`、`order: 60`）。整个 `dsh-lpipe-` 系列只有这一个侧栏条目：这一页由公共包 `dsh-life-pipline` 渲染，它声明子槽 `lpipe.settings.panel`（`kind: 'list'`），每个组件把自己的那一块注册进去，按 `order` 从上往下排——加组件不需要新增侧栏条目，也不改这一页的代码。主会话 id 输入并回显会话标题、兜窗口秒数、微信/QQ 状态与扫码接入（二维码直接画在页面上，需要配对码时出现输入框）。主会话在会话栏的行首带一枚小气泡标记（公共包根目录的 `assets/session-mark.png`，青蓝对半，内联成 data URL；挂在宿主的 `sidebar.session.row.leading` 槽位上，按 `sessionId` 判断是不是主会话）。这枚标记归公共包：主会话是共用状态，组件不各自去占这个座位。面板只用宿主的 `--dsw-alias-*` 设计 token，深浅色主题跟着宿主走。
 
 配置页通过 Host 的 `/api/dsh-lpipe-chat` 管理通道与页面通信（`chat.status` / `chat.config.save` / `chat.session.title` / `chat.login.begin` / `chat.login.state` / `chat.login.code` / `chat.login.cancel`），凭据只留在 Host 侧，页面只能看到「已连接/未连接」。
 

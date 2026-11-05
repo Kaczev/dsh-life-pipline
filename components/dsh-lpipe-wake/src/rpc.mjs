@@ -35,6 +35,7 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       lastWokeAt: asIso(state.lastWokeAt),
       lastWokeKind: state.lastWokeKind,
       lastWokeReason: state.lastWokeReason,
+      lastCancelled: state.lastCancelled,
       mainSessionId: readMainSessionId(),
       statePath: statePath(),
       now: asIso(now()),
@@ -91,7 +92,9 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
 
     if (method === 'wake.cancel') {
       const id = typeof input.id === 'string' && input.id ? input.id : null;
-      runner.cancelWake(id);
+      // This endpoint is what the settings page calls, so the cancellation is
+      // recorded as the owner's; the tools pass 'tool' themselves.
+      runner.cancelWake(id, input.source === 'tool' ? 'tool' : 'page');
       return { ok: true, value: status() };
     }
 

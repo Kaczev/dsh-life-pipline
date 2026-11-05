@@ -113,10 +113,26 @@ export function createRunner({
     return state;
   }
 
-  /** `id` cancels one plan, no argument cancels all of them. */
-  function cancelWake(id = null) {
+  /**
+   * `id` cancels one plan, no argument cancels all of them. The plan that was
+   * dropped is remembered, because "why was I not woken" is a question I will
+   * ask later, from a tool that only sees the file.
+   */
+  function cancelWake(id = null, source = 'page') {
     const state = snapshot();
+    const dropped = id
+      ? state.plannedWakes.filter((plan) => plan.id === id)
+      : [...state.plannedWakes];
     state.plannedWakes = id ? state.plannedWakes.filter((plan) => plan.id !== id) : [];
+    const gone = dropped[0];
+    if (gone) {
+      state.lastCancelled = {
+        at: gone.at,
+        reason: gone.reason || '',
+        cancelledAt: now(),
+        source: source === 'tool' ? 'tool' : 'page',
+      };
+    }
     writeState(state);
     return state;
   }

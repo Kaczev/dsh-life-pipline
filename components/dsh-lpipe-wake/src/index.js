@@ -81,7 +81,7 @@ export function apply(ctx) {
         setNaturalEnabled: (on) => runner?.setNaturalEnabled(on),
         setManualEnabled: (on) => runner?.setManualEnabled(on),
         planWake: (plan) => runner?.planWake(plan),
-        cancelWake: (id) => runner?.cancelWake(id),
+        cancelWake: (id, source) => runner?.cancelWake(id, source),
         tick: async () => { await runner?.tick(); },
       },
     });
@@ -97,7 +97,7 @@ export function apply(ctx) {
       runner: {
         snapshot: () => runner?.snapshot() ?? {},
         planWake: (plan) => runner?.planWake(plan),
-        cancelWake: (id) => runner?.cancelWake(id),
+        cancelWake: (id, source) => runner?.cancelWake(id, source),
       },
     });
     for (const tool of tools) {

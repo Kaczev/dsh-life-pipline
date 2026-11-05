@@ -17,7 +17,12 @@ async function loadClient() {
   };
   vm.runInNewContext(code, sandbox, { filename: 'client.js' });
   assert.ok(definition, 'bundle must call __ModuleLoader__.load');
-  const react = { createElement: (type, props, ...children) => ({ type, props, children }) };
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    useState: (initial) => [initial, () => {}],
+    useEffect: () => {},
+    useCallback: (fn) => fn,
+  };
   return {
     definition,
     exports: definition.factory((id) => {
@@ -45,8 +50,17 @@ test('the common client half owns the shared Settings page', async () => {
   };
   exports.apply(ctx);
 
-  assert.equal(registered.length, 1, 'the page is the only Settings entry the series adds');
-  const { options: page, Component } = registered[0];
+  assert.deepEqual(
+    registered.map(({ options }) => options.name),
+    ['sidebar.session.row.leading', 'settings.section'],
+    'the common half owns the row seat and the Settings page',
+  );
+  const { options: seat, Component: Mark } = registered[0];
+  assert.equal(seat.id, 'main-session-mark');
+  assert.equal(seat.order, 20);
+  assert.equal(typeof Mark, 'function');
+
+  const { options: page, Component } = registered[1];
   assert.equal(page.name, 'settings.section');
   assert.equal(page.id, 'lpipe');
   assert.equal(page.order, 60);
@@ -55,6 +69,36 @@ test('the common client half owns the shared Settings page', async () => {
   assert.equal(page.children['lpipe.settings.panel'].kind, 'list');
   assert.equal(page.children['lpipe.settings.panel'].scope, 'root');
   assert.equal(typeof Component, 'function');
+});
+
+test('the mark is inlined, painted only for the main session, and follows the file', async () => {
+  const code = await readFile(await buildClient(), 'utf8');
+  assert.match(code, /data:image\/png;base64,iVBORw0KGgo/, 'the mark must be inlined as a PNG data URL');
+  assert.match(code, /'sidebar\.session\.row\.leading'/, 'the mark must seat in the row leading cell');
+  assert.doesNotMatch(code, /1F4CC/, 'the emoji pin is retired');
+
+  const { exports } = await loadClient();
+  const { MainSessionMark, setMainSessionId, trackMainSession } = exports.__test__;
+  setMainSessionId('');
+  assert.equal(MainSessionMark({ sessionId: 'session-a' }), null, 'nothing is marked before a main session is known');
+  setMainSessionId('session-a');
+  assert.equal(MainSessionMark({ sessionId: 'session-b' }), null, 'other rows stay bare');
+  const mark = MainSessionMark({ sessionId: 'session-a' });
+  assert.equal(mark.props['data-dsh-life-pipline-mark'], '1');
+  assert.match(mark.props.src, /^data:image\/png;base64,iVBORw0KGgo/);
+  assert.equal(mark.props.alt, '', 'the mark is decorative');
+
+  const calls = [];
+  const stop = trackMainSession(async (method) => {
+    calls.push(method);
+    return { ok: true, value: { mainSessionId: 'session-live', session: null } };
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, ['pipeline.status'], 'the common RPC is the only source of truth');
+  assert.notEqual(MainSessionMark({ sessionId: 'session-live' }), null, 'the reported row gets the mark');
+  assert.equal(MainSessionMark({ sessionId: 'session-other' }), null, 'other rows stay bare');
+  stop();
+  assert.equal(MainSessionMark({ sessionId: 'session-live' }), null, 'teardown clears the mark');
 });
 
 test('the page renders whatever the installed components registered', async () => {
@@ -88,4 +132,7 @@ test('the page renders whatever the installed components registered', async () =
 test('a plugin without slots does not throw', async () => {
   const { exports } = await loadClient();
   assert.doesNotThrow(() => exports.apply({}));
+  assert.doesNotThrow(() => exports.apply({
+    connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
+  }), 'the mark tracker works without slots');
 });

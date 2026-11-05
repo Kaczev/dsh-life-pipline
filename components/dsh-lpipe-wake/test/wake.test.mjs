@@ -190,8 +190,21 @@ function fakeRunner(initial = {}) {
           .sort((a, b) => a.at - b.at),
       };
     },
-    cancelWake: (id) => {
-      state = { ...state, plannedWakes: id ? (state.plannedWakes ?? []).filter((p) => p.id !== id) : [] };
+    cancelWake: (id, source = 'page') => {
+      const planned = state.plannedWakes ?? [];
+      const dropped = id ? planned.filter((p) => p.id === id) : [...planned];
+      state = { ...state, plannedWakes: id ? planned.filter((p) => p.id !== id) : [] };
+      if (dropped[0]) {
+        state = {
+          ...state,
+          lastCancelled: {
+            at: dropped[0].at,
+            reason: dropped[0].reason ?? '',
+            cancelledAt: T0,
+            source: source === 'tool' ? 'tool' : 'page',
+          },
+        };
+      }
     },
     setIntervalMs: (ms) => { state = { ...state, defaultIntervalMs: ms }; },
     setHeartbeatMs: (ms) => { state = { ...state, heartbeatMs: ms }; },
@@ -263,6 +276,40 @@ test('wake_set plans a moment with its reason, wake_check reads both kinds', asy
 
   const lonely = await check.execute({});
   assert.match(lonely.summary, /主动唤醒：没有安排/);
+});
+
+test('a quiet switch and a cancelled plan both explain themselves', async () => {
+  const runner = fakeRunner({
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + HOUR,
+    naturalEnabled: false,
+    manualEnabled: false,
+  });
+  const [set, check] = createWakeTools({ runner, now: () => T0 });
+
+  const placed = await set.execute({ in: '20m', reason: '提醒他吃药' });
+  assert.match(placed.summary, /开关关着/, 'a plan made under a closed switch says so up front');
+
+  const read = await check.execute({});
+  assert.match(read.summary, /主动唤醒：.*开关关着/);
+  assert.match(read.summary, /自然唤醒：.*开关关着/);
+
+  // Somebody cancels the plan from the settings page.
+  runner.cancelWake('p1', 'page');
+  const after = await check.execute({});
+  assert.match(after.summary, /主动唤醒：没有安排/, 'the plan is gone');
+  assert.match(after.summary, /被.*取消/, 'and the reason for the silence is named');
+  assert.match(after.summary, /取消了/);
+  assert.equal(after.lastCancelled.source, 'page');
+
+  // One I cancelled myself is attributed to me, not to the owner.
+  const mine = fakeRunner({ lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR });
+  const [set2, check2] = createWakeTools({ runner: mine, now: () => T0 });
+  await set2.execute({ in: '10m', reason: '去看看' });
+  await set2.execute({ cancel: true });
+  const told = await check2.execute({});
+  assert.match(told.summary, /被我取消/);
+  assert.equal(told.lastCancelled.source, 'tool');
 });
 
 test('the runner wakes once, then waits for the next interval', async () => {

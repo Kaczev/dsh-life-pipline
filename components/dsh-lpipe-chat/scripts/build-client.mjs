@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,7 +28,21 @@ export async function buildClient() {
   const body = await readFile(resolve(root, 'client/panel.js'), 'utf8');
   const output = resolve(root, 'lib/client.js');
   await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, wrapClient(body), 'utf8');
+  // Several test files build the same bundle in parallel; a partial read would
+  // make an unrelated test fail once in a while, so write then rename.
+  const staging = `${output}.${process.pid}.tmp`;
+  await writeFile(staging, wrapClient(body), 'utf8');
+  // Windows occasionally reports EPERM for a moment (a scanner holding the
+  // file); a short retry is cheaper than a flaky test run.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(staging, output);
+      break;
+    } catch (error) {
+      if (attempt >= 8 || error?.code !== 'EPERM') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+    }
+  }
   return output;
 }
 

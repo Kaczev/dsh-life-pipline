@@ -32,13 +32,14 @@ async function loadClient() {
   }) };
 }
 
-test('the client bundle registers the sidebar mark and one settings block', async () => {
+test('the client bundle contributes one settings block and nothing else', async () => {
   const { definition, exports } = await loadClient();
   assert.equal(definition.id, 'dsh-lpipe-chat');
   assert.equal(exports.name, 'dsh-lpipe-chat-settings');
   assert.deepEqual([...exports.inject], ['slots', 'connection']);
 
   const registered = [];
+  const effects = [];
   const ctx = {
     slots: {
       inject: (slot, factory) => factory(),
@@ -48,71 +49,21 @@ test('the client bundle registers the sidebar mark and one settings block', asyn
       },
     },
     connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
-    effect: (factory, name) => {
-      effects.push(name);
-      cleanups.push(factory());
-    },
+    effect: (factory, name) => { effects.push(name); },
   };
-  const effects = [];
-  const cleanups = [];
   exports.apply(ctx);
-  assert.deepEqual(registered.map(({ options }) => options.name), [
-    'sidebar.session.row.leading',
-    'lpipe.settings.panel',
-  ]);
+  // The main-session mark belongs to dsh-life-pipline: the main session is
+  // common state, and the row seat must not depend on this component.
+  assert.deepEqual(registered.map(({ options }) => options.name), ['lpipe.settings.panel']);
+  assert.deepEqual(effects, [], 'the block needs no background tracker of its own');
 
-  const [{ options: seat }] = registered;
-  assert.equal(seat.id, 'main-session-mark');
-  assert.equal(typeof registered[0].Component, 'function');
-
-  // Chat contributes one block to that page.
-  const { options: block } = registered[1];
+  const { options: block } = registered[0];
   assert.equal(block.id, 'chat');
   assert.equal(block.label(), 'Lpipe Chat');
   const props = block.inject();
   assert.equal(typeof props.rpcCall, 'function');
   const result = await props.rpcCall('chat.status', {});
   assert.deepEqual(result, { ok: true, value: {} });
-
-  // The mark tracks the main session without a DOM and cleans up silently.
-  assert.deepEqual(effects, ['dsh-lpipe-chat: main session mark']);
-  for (const stop of cleanups) assert.equal(typeof stop, 'function');
-  for (const stop of cleanups) stop();
-});
-
-test('the mark paints only the main session and is inlined', async () => {
-  const code = await readFile(await buildClient(), 'utf8');
-  assert.match(code, /data:image\/png;base64,iVBORw0KGgo/, 'the mark must be inlined as a PNG data URL');
-  assert.match(code, /'sidebar\.session\.row\.leading'/, 'the mark must seat in the row leading cell');
-  assert.doesNotMatch(code, /1F4CC/, 'the emoji pin is retired');
-
-  const { exports } = await loadClient();
-  const { MainSessionMark, setMainSessionId } = exports.__test__;
-  setMainSessionId('');
-  assert.equal(MainSessionMark({ sessionId: 'session-a' }), null, 'nothing is marked before a main session is known');
-  setMainSessionId('session-a');
-  assert.equal(MainSessionMark({ sessionId: 'session-b' }), null, 'other rows stay bare');
-  const mark = MainSessionMark({ sessionId: 'session-a' });
-  assert.equal(mark.props['data-dsh-lpipe-chat-mark'], '1');
-  assert.match(mark.props.src, /^data:image\/png;base64,iVBORw0KGgo/);
-  assert.equal(mark.props.alt, '', 'the mark is decorative');
-  setMainSessionId('');
-});
-
-test('the tracker reads the main session out of the RPC envelope', async () => {
-  const { exports } = await loadClient();
-  const { MainSessionMark, trackMainSession } = exports.__test__;
-  const calls = [];
-  const stop = trackMainSession(async (method) => {
-    calls.push(method);
-    return { ok: true, value: { config: { mainSessionId: 'session-live' } } };
-  });
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(calls, ['chat.status']);
-  assert.notEqual(MainSessionMark({ sessionId: 'session-live' }), null, 'the reported row gets the mark');
-  assert.equal(MainSessionMark({ sessionId: 'session-other' }), null, 'other rows stay bare');
-  stop();
-  assert.equal(MainSessionMark({ sessionId: 'session-live' }), null, 'teardown clears the mark');
 });
 
 test('a finished login flips the card before the channel is fully up', async () => {

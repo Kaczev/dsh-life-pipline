@@ -41,13 +41,22 @@ function readSchedule(runner, now) {
     lastWokeAt: asIso(state.lastWokeAt),
     lastWokeKind: state.lastWokeKind,
     lastWokeReason: state.lastWokeReason,
+    lastCancelled: state.lastCancelled
+      ? {
+        at: asIso(state.lastCancelled.at),
+        cancelledAt: asIso(state.lastCancelled.cancelledAt),
+        reason: state.lastCancelled.reason,
+        source: state.lastCancelled.source,
+      }
+      : null,
   };
 }
 
 function naturalLine(natural) {
   if (!natural.nextWakeAt) return '自然唤醒：还没有起算（主会话里还没有事件）。';
   const when = clockText(Date.parse(natural.nextWakeAt));
-  return `${natural.enabled ? '' : '（已关闭）'}自然唤醒：${when}，即上次结束行动 + ${Math.round(natural.intervalMs / 60000)} 分钟。`;
+  const tail = natural.enabled ? '' : '（开关关着，这个点不会叫。）';
+  return `自然唤醒：${when}，即上次结束行动 + ${Math.round(natural.intervalMs / 60000)} 分钟。${tail}`;
 }
 
 /** `30 分钟后`, `2 小时后` — how far a planned moment is from now. */
@@ -65,13 +74,28 @@ function trimStop(text) {
   return String(text ?? '').trim().replace(/[。．.！!？?，,；;、\s]+$/u, '');
 }
 
-function manualLine(manual) {
-  if (!manual.next) return '主动唤醒：没有安排。';
+/** A missing plan explains itself when somebody cancelled one recently. */
+function cancelledNote(lastCancelled, lastWokeAt) {
+  if (!lastCancelled) return '';
+  const cancelledAt = Date.parse(lastCancelled.cancelledAt);
+  const wokeAt = lastWokeAt ? Date.parse(lastWokeAt) : NaN;
+  if (!Number.isFinite(cancelledAt)) return '';
+  if (Number.isFinite(wokeAt) && wokeAt >= cancelledAt) return '';
+  const who = lastCancelled.source === 'tool' ? '我' : '你';
+  return `原定 ${clockText(Date.parse(lastCancelled.at))} 的那个在 ${clockText(cancelledAt)} 被${who}取消了。`;
+}
+
+function manualLine(manual, lastCancelled, lastWokeAt) {
+  if (!manual.next) {
+    const note = cancelledNote(lastCancelled, lastWokeAt);
+    return note ? `主动唤醒：没有安排（${note}）` : '主动唤醒：没有安排。';
+  }
   const when = clockText(Date.parse(manual.next.at));
   const reason = trimStop(manual.next.reason);
   const why = reason ? `缘由：${reason}。` : '没有写缘由。';
   const more = manual.count > 1 ? `另有 ${manual.count - 1} 个，` : '';
-  return `${manual.enabled ? '' : '（已关闭）'}主动唤醒：${when}，${more}${why}`;
+  const tail = manual.enabled ? '' : '（开关关着，这个点不会叫。）';
+  return `主动唤醒：${when}，${more}${why}${tail}`;
 }
 
 /**
@@ -85,7 +109,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     const schedule = readSchedule(runner, now);
     if (Object.hasOwn(input, 'cancel')) {
       const id = typeof input.cancel === 'string' ? input.cancel : null;
-      runner.cancelWake(id);
+      runner.cancelWake(id, 'tool');
       const after = readSchedule(runner, now);
       return {
         ...after,
@@ -108,7 +132,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     const after = readSchedule(runner, now);
     return {
       ...after,
-      summary: `主动唤醒定在 ${clockText(at)}（${gapText(at, now())}）。${after.manual.count > 1 ? `现在一共 ${after.manual.count} 个安排。` : ''}`,
+      summary: `主动唤醒定在 ${clockText(at)}（${gapText(at, now())}）。${after.manual.count > 1 ? `现在一共 ${after.manual.count} 个安排。` : ''}${after.manual.enabled ? '' : '主动唤醒开关关着：这条排进去也不会触发。'}`,
     };
   };
 
@@ -154,7 +178,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
       const schedule = readSchedule(runner, now);
       return {
         ...schedule,
-        summary: `${manualLine(schedule.manual)}\n${naturalLine(schedule.natural)}`,
+        summary: `${manualLine(schedule.manual, schedule.lastCancelled, schedule.lastWokeAt)}\n${naturalLine(schedule.natural)}`,
       };
     },
   }];

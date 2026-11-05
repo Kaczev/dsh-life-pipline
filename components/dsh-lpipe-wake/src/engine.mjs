@@ -37,6 +37,8 @@ export function defaultState(now = Date.now()) {
     lastWokeAt: null,
     lastWokeKind: null,
     lastWokeReason: null,
+    // The most recent cancellation, so a missing plan can explain itself later.
+    lastCancelled: null,
     lastSeenAt: now,
   };
 }
@@ -60,6 +62,19 @@ function normalizePlan(raw) {
   return plans.sort((a, b) => a.at - b.at).slice(0, MAX_PLANNED);
 }
 
+function normalizeCancelled(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const at = asTime(raw.at);
+  const cancelledAt = asTime(raw.cancelledAt);
+  if (at === null || cancelledAt === null) return null;
+  return {
+    at,
+    cancelledAt,
+    reason: typeof raw.reason === 'string' ? raw.reason.slice(0, 200) : '',
+    source: raw.source === 'tool' ? 'tool' : 'page',
+  };
+}
+
 /** Coerce anything read from disk into a state we can reason about. */
 export function normalizeState(raw, now = Date.now()) {
   const base = defaultState(now);
@@ -79,6 +94,7 @@ export function normalizeState(raw, now = Date.now()) {
     lastWokeAt: asTime(raw.lastWokeAt),
     lastWokeKind: raw.lastWokeKind === 'manual' || raw.lastWokeKind === 'natural' ? raw.lastWokeKind : null,
     lastWokeReason: typeof raw.lastWokeReason === 'string' ? raw.lastWokeReason : null,
+    lastCancelled: normalizeCancelled(raw.lastCancelled),
     lastSeenAt: asTime(raw.lastSeenAt) ?? now,
   };
 }
