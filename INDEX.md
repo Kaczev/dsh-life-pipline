@@ -43,6 +43,8 @@
 
 ## components/dsh-lpipe-memory
 
+- `components/dsh-lpipe-memory/assets/icon.png` — 记忆管线图标（三层卡片 + 星点，512² 透明 PNG）
+
 - [components/dsh-lpipe-memory/package.json](components/dsh-lpipe-memory/package.json)：包名、`exports`、`dsh.bundle`，以及对 `dsh-life-pipline` 的依赖。
 - [components/dsh-lpipe-memory/cordis.patch.yml](components/dsh-lpipe-memory/cordis.patch.yml)：组件自己的挂载行。
 - [components/dsh-lpipe-memory/src/paths.mjs](components/dsh-lpipe-memory/src/paths.mjs)：`~/.dsh/life-memory` 的目录规则（一对话一文件夹、按天分卷、media 全局寻址）。

@@ -9,7 +9,8 @@
     ".": "./src/index.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./icon": "./assets/icon.png"
   },
   "dependencies": {
     "dsh-life-pipline": "^0.7.0"
@@ -19,6 +20,7 @@
   },
   "files": [
     "src",
+    "assets",
     "locale",
     "cordis.patch.yml",
     "LICENSE",
@@ -39,5 +41,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "icon": "assets/icon.png"
 }
