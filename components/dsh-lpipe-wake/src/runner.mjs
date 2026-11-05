@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { TICK_MS, normalizeState, step } from './engine.mjs';
+import { MAX_PLANNED, TICK_MS, normalizeState, step } from './engine.mjs';
 import { loadState, readMainSessionId, saveState } from './state.mjs';
 
 /**
- * The only stateful piece: a 30s tick that watches the main session and writes
- * the state file. Everything it decides comes from `step()`.
+ * The only stateful piece: a heartbeat that watches the main session and
+ * writes the state file. Everything it decides comes from `step()`.
  */
 export function createRunner({
   statusOf,
@@ -64,8 +64,8 @@ export function createRunner({
       const result = step(state, { now: now(), activityAt: lastActivityAt, status });
       writeState(result.state);
       if (result.action) {
-        await deliver({ sessionId, text: result.action.text });
-        log.info(`[life-wake] woke the main session at ${new Date(now()).toISOString()}`);
+        await deliver({ sessionId, text: result.action.text, kind: result.action.kind });
+        log.info(`[life-wake] woke the main session (${result.action.kind}) at ${new Date(now()).toISOString()}`);
       }
       lastError = '';
     } catch (error) {
@@ -93,33 +93,52 @@ export function createRunner({
     timer = null;
   }
 
-  /** `wake_set` and the「现在唤醒一次」button land here. */
-  function setNextWake(at) {
+  /**
+   * Plan a wake I chose myself. It sits in its own list, so nothing about my
+   * activity touches it — that is what makes a surprise possible.
+   */
+  function planWake({ at, reason = '' } = {}) {
     const state = snapshot();
-    state.nextWakeAt = at;
-    // Remember when it was asked for: activity newer than this cancels it.
-    state.wakeSetAt = now();
-    return writeState(state);
+    const when = Number(at);
+    if (!Number.isFinite(when)) throw new TypeError('planWake needs a numeric `at`');
+    state.plannedWakes = [...state.plannedWakes, {
+      id: randomUUID(),
+      at: Math.round(when),
+      reason: String(reason ?? '').slice(0, 200),
+      createdAt: now(),
+    }]
+      .sort((a, b) => a.at - b.at)
+      .slice(0, MAX_PLANNED);
+    writeState(state);
+    return state;
   }
 
-  function clearNextWake() {
+  /** `id` cancels one plan, no argument cancels all of them. */
+  function cancelWake(id = null) {
     const state = snapshot();
-    state.nextWakeAt = null;
-    state.wakeSetAt = null;
-    return writeState(state);
+    state.plannedWakes = id ? state.plannedWakes.filter((plan) => plan.id !== id) : [];
+    writeState(state);
+    return state;
   }
 
-  /** The on/off switch on the settings page. Off means: decide nothing. */
-  function setEnabled(enabled) {
+  const setNaturalEnabled = (on) => {
     const state = snapshot();
-    state.enabled = enabled !== false;
+    state.naturalEnabled = on !== false;
     // Keeping the deadline: switching off means "do not wake me", not "forget
     // when you would have".
     if (state.nextWakeAt === null && state.lastActivityEndedAt !== null) {
       state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
     }
-    return writeState(state);
-  }
+    writeState(state);
+    return state;
+  };
+
+  const setManualEnabled = (on) => {
+    const state = snapshot();
+    state.manualEnabled = on !== false;
+    writeState(state);
+    return state;
+  };
 
   /** How often the engine looks at the world. Takes effect without a restart. */
   function setHeartbeatMs(ms) {
@@ -141,11 +160,13 @@ export function createRunner({
     state.defaultIntervalMs = ms;
     if (state.lastActivityEndedAt !== null) state.nextWakeAt = state.lastActivityEndedAt + ms;
     else state.nextWakeAt = null;
-    return writeState(state);
+    writeState(state);
+    return state;
   }
 
   return {
-    start, dispose, tick, snapshot, setNextWake, clearNextWake, setIntervalMs, setEnabled, setHeartbeatMs,
+    start, dispose, tick, snapshot,
+    planWake, cancelWake, setNaturalEnabled, setManualEnabled, setIntervalMs, setHeartbeatMs,
   };
 }
 
@@ -166,7 +187,7 @@ export function statusReader(controller) {
 export function createWakeDelivery(controller) {
   let disposed = false;
   return {
-    async deliver({ sessionId, text }) {
+    async deliver({ sessionId, text, kind = 'natural' }) {
       if (disposed) throw new Error('wake delivery was disposed');
       if (typeof controller?.resolveAgent !== 'function') {
         throw new Error('sessionController.resolveAgent is unavailable');
@@ -182,7 +203,11 @@ export function createWakeDelivery(controller) {
         id: randomUUID(),
         role: 'user',
         content: Object.freeze([Object.freeze({ type: 'text', text })]),
-        source: Object.freeze({ kind: 'dsh-lpipe-wake', form: 'notice', summary: '唤醒管线 · 自主醒来' }),
+        source: Object.freeze({
+          kind: 'dsh-lpipe-wake',
+          form: 'notice',
+          summary: kind === 'manual' ? '唤醒管线 · 主动醒来' : '唤醒管线 · 自主醒来',
+        }),
       }));
       return true;
     },

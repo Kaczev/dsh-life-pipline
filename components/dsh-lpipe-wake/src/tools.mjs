@@ -14,69 +14,132 @@ export function parseDuration(text) {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
+/** Local wall-clock text for the summaries I read back. */
+function clockText(ms) {
+  const date = new Date(ms);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function readSchedule(runner, now) {
+  const state = normalizeState(runner.snapshot(), now());
+  const next = state.plannedWakes[0] ?? null;
+  return {
+    now: asIso(now()),
+    natural: {
+      enabled: state.naturalEnabled !== false,
+      nextWakeAt: asIso(state.nextWakeAt),
+      intervalMs: state.defaultIntervalMs,
+      lastActivityEndedAt: asIso(state.lastActivityEndedAt),
+    },
+    manual: {
+      enabled: state.manualEnabled !== false,
+      next: next ? { at: asIso(next.at), reason: next.reason } : null,
+      count: state.plannedWakes.length,
+      plannedWakes: state.plannedWakes.map((plan) => ({ id: plan.id, at: asIso(plan.at), reason: plan.reason })),
+    },
+    lastWokeAt: asIso(state.lastWokeAt),
+    lastWokeKind: state.lastWokeKind,
+    lastWokeReason: state.lastWokeReason,
+  };
+}
+
+function naturalLine(natural) {
+  if (!natural.nextWakeAt) return '自然唤醒：还没有起算（主会话里还没有事件）。';
+  const when = clockText(Date.parse(natural.nextWakeAt));
+  return `${natural.enabled ? '' : '（已关闭）'}自然唤醒：${when}，即上次结束行动 + ${Math.round(natural.intervalMs / 60000)} 分钟。`;
+}
+
+function manualLine(manual) {
+  if (!manual.next) return '主动唤醒：没有安排。';
+  const when = clockText(Date.parse(manual.next.at));
+  const reason = manual.next.reason ? `缘由：${manual.next.reason}` : '没有写缘由';
+  const more = manual.count > 1 ? `（另有 ${manual.count - 1} 个）` : '';
+  return `${manual.enabled ? '' : '（已关闭）'}主动唤醒：${when}${more}，${reason}。`;
+}
+
 /**
- * The tool I use to move my own next wake. It only places a deadline; the
- * engine's rule "activity clears it" still applies afterwards.
+ * Two tools, matching the two kinds of wake:
+ *
+ * - `wake_set` plans a wake I chose myself, with the note I want to read then.
+ * - `wake_check` answers "when will I next wake, and why" for both kinds.
  */
 export function createWakeTools({ runner, now = () => Date.now() }) {
-  const status = () => {
-    const state = normalizeState(runner.snapshot(), now());
+  const plan = (input) => {
+    const schedule = readSchedule(runner, now);
+    if (Object.hasOwn(input, 'cancel')) {
+      const id = typeof input.cancel === 'string' ? input.cancel : null;
+      runner.cancelWake(id);
+      const after = readSchedule(runner, now);
+      return {
+        ...after,
+        summary: id ? '那个主动唤醒已经取消。' : '主动唤醒全部清空。',
+      };
+    }
+    let at = null;
+    if (Object.hasOwn(input, 'in')) {
+      const ms = parseDuration(input.in);
+      if (ms === null) return { ...schedule, summary: `看不懂这个时长：${input.in}` };
+      at = now() + ms;
+    } else if (Object.hasOwn(input, 'at')) {
+      const parsed = Date.parse(String(input.at));
+      if (!Number.isFinite(parsed)) return { ...schedule, summary: `看不懂这个时间：${input.at}` };
+      at = parsed;
+    }
+    if (at === null) return { ...schedule, summary: '请给我一个时间：`in`（如 "2h"）或 `at`（ISO 时间）。' };
+    const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 200) : '';
+    runner.planWake({ at, reason });
+    const after = readSchedule(runner, now);
     return {
-      nextWakeAt: asIso(state.nextWakeAt),
-      defaultIntervalMs: state.defaultIntervalMs,
-      lastActivityEndedAt: asIso(state.lastActivityEndedAt),
-      lastWokeAt: asIso(state.lastWokeAt),
-      now: asIso(now()),
+      ...after,
+      summary: `主动唤醒定在 ${clockText(at)}${reason ? `，缘由：${reason}` : ''}。${manualLine(after.manual)}`,
     };
   };
 
   return [{
     name: 'wake_set',
-    description: 'Move or clear my own next wake-up. Call it with no arguments to read the current schedule. The wake itself always follows the engine rule: starting any activity clears it.',
+    description: 'Set an active (self-planned) wake-up: a moment I picked plus the reason I want to read when it fires. It ignores my activity — unlike the natural wake, which is cleared whenever I start working. Use `cancel: true` to clear them all, or `cancel: "<id>"` for one.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         in: { type: 'string', description: 'Wake after this long, e.g. "45m", "2h", "90s".' },
         at: { type: 'string', description: 'Wake at this instant (ISO 8601 with offset).' },
-        clear: { type: 'boolean', description: 'Drop the manual deadline and fall back to the default interval.' },
+        reason: { type: 'string', description: 'The note I write for that moment, e.g. "remind him to take his medicine".' },
+        cancel: { type: ['boolean', 'string'], description: 'true clears every planned wake; a string cancels that one by id.' },
       },
     },
     output: {
       schema: {
         type: 'object',
-        additionalProperties: false,
-        properties: {
-          nextWakeAt: { type: ['string', 'null'] },
-          defaultIntervalMs: { type: 'number' },
-          lastActivityEndedAt: { type: ['string', 'null'] },
-          now: { type: 'string' },
-          summary: { type: 'string' },
-        },
+        additionalProperties: true,
+        properties: { summary: { type: 'string' } },
         required: ['summary'],
       },
       render: (_args, value) => [{ type: 'text', text: value.summary }],
     },
     async execute(args) {
-      const input = args && typeof args === 'object' ? args : {};
-      if (input.clear === true) {
-        runner.clearNextWake();
-        return { ...status(), summary: '下一次唤醒改回默认推算。' };
-      }
-      if (Object.hasOwn(input, 'in')) {
-        const ms = parseDuration(input.in);
-        if (ms === null) return { ...status(), summary: `看不懂这个时长：${input.in}` };
-        runner.setNextWake(now() + ms);
-        return { ...status(), summary: `下次唤醒改到 ${new Date(now() + ms).toISOString()}。` };
-      }
-      if (Object.hasOwn(input, 'at')) {
-        const at = Date.parse(String(input.at));
-        if (!Number.isFinite(at)) return { ...status(), summary: `看不懂这个时间：${input.at}` };
-        runner.setNextWake(at);
-        return { ...status(), summary: `下次唤醒改到 ${new Date(at).toISOString()}。` };
-      }
-      const state = status();
-      return { ...state, summary: state.nextWakeAt ? `下次唤醒：${state.nextWakeAt}` : '现在没有待触发的唤醒。' };
+      return plan(args && typeof args === 'object' ? args : {});
+    },
+  }, {
+    name: 'wake_check',
+    description: 'Read the schedule: the next active wake (time and reason) and the next natural wake.',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: { summary: { type: 'string' } },
+        required: ['summary'],
+      },
+      render: (_args, value) => [{ type: 'text', text: value.summary }],
+    },
+    async execute() {
+      const schedule = readSchedule(runner, now);
+      return {
+        ...schedule,
+        summary: `${manualLine(schedule.manual)}\n${naturalLine(schedule.natural)}`,
+      };
     },
   }];
 }

@@ -1,9 +1,9 @@
-import { MAX_HEARTBEAT_MS, MIN_HEARTBEAT_MS, normalizeState } from './engine.mjs';
+import { MAX_HEARTBEAT_MS, MIN_HEARTBEAT_MS, MAX_PLANNED, normalizeState } from './engine.mjs';
 import { readMainSessionId, statePath } from './state.mjs';
 
 export const WAKE_RPC_ENDPOINT = 'dsh-lpipe-wake';
 
-const METHODS = new Set(['wake.status', 'wake.config.save', 'wake.now', 'wake.reset']);
+const METHODS = new Set(['wake.status', 'wake.config.save', 'wake.plan', 'wake.cancel', 'wake.tick']);
 
 function failure(code, message) {
   return { ok: false, error: { code, message, details: {} } };
@@ -20,14 +20,21 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
   const status = () => {
     const state = normalizeState(runner.snapshot(), now());
     return {
-      enabled: state.enabled !== false,
+      naturalEnabled: state.naturalEnabled !== false,
+      manualEnabled: state.manualEnabled !== false,
       defaultIntervalMs: state.defaultIntervalMs,
       heartbeatMs: state.heartbeatMs,
       lastActivityEndedAt: asIso(state.lastActivityEndedAt),
       nextWakeAt: asIso(state.nextWakeAt),
-      nextWakeSource: state.nextWakeSource,
+      plannedWakes: state.plannedWakes.map((plan) => ({
+        id: plan.id,
+        at: asIso(plan.at),
+        reason: plan.reason,
+      })),
       lastSeenAt: asIso(state.lastSeenAt),
       lastWokeAt: asIso(state.lastWokeAt),
+      lastWokeKind: state.lastWokeKind,
+      lastWokeReason: state.lastWokeReason,
       mainSessionId: readMainSessionId(),
       statePath: statePath(),
       now: asIso(now()),
@@ -42,8 +49,12 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
 
     if (method === 'wake.config.save') {
       let touched = false;
-      if (Object.hasOwn(input, 'enabled')) {
-        runner.setEnabled(input.enabled !== false);
+      if (Object.hasOwn(input, 'naturalEnabled')) {
+        runner.setNaturalEnabled(input.naturalEnabled !== false);
+        touched = true;
+      }
+      if (Object.hasOwn(input, 'manualEnabled')) {
+        runner.setManualEnabled(input.manualEnabled !== false);
         touched = true;
       }
       if (Object.hasOwn(input, 'defaultIntervalMs')) {
@@ -66,14 +77,25 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       return { ok: true, value: status() };
     }
 
-    if (method === 'wake.now') {
-      runner.setNextWake(now());
-      await runner.tick();
+    if (method === 'wake.plan') {
+      const at = Number(input.at);
+      if (!Number.isFinite(at)) return failure('wake/bad-request', '需要一个时间点。');
+      const state = normalizeState(runner.snapshot(), now());
+      if (state.plannedWakes.length >= MAX_PLANNED) {
+        return failure('wake/bad-request', `最多同时保留 ${MAX_PLANNED} 个主动唤醒。`);
+      }
+      const reason = typeof input.reason === 'string' ? input.reason.slice(0, 200) : '';
+      runner.planWake({ at, reason });
       return { ok: true, value: status() };
     }
 
-    // wake.reset: forget the manual deadline and let the formula decide again.
-    runner.clearNextWake();
+    if (method === 'wake.cancel') {
+      const id = typeof input.id === 'string' && input.id ? input.id : null;
+      runner.cancelWake(id);
+      return { ok: true, value: status() };
+    }
+
+    // wake.tick: the page asks for one immediate heartbeat after a change.
     await runner.tick();
     return { ok: true, value: status() };
   };

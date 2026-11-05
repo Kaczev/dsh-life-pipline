@@ -1,15 +1,19 @@
 /**
  * The wake state machine. Pure on purpose: `node --test` drives it with a fake
- * clock and fake activity, and the Host runner is a thin 30s tick around it.
+ * clock and fake activity, and the Host runner is a thin heartbeat around it.
  *
- * Rules (decided with the owner):
- * 1. The base is the time of the newest event in the main session, so the
- *    elapsed time is "now − when the conversation last ended", no matter how
- *    many times the Host restarted in between.
- * 2. The trigger is strict: `now >= nextWakeAt` fires, including when the Host
- *    was closed and the deadline has passed.
- * 3. After activity ends, the next wake is `lastActivityEndedAt + interval`.
- * 4. `wake_set` only places a `nextWakeAt`; real activity may clear it again.
+ * Two independent kinds of wake live here:
+ *
+ * 1. Natural — "you stopped for a while, come back". Its deadline is
+ *    `lastActivityEndedAt + defaultIntervalMs`, where the base comes from the
+ *    newest event in the main session's own log, so restarts cannot erase it.
+ *    Real activity always moves this deadline forward.
+ * 2. Manual — a moment I picked, with a reason I wrote for myself ("leave him
+ *    a surprise at eight"). It is a list, not a single deadline, and no
+ *    activity cancels it: that is the whole point of it.
+ *
+ * Each kind has its own switch. When a kind is switched off its numbers stay
+ * readable on the page; only the firing stops.
  */
 import { formatStamp } from 'dsh-life-pipline/clock';
 
@@ -18,22 +22,43 @@ export const TICK_MS = 30 * 1000;
 /** The heartbeat is only as fine as the deadline needs it to be; let the owner tune it. */
 export const MIN_HEARTBEAT_MS = 1000;
 export const MAX_HEARTBEAT_MS = 60 * 60 * 1000;
+/** A forgetful planner should not grow this list forever. */
+export const MAX_PLANNED = 20;
 
 export function defaultState(now = Date.now()) {
   return {
-    enabled: true,
+    naturalEnabled: true,
+    manualEnabled: true,
     defaultIntervalMs: DEFAULT_INTERVAL_MS,
     heartbeatMs: TICK_MS,
     lastActivityEndedAt: null,
     nextWakeAt: null,
-    nextWakeSource: 'natural',
+    plannedWakes: [],
     lastWokeAt: null,
-    wakeSetAt: null,
+    lastWokeKind: null,
+    lastWokeReason: null,
     lastSeenAt: now,
   };
 }
 
 const asTime = (value) => (Number.isFinite(value) ? Number(value) : null);
+
+function normalizePlan(raw) {
+  if (!Array.isArray(raw)) return [];
+  const plans = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const at = Number(item.at);
+    if (!Number.isFinite(at) || at <= 0) continue;
+    plans.push({
+      id: typeof item.id === 'string' && item.id ? item.id : `${at}`,
+      at,
+      reason: typeof item.reason === 'string' ? item.reason.slice(0, 200) : '',
+      createdAt: asTime(item.createdAt),
+    });
+  }
+  return plans.sort((a, b) => a.at - b.at).slice(0, MAX_PLANNED);
+}
 
 /** Coerce anything read from disk into a state we can reason about. */
 export function normalizeState(raw, now = Date.now()) {
@@ -41,20 +66,19 @@ export function normalizeState(raw, now = Date.now()) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
   const interval = Number(raw.defaultIntervalMs);
   const heartbeat = Number(raw.heartbeatMs);
-  const manual = asTime(raw.wakeSetAt);
   return {
-    enabled: raw.enabled !== false,
+    naturalEnabled: raw.naturalEnabled !== false,
+    manualEnabled: raw.manualEnabled !== false,
     defaultIntervalMs: Number.isFinite(interval) && interval > 0 ? interval : base.defaultIntervalMs,
     heartbeatMs: Number.isFinite(heartbeat) && heartbeat > 0
       ? Math.min(MAX_HEARTBEAT_MS, Math.max(MIN_HEARTBEAT_MS, heartbeat))
       : base.heartbeatMs,
     lastActivityEndedAt: asTime(raw.lastActivityEndedAt),
     nextWakeAt: asTime(raw.nextWakeAt),
-    // Whether the deadline was placed by hand (`wake_set`) or computed from the
-    // interval: the page names it, so it has to survive on disk.
-    nextWakeSource: manual !== null ? 'manual' : 'natural',
+    plannedWakes: normalizePlan(raw.plannedWakes),
     lastWokeAt: asTime(raw.lastWokeAt),
-    wakeSetAt: manual,
+    lastWokeKind: raw.lastWokeKind === 'manual' || raw.lastWokeKind === 'natural' ? raw.lastWokeKind : null,
+    lastWokeReason: typeof raw.lastWokeReason === 'string' ? raw.lastWokeReason : null,
     lastSeenAt: asTime(raw.lastSeenAt) ?? now,
   };
 }
@@ -94,9 +118,21 @@ export function wakeText({ now, since }) {
   return `（自己醒来）已经过了 ${elapsedText(now - since)}，现在是 ${nowStamp}。${tail}`;
 }
 
+/** A wake I asked for myself: it carries the note I left for that moment. */
+export function manualWakeText({ now, at, reason }) {
+  const head = `（主动醒来）我给自己定的时间是 ${formatStamp(at, now)}。`;
+  const note = String(reason ?? '').trim();
+  return note ? `${head}\n我留给这一刻的话：${note}` : head;
+}
+
+/** The earliest plan that has come due, if any. */
+function duePlan(plans, now) {
+  return plans.find((plan) => plan.at <= now) ?? null;
+}
+
 /**
- * One tick. Returns the next state plus, when the deadline has passed, the
- * text to inject. Never mutates the input.
+ * One heartbeat. Returns the next state plus, when something is due, the text
+ * to inject. Never mutates the input.
  *
  * `activityAt` is the time of the newest event in the main session — the
  * answer to "when did the conversation last end", read from the session's own
@@ -113,56 +149,49 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
     : (Number.isFinite(Number(activityAt)) ? Number(activityAt) : null);
   if (activity !== null && (state.lastActivityEndedAt === null || activity > state.lastActivityEndedAt)) {
     state.lastActivityEndedAt = activity;
-    // A hand-set point is one-shot: real activity after it cancels it.
-    if (state.wakeSetAt !== null && activity > state.wakeSetAt) {
-      state.wakeSetAt = null;
-      state.nextWakeAt = null;
-      state.nextWakeSource = 'natural';
-    }
-    // With no live manual point the deadline is always base + interval, so it
-    // moves with the conversation instead of pointing at a stale moment.
-    if (state.wakeSetAt === null) {
-      state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
-    }
   }
 
-  // Switched off: never fire, but keep the numbers on the page honest — the
-  // deadline still reads as "when it would have woken", so the switch explains
-  // itself instead of blanking the row.
-  if (state.enabled === false) {
-    if (state.nextWakeAt === null && state.lastActivityEndedAt !== null) {
-      state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
-    }
-    return { state, action: null };
-  }
-
-  if (state.lastActivityEndedAt === null) {
-    // Nothing in the log yet (brand new session): the clock starts now.
+  // The natural deadline is always kept readable, switched on or off.
+  if (state.lastActivityEndedAt !== null) {
+    state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
+  } else if (state.nextWakeAt === null) {
     state.lastActivityEndedAt = now;
     state.nextWakeAt = now + state.defaultIntervalMs;
-    return { state, action: null };
   }
 
-  if (state.nextWakeAt === null) {
-    state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
-    return { state, action: null };
-  }
-
-  if (now < state.nextWakeAt) return { state, action: null };
-
-  // Due. Never cut a running turn in half; the next ticks keep checking.
+  // Never cut a running turn in half; the next heartbeats keep checking.
   if (status !== 'idle') return { state, action: null };
+
+  const plan = duePlan(state.plannedWakes, now);
+  if (plan && state.manualEnabled !== false) {
+    state.plannedWakes = state.plannedWakes.filter((item) => item.id !== plan.id);
+    state.lastWokeAt = now;
+    state.lastWokeKind = 'manual';
+    state.lastWokeReason = plan.reason || null;
+    return {
+      state,
+      action: {
+        kind: 'manual',
+        at: plan.at,
+        reason: plan.reason,
+        text: manualWakeText({ now, at: plan.at, reason: plan.reason }),
+      },
+    };
+  }
+
+  if (state.naturalEnabled === false) return { state, action: null };
+  if (state.nextWakeAt === null || now < state.nextWakeAt) return { state, action: null };
 
   const since = state.lastActivityEndedAt;
   state.lastWokeAt = now;
+  state.lastWokeKind = 'natural';
+  state.lastWokeReason = null;
   // Re-arm from the wake itself, otherwise the stale base would make the next
-  // tick fire again and the pipeline would loop forever.
+  // heartbeat fire again and the pipeline would loop forever.
   state.lastActivityEndedAt = now;
   state.nextWakeAt = now + state.defaultIntervalMs;
-  state.wakeSetAt = null;
-  state.nextWakeSource = 'natural';
   return {
     state,
-    action: { kind: 'wake', at: now, text: wakeText({ now, since }) },
+    action: { kind: 'natural', at: now, reason: null, text: wakeText({ now, since }) },
   };
 }

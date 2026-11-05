@@ -19,8 +19,12 @@ function loggerFor(ctx) {
 }
 
 /**
- * Wake pipeline: after the main session has been idle for the default
- * interval, inject one notice into it so the agent starts a turn on its own.
+ * Wake pipeline, in two independent halves:
+ *
+ * - natural: after the main session has been quiet for the default interval,
+ *   inject one notice so a turn starts on its own.
+ * - manual: fire the moments I planned myself, each carrying its reason.
+ *
  * The main session comes from the series' common settings, never from here.
  */
 export function apply(ctx) {
@@ -73,9 +77,11 @@ export function apply(ctx) {
       runner: {
         snapshot: () => runner?.snapshot() ?? {},
         setIntervalMs: (ms) => runner?.setIntervalMs(ms),
-        setEnabled: (on) => runner?.setEnabled(on),
-        setNextWake: (at) => runner?.setNextWake(at),
-        clearNextWake: () => runner?.clearNextWake(),
+        setHeartbeatMs: (ms) => runner?.setHeartbeatMs(ms),
+        setNaturalEnabled: (on) => runner?.setNaturalEnabled(on),
+        setManualEnabled: (on) => runner?.setManualEnabled(on),
+        planWake: (plan) => runner?.planWake(plan),
+        cancelWake: (id) => runner?.cancelWake(id),
         tick: async () => { await runner?.tick(); },
       },
     });
@@ -90,8 +96,8 @@ export function apply(ctx) {
     const tools = createWakeTools({
       runner: {
         snapshot: () => runner?.snapshot() ?? {},
-        setNextWake: (at) => runner?.setNextWake(at),
-        clearNextWake: () => runner?.clearNextWake(),
+        planWake: (plan) => runner?.planWake(plan),
+        cancelWake: (id) => runner?.cancelWake(id),
       },
     });
     for (const tool of tools) {
@@ -108,7 +114,11 @@ export function apply(ctx) {
       promptCtx.systemPrompt.context({
         name: 'dsh-lpipe-wake',
         order: 130,
-        text: 'Wake notices arrive as dsh-lpipe-wake background messages starting with（自己醒来）；they mean you stopped for a while and are being given the turn on your own. Treat them as your own time: nothing is required, and doing nothing is a valid answer.',
+        text: [
+          'Wake notices arrive as dsh-lpipe-wake background messages.',
+          '（自己醒来）means I stopped for a while and am being given the turn on my own: nothing is required, and doing nothing is a valid answer.',
+          '（主动醒来）means a moment I planned earlier with wake_set has come; it carries the reason I wrote for it.',
+        ].join(' '),
       });
     } catch (error) {
       log.warn(`[life-wake] system prompt guidance unavailable: ${error?.message ?? error}`);

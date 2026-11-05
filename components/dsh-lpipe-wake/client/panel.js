@@ -284,8 +284,24 @@ function WakePanel({ rpcCall }) {
 
   const intervalMs = status.defaultIntervalMs;
   const mainMissing = !status.mainSessionId;
-  const on = status.enabled !== false;
-  const cardStyle = { ...card, opacity: on ? 1 : 0.55 };
+  const naturalOn = status.naturalEnabled !== false;
+  const manualOn = status.manualEnabled !== false;
+  const planned = Array.isArray(status.plannedWakes) ? status.plannedWakes : [];
+  const nextPlan = planned[0] ?? null;
+
+  const heading = (title, on, toggle) => h('div', {
+    style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 },
+  },
+    h('span', { style: { ...label, marginBottom: 0 } }, title),
+    h('button', {
+      role: 'switch',
+      'aria-checked': on,
+      'aria-label': `${title}开关`,
+      title: on ? `关掉：${title}不再叫我` : `打开：${title}继续叫`,
+      style: { ...track(on), marginLeft: 'auto' },
+      disabled: busy,
+      onClick: toggle,
+    }, h('span', { style: knob(on) })));
 
   // The field holds whatever is being typed; the saved value only moves it
   // when a save actually succeeds.
@@ -303,21 +319,6 @@ function WakePanel({ rpcCall }) {
     if (beatMs === null) return;
     void run('wake.config.save', { heartbeatMs: beatMs }).then(() => setBeatDraft(splitHeartbeat(beatMs)));
   };
-  const manual = status.nextWakeSource === 'manual';
-  const sourceBadge = h('span', {
-    title: manual ? '这个时间是我自己设的' : '这个时间是按「上次结束行动 + 间隔」算的',
-    style: {
-      fontSize: 11,
-      lineHeight: '16px',
-      padding: '1px 7px',
-      borderRadius: 999,
-      marginLeft: 0,
-      verticalAlign: '1px',
-      color: manual ? 'rgb(115, 137, 211)' : COLORS.muted,
-      background: manual ? 'rgba(115, 137, 211, 0.16)' : COLORS.soft,
-      border: `1px solid ${manual ? 'rgba(115, 137, 211, 0.45)' : COLORS.border}`,
-    },
-  }, manual ? '主动' : '自然');
 
   return h('section', null,
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
@@ -328,35 +329,62 @@ function WakePanel({ rpcCall }) {
           background: 'rgba(7, 193, 96, 0.14)', color: COLORS.success,
           border: '1px solid rgba(7, 193, 96, 0.28)',
         },
-      }, '唤醒管线'),
-      h('button', {
-        role: 'switch',
-        'aria-checked': on,
-        title: on ? '关掉：不再自行醒来' : '打开：停下后自行醒来',
-        style: { ...track(on), marginLeft: 'auto' },
-        disabled: busy,
-        onClick: () => run('wake.config.save', { enabled: !on }),
-      }, h('span', { style: knob(on) }))),
+      }, '唤醒管线')),
 
-    on ? null : note('已关闭：不会自行醒来，下面是它本来会醒的时间。'),
     mainMissing ? note('还没有设置主会话：去上面的「公共」里填一个，唤醒才会生效。', 'error') : null,
 
     h('div', { style: row },
-      h('div', { style: { ...cardStyle, marginBottom: 0 } },
-        h('span', { style: label }, '下次唤醒'),
+      // Natural: driven by when the conversation last ended.
+      h('div', { style: { ...card, marginBottom: 0, opacity: naturalOn ? 1 : 0.55 } },
+        heading('自然唤醒', naturalOn, () => run('wake.config.save', { naturalEnabled: !naturalOn })),
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
           h('span', { style: value }, formatClock(status.nextWakeAt)),
-          sourceBadge,
           h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
-            countdown(status.nextWakeAt, nowMs)))),
-      h('div', { style: { ...cardStyle, marginBottom: 0 } },
-        h('span', { style: label }, '上次结束行动'),
-        h('span', { style: { fontSize: 13, color: COLORS.text } }, formatClock(status.lastActivityEndedAt)),
-        h('div', { style: { marginTop: 4, fontSize: 12, color: COLORS.muted } },
-          agoText(status.lastActivityEndedAt, nowMs)))),
+            countdown(status.nextWakeAt, nowMs))),
+        h('div', { style: { marginTop: 6, fontSize: 12, color: COLORS.muted } },
+          `上次结束行动 ${formatClock(status.lastActivityEndedAt)}`,
+          status.lastActivityEndedAt ? ` · ${agoText(status.lastActivityEndedAt, nowMs)}` : ''),
+        naturalOn ? null : note('已关闭：不会自行醒来，上面的时间是它本来会醒的时刻。')),
+
+      // Manual: a moment I picked, untouched by my own activity.
+      h('div', { style: { ...card, marginBottom: 0, opacity: manualOn ? 1 : 0.55 } },
+        heading('主动唤醒', manualOn, () => run('wake.config.save', { manualEnabled: !manualOn })),
+        nextPlan
+          ? h('div', null,
+            h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
+              h('span', { style: value }, formatClock(nextPlan.at)),
+              h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
+                countdown(nextPlan.at, nowMs))),
+            h('div', { style: { marginTop: 6, fontSize: 12, color: COLORS.text } },
+              nextPlan.reason || '没有写缘由'),
+            planned.length > 1
+              ? h('div', { style: { marginTop: 4, fontSize: 12, color: COLORS.muted } }, `另有 ${planned.length - 1} 个安排`)
+              : null)
+          : h('span', { style: { fontSize: 13, color: COLORS.muted } }, '没有安排'),
+        h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 } },
+          h('button', {
+            style: { ...button(), padding: '4px 12px' },
+            disabled: busy || !manualOn,
+            onClick: () => run('wake.plan', { at: Date.now(), reason: '手动点了一次' }),
+          }, '现在醒来一次'),
+          nextPlan
+            ? h('button', {
+              style: { ...button(), padding: '4px 12px' },
+              disabled: busy,
+              onClick: () => run('wake.cancel', { id: nextPlan.id }),
+            }, planned.length > 1 ? '取消最近一个' : '取消')
+            : null,
+          planned.length > 1
+            ? h('button', {
+              style: { ...button(), padding: '4px 12px' },
+              disabled: busy,
+              onClick: () => run('wake.cancel', {}),
+            }, '全部取消')
+            : null),
+        manualOn ? null : note('已关闭：到点也不会醒，安排还留着。'))),
 
     h('div', { style: row },
-      h('div', { style: { ...cardStyle, marginBottom: 0 } },
+      h('div', { style: { ...card, marginBottom: 0 } },
         h('label', { style: label }, '默认唤醒间隔'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
@@ -393,7 +421,7 @@ function WakePanel({ rpcCall }) {
             ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 分钟到 24 小时')
             : null),
         note('我停下之后，过这么久再叫我。')),
-      h('div', { style: { ...cardStyle, marginBottom: 0 } },
+      h('div', { style: { ...card, marginBottom: 0 } },
         h('label', { style: label }, '心跳间隔'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
@@ -437,7 +465,7 @@ function WakePanel({ rpcCall }) {
         }, h('div', {
           style: {
             height: '100%', width: `${Math.round(beatProgress(status.lastSeenAt, heartbeatMs, nowMs) * 100)}%`,
-            borderRadius: 999, background: manual ? 'rgb(115, 137, 211)' : COLORS.success,
+            borderRadius: 999, background: COLORS.success,
             transition: 'width 900ms linear',
           },
         })),
@@ -445,10 +473,7 @@ function WakePanel({ rpcCall }) {
           style: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: COLORS.muted },
         },
           h('span', null, beatText(status.lastSeenAt, heartbeatMs, nowMs)),
-          h('span', null, on ? `${beatRemaining(status.lastSeenAt, heartbeatMs, nowMs)} 秒后` : '已关闭')))),
-    h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-      h('button', { style: button(), disabled: busy, onClick: () => run('wake.now') }, '现在唤醒一次'),
-      h('button', { style: button(), disabled: busy, onClick: () => run('wake.reset') }, '改回默认推算')),
+          h('span', null, `${beatRemaining(status.lastSeenAt, heartbeatMs, nowMs)} 秒后`)))),
 
     error ? note(error, 'error') : null);
 }

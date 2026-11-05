@@ -45,13 +45,47 @@ test('a new event in the session moves the deadline forward', () => {
   assert.equal(state.nextWakeAt, spoke + HOUR, 'and the deadline follows it');
 });
 
-test('a hand-set point is cancelled by real activity after it', () => {
-  const setAt = T0;
-  const armed = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + 5 * HOUR, wakeSetAt: setAt, lastWokeAt: null };
+test('a planned wake survives my own activity, unlike the natural deadline', () => {
+  const armed = {
+    defaultIntervalMs: HOUR,
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + HOUR,
+    plannedWakes: [{ id: 'p1', at: T0 + 30 * 60_000, reason: 'surprise' }],
+  };
   const spoke = T0 + 10 * 60_000;
   const { state } = step(armed, { now: spoke, activityAt: spoke, status: 'idle' });
-  assert.equal(state.nextWakeAt, spoke + HOUR, 'back to the formula');
-  assert.equal(state.wakeSetAt, null);
+  assert.equal(state.nextWakeAt, spoke + HOUR, 'the natural deadline follows the conversation');
+  assert.equal(state.plannedWakes.length, 1, 'the moment I picked is untouched by talking');
+  assert.equal(state.plannedWakes[0].reason, 'surprise');
+});
+
+test('a planned wake fires with its reason and leaves the natural deadline alone', () => {
+  const armed = {
+    defaultIntervalMs: HOUR,
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + 4 * HOUR,
+    plannedWakes: [{ id: 'p1', at: T0 + 5 * 60_000, reason: '提醒他吃药' }],
+  };
+  const at = T0 + 6 * 60_000;
+  const { state, action } = step(armed, { now: at, activityAt: at, status: 'idle' });
+  assert.equal(action?.kind, 'manual');
+  assert.match(action.text, /（主动醒来）/);
+  assert.match(action.text, /提醒他吃药/);
+  assert.equal(state.plannedWakes.length, 0, 'a fired plan is consumed');
+  assert.equal(state.lastWokeKind, 'manual');
+  assert.equal(state.lastWokeReason, '提醒他吃药');
+});
+
+test('neither kind fires while I am mid-turn', () => {
+  const armed = {
+    naturalEnabled: true,
+    defaultIntervalMs: HOUR,
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0,
+    plannedWakes: [{ id: 'p1', at: T0, reason: 'now' }],
+  };
+  const { action } = step(armed, { now: T0 + 60_000, status: 'running' });
+  assert.equal(action, null, 'a busy agent is never cut in half');
 });
 
 test('stopping re-arms from the moment it stopped', () => {
@@ -66,7 +100,7 @@ test('a deadline that passed while the host was down fires on the next tick', ()
   const stale = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
   const late = T0 + 5 * HOUR;
   const { state, action } = step(stale, { now: late, status: 'idle' });
-  assert.equal(action?.kind, 'wake');
+  assert.equal(action?.kind, 'natural');
   assert.equal(state.lastWokeAt, late);
   assert.equal(state.nextWakeAt, late + HOUR, 'the wake re-arms one interval after itself');
 });
@@ -86,7 +120,7 @@ test('a wake re-arms itself instead of firing on every tick', () => {
   const stale = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
   const late = T0 + 5 * HOUR;
   const first = step(stale, { now: late, status: 'idle' });
-  assert.equal(first.action?.kind, 'wake');
+  assert.equal(first.action?.kind, 'natural');
   assert.equal(first.state.nextWakeAt, late + HOUR);
 
   const second = step(first.state, { now: late + 30_000, status: 'idle' });
@@ -105,17 +139,36 @@ test('the wake sentence states elapsed time and the clock, never a command', () 
   assert.doesNotMatch(text, /请|做点|应该/);
 });
 
-test('switched off never wakes, but the deadline stays on the page', () => {
-  const off = { enabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
-  const { state, action } = step(off, { now: T0 + 9 * HOUR, status: 'idle' });
-  assert.equal(action, null, 'a switched off pipeline never wakes');
-  assert.equal(state.nextWakeAt, T0 + HOUR, 'the deadline reads as when it would have woken');
-  assert.equal(state.enabled, false);
+test('each kind has its own switch, and a switched off one only stops firing', () => {
+  const naturalOff = {
+    naturalEnabled: false,
+    defaultIntervalMs: HOUR,
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + HOUR,
+    plannedWakes: [{ id: 'p1', at: T0 + 2 * HOUR, reason: 'later' }],
+  };
+  const quiet = step(naturalOff, { now: T0 + 9 * HOUR, status: 'idle' });
+  assert.equal(quiet.action?.kind, 'manual', 'the other kind still works');
+  assert.equal(quiet.state.nextWakeAt, T0 + HOUR, 'the natural deadline stays derived even while off');
+  assert.equal(quiet.state.naturalEnabled, false);
 
-  const blank = { enabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0 };
-  const derived = step(blank, { now: T0 + HOUR, status: 'idle' });
-  assert.equal(derived.state.nextWakeAt, T0 + HOUR, 'a missing deadline is derived, never left blank');
-  assert.equal(derived.action, null);
+  const bothOff = step(
+    { naturalEnabled: false, manualEnabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0 },
+    { now: T0 + 9 * HOUR, status: 'idle' },
+  );
+  assert.equal(bothOff.action, null, 'nothing fires when both are off');
+  assert.equal(bothOff.state.nextWakeAt, T0 + HOUR, 'a missing deadline is still derived, never left blank');
+
+  const manualOff = {
+    manualEnabled: false,
+    defaultIntervalMs: HOUR,
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + HOUR,
+    plannedWakes: [{ id: 'p1', at: T0 + 60_000, reason: 'muted' }],
+  };
+  const held = step(manualOff, { now: T0 + 9 * HOUR, activityAt: null, status: 'idle' });
+  assert.equal(held.action?.kind, 'natural', 'a muted plan does not block the natural one');
+  assert.equal(held.state.plannedWakes.length, 1, 'the plan is kept, not thrown away');
 });
 
 test('a corrupt state file degrades to the default interval', () => {
@@ -126,13 +179,24 @@ test('a corrupt state file degrades to the default interval', () => {
 
 function fakeRunner(initial = {}) {
   let state = { defaultIntervalMs: HOUR, ...initial };
+  let seq = 0;
   return {
     snapshot: () => state,
-    setNextWake: (at) => { state = { ...state, nextWakeAt: at, wakeSetAt: T0 }; },
-    clearNextWake: () => { state = { ...state, nextWakeAt: null, wakeSetAt: null }; },
+    planWake: ({ at, reason = '' }) => {
+      seq += 1;
+      state = {
+        ...state,
+        plannedWakes: [...(state.plannedWakes ?? []), { id: `p${seq}`, at, reason, createdAt: T0 }]
+          .sort((a, b) => a.at - b.at),
+      };
+    },
+    cancelWake: (id) => {
+      state = { ...state, plannedWakes: id ? (state.plannedWakes ?? []).filter((p) => p.id !== id) : [] };
+    },
     setIntervalMs: (ms) => { state = { ...state, defaultIntervalMs: ms }; },
     setHeartbeatMs: (ms) => { state = { ...state, heartbeatMs: ms }; },
-    setEnabled: (on) => { state = { ...state, enabled: on !== false, nextWakeAt: null }; },
+    setNaturalEnabled: (on) => { state = { ...state, naturalEnabled: on !== false }; },
+    setManualEnabled: (on) => { state = { ...state, manualEnabled: on !== false }; },
     tick: async () => {},
   };
 }
@@ -152,38 +216,53 @@ test('the settings page reads and moves the schedule over RPC', async () => {
   const bad = await handle('wake.config.save', { defaultIntervalMs: 1000 });
   assert.equal(bad.ok, false, 'a one second interval is refused');
 
-  const cleared = await handle('wake.reset', {});
-  assert.equal(cleared.value.nextWakeAt, null);
+  const planned = await handle('wake.plan', { at: T0 + HOUR, reason: '提醒他喝水' });
+  assert.equal(planned.value.plannedWakes.length, 1);
+  assert.equal(planned.value.plannedWakes[0].reason, '提醒他喝水');
 
-  const off = await handle('wake.config.save', { enabled: false });
-  assert.equal(off.value.enabled, false);
+  const cancelled = await handle('wake.cancel', {});
+  assert.equal(cancelled.value.plannedWakes.length, 0);
+
+  const badPlan = await handle('wake.plan', { at: 'later' });
+  assert.equal(badPlan.ok, false, 'a plan needs a real time');
+
+  const off = await handle('wake.config.save', { naturalEnabled: false, manualEnabled: false });
+  assert.equal(off.value.naturalEnabled, false);
+  assert.equal(off.value.manualEnabled, false);
   const empty = await handle('wake.config.save', {});
   assert.equal(empty.ok, false, 'saving nothing is refused');
 });
 
-test('wake_set parses durations and can place or clear a deadline', async () => {
+test('wake_set plans a moment with its reason, wake_check reads both kinds', async () => {
   assert.equal(parseDuration('45m'), 45 * 60_000);
   assert.equal(parseDuration('2h'), 2 * HOUR);
   assert.equal(parseDuration('90s'), 90_000);
   assert.equal(parseDuration('15'), 15 * 60_000);
   assert.equal(parseDuration('soon'), null);
 
-  const runner = fakeRunner();
-  const [tool] = createWakeTools({ runner, now: () => T0 });
-  assert.equal(tool.name, 'wake_set');
+  const runner = fakeRunner({ lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR });
+  const [set, check] = createWakeTools({ runner, now: () => T0 });
+  assert.equal(set.name, 'wake_set');
+  assert.equal(check.name, 'wake_check');
 
-  const placed = await tool.execute({ in: '45m' });
-  assert.equal(placed.nextWakeAt, new Date(T0 + 45 * 60_000).toISOString());
+  const placed = await set.execute({ in: '45m', reason: '提醒他吃药' });
+  assert.equal(placed.manual.next.at, new Date(T0 + 45 * 60_000).toISOString());
+  assert.equal(placed.manual.next.reason, '提醒他吃药');
+  assert.match(placed.summary, /主动唤醒定在/);
 
-  const read = await tool.execute({});
-  assert.equal(read.nextWakeAt, placed.nextWakeAt);
-  assert.match(read.summary, /下次唤醒/);
+  const read = await check.execute({});
+  assert.match(read.summary, /主动唤醒：.*提醒他吃药/);
+  assert.match(read.summary, /自然唤醒：/);
+  assert.equal(read.natural.nextWakeAt, new Date(T0 + HOUR).toISOString());
 
-  const cleared = await tool.execute({ clear: true });
-  assert.equal(cleared.nextWakeAt, null);
+  const second = await set.execute({ at: '2026-11-05T08:00:00+08:00' });
+  assert.equal(second.manual.count, 2, 'plans stack instead of replacing');
 
-  const at = await tool.execute({ at: '2026-11-05T08:00:00+08:00' });
-  assert.equal(at.nextWakeAt, new Date('2026-11-05T08:00:00+08:00').toISOString());
+  const cancelled = await set.execute({ cancel: true });
+  assert.equal(cancelled.manual.count, 0);
+
+  const lonely = await check.execute({});
+  assert.match(lonely.summary, /主动唤醒：没有安排/);
 });
 
 test('the runner wakes once, then waits for the next interval', async () => {
@@ -236,11 +315,11 @@ test('the runner wakes once, then waits for the next interval', async () => {
   await runner.tick();
   assert.equal(state.nextWakeAt, 4 * HOUR, 'stopping does not re-arm twice');
 
-  runner.setEnabled(false);
+  runner.setNaturalEnabled(false);
   clock = 40 * HOUR;
   await runner.tick();
   assert.equal(delivered.length, 1, 'switched off means silent');
-  assert.equal(state.enabled, false);
+  assert.equal(state.naturalEnabled, false);
 
   runner.dispose();
   assert.equal(timerFn, null);
@@ -335,7 +414,8 @@ test('the heartbeat is a setting, and every save survives the trip over RPC', as
 
   const first = await handle('wake.status', {});
   assert.equal(first.value.heartbeatMs, 30_000, 'thirty seconds unless the owner says otherwise');
-  assert.equal(first.value.nextWakeSource, 'natural');
+  assert.equal(first.value.plannedWakes.length, 0, 'nothing planned yet');
+  assert.equal(first.value.naturalEnabled, true);
 
   const slower = await handle('wake.config.save', { heartbeatMs: 5_000 });
   assert.equal(slower.value.heartbeatMs, 5_000);
@@ -346,17 +426,22 @@ test('the heartbeat is a setting, and every save survives the trip over RPC', as
   assert.equal(tooSlow.ok, false, 'an hour and a minute is refused');
 });
 
-test('a hand-set deadline reads as 主动, a computed one as 自然', async () => {
-  const runner = fakeRunner({ lastActivityEndedAt: T0, defaultIntervalMs: HOUR });
+test('the page sees both deadlines and can cancel one plan at a time', async () => {
+  const runner = fakeRunner({ lastActivityEndedAt: T0, defaultIntervalMs: HOUR, nextWakeAt: T0 + HOUR });
   const handle = createWakeRpcHandler({ runner, now: () => T0 });
 
-  await handle('wake.now', {});
-  const manual = await handle('wake.status', {});
-  assert.equal(manual.value.nextWakeSource, 'manual', 'the page can name who asked for it');
+  await handle('wake.plan', { at: T0 + 60_000, reason: 'first' });
+  await handle('wake.plan', { at: T0 + 2 * HOUR, reason: 'second' });
 
-  await handle('wake.reset', {});
-  const natural = await handle('wake.status', {});
-  assert.equal(natural.value.nextWakeSource, 'natural');
+  const both = await handle('wake.status', {});
+  assert.equal(both.value.plannedWakes.length, 2);
+  assert.equal(both.value.plannedWakes[0].reason, 'first', 'the earliest plan comes first');
+  assert.equal(both.value.nextWakeAt, new Date(T0 + HOUR).toISOString(), 'the natural deadline is separate');
+
+  const first = both.value.plannedWakes[0].id;
+  const one = await handle('wake.cancel', { id: first });
+  assert.equal(one.value.plannedWakes.length, 1);
+  assert.equal(one.value.plannedWakes[0].reason, 'second');
 });
 
 test('the runner adopts the saved heartbeat instead of the built-in one', async () => {
