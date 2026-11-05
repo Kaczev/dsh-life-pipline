@@ -93,13 +93,23 @@ async function loginSnapshot(channel) {
  * code. `channels` are the component's live channel instances.
  */
 export function createChatRpcHandler({ getConfig, update, channels, sessions }) {
-  const status = async () => ({
-    config: publicConfig(getConfig(), channels),
-    channels: {
-      weixin: { login: await loginSnapshot(channels.weixin) },
-      qq: { login: await loginSnapshot(channels.qq) },
-    },
-  });
+  const status = async () => {
+    // Ask a channel to double-check itself before reporting. QQ keeps its
+    // socket open after the bot is deregistered, so the only honest answer
+    // comes from the credential check inside verify().
+    try {
+      await channels.qq?.verify?.();
+    } catch {
+      // The probe is advisory: a broken probe never hides the page.
+    }
+    return {
+      config: publicConfig(getConfig(), channels),
+      channels: {
+        weixin: { login: await loginSnapshot(channels.weixin) },
+        qq: { login: await loginSnapshot(channels.qq) },
+      },
+    };
+  };
 
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('chat/unknown-method', `Unknown method: ${method}`);

@@ -12,6 +12,18 @@ const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
  * the page gets a reason instead of a spinner.
  */
 const READY_TIMEOUT_MS = 20_000;
+const PROBE_INTERVAL_MS = 15_000;
+
+/** Ask the platform for a fresh token; only the credential check matters here. */
+async function defaultFetchToken(appId, clientSecret) {
+  const reply = await fetch('https://bots.qq.com/app/getAppAccessToken', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ appId, clientSecret }),
+    signal: AbortSignal.timeout(8_000),
+  });
+  return reply.json();
+}
 
 function disposeAttempt(attempt) {
   const stop = attempt?.stop;
@@ -30,18 +42,25 @@ function disposeAttempt(attempt) {
  */
 /** One line a person can act on; the SDK speaks in access_token codes. */
 /**
- * Send failures are usually about the relationship, not the connection: a bot
- * the person removed from their friends list stays "connected" but cannot
- * deliver, and the SDK's raw answer reads like a stack trace.
+ * Send failures split in two: the bot itself is gone (a deregistered app keeps
+ * the socket open, then rejects everything), or the bot is fine and only the
+ * relationship is missing. The first must drop the green light, the second must
+ * not - "reconnect" would be the wrong advice for a removed friend.
  */
-function describeSendError(error) {
+function classifySendError(error) {
   const text = String(error?.message ?? error);
-  const first = text.split("\n")[0];
-  if (/无好友关系|not\s*friend/i.test(first)) {
-    return 'QQ 机器人不在你的好友列表里：先把它加为好友，或重新扫码接入。';
+  const first = text.split(String.fromCharCode(10))[0];
+  if (/机器人状态异常|appid invalid|100007|access_token|robot.*invalid/i.test(first)) {
+    return { message: 'QQ 机器人已失效（可能已被注销）：请重新扫码接入。', dead: true };
   }
-  if (/appid invalid|100007/i.test(first)) return 'QQ 应用已失效（机器人可能已被删除），请重新扫码接入。';
-  return first.slice(0, 160);
+  if (/无好友关系|not friend/i.test(first)) {
+    return { message: 'QQ 机器人不在你的好友列表里：先把它加为好友，或重新扫码接入。', dead: false };
+  }
+  return { message: first.slice(0, 160), dead: false };
+}
+
+function describeSendError(error) {
+  return classifySendError(error).message;
 }
 
 function describeStartError(error) {
@@ -60,8 +79,11 @@ export class QqChannel {
   #bot = null;
   #login = null;
   #status = { connected: false, appId: '', lastError: '' };
+  #lastProbeAt = 0;
+  #probe = null;
 
   #readyTimeoutMs;
+  #fetchToken;
 
   constructor({
     config,
@@ -69,16 +91,61 @@ export class QqChannel {
     log,
     createBot = (options) => new QQBot(options),
     readyTimeoutMs = READY_TIMEOUT_MS,
+    fetchToken = defaultFetchToken,
   }) {
     this.#createBot = createBot;
     this.#config = config;
     this.#log = log;
     this.#onInbound = onInbound;
     this.#readyTimeoutMs = readyTimeoutMs;
+    this.#fetchToken = fetchToken;
   }
 
   get status() {
     return { ...this.#status, channel: 'qq' };
+  }
+
+  /**
+   * A deregistered bot keeps its websocket open and only fails when something
+   * is actually sent, so "connected" can outlive the account by hours. Asking
+   * the token endpoint is cheap and tells the truth: a deleted app answers
+   * 100007 immediately. Results are cached so the panel's 5s poll stays quiet.
+   */
+  async verify({ maxAgeMs = PROBE_INTERVAL_MS } = {}) {
+    if (!this.#status.connected) return this.status;
+    const now = Date.now();
+    if (now - this.#lastProbeAt < maxAgeMs) return this.status;
+    if (this.#probe) return this.#probe;
+    const qq = this.#config().qq ?? {};
+    if (!qq.appId || !qq.appSecret) return this.status;
+    this.#lastProbeAt = now;
+    this.#probe = (async () => {
+      try {
+        const reply = await this.#fetchToken(qq.appId, qq.appSecret);
+        const code = Number(reply?.code ?? 0);
+        if (code === 100007 || /appid invalid/i.test(String(reply?.message ?? ''))) {
+          this.#markDead('QQ 机器人已失效（可能已被注销）：请重新扫码接入。');
+        }
+      } catch (error) {
+        // A flaky network is not proof of death; keep the last known state.
+        this.#log?.warn?.(`[life-chat] qq: probe failed: ${error?.message ?? error}`);
+      } finally {
+        this.#probe = null;
+      }
+      return this.status;
+    })();
+    return this.#probe;
+  }
+
+  #markDead(reason) {
+    this.#status = { ...this.#status, connected: false, lastError: reason };
+    const current = this.#bot;
+    this.#bot = null;
+    try {
+      current?.stop?.();
+    } catch {
+      // Already gone.
+    }
   }
 
   get configured() {
@@ -227,7 +294,11 @@ export class QqChannel {
     try {
       sent = await bot.sendText({ scope, targetId: target, ...(msgId ? { msgId } : {}) }, String(text));
     } catch (error) {
-      throw new Error(describeSendError(error));
+      const { message, dead } = classifySendError(error);
+      // The credentials outlived the bot. Keeping "connected" here is why a
+      // deregistered account used to show a green light forever.
+      if (dead) this.#markDead(message);
+      throw new Error(message);
     }
     return { messageId: sent?.id ?? '', scope, targetId: target };
   }

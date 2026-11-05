@@ -196,3 +196,63 @@ test('a bot removed from the friends list says so without losing the connection'
     await channel.stop();
   });
 });
+
+test('a deregistered bot stops reading as connected the moment it refuses a send', async () => {
+  await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
+    const bot = fakeBot();
+    bot.sendText = async () => {
+      throw new Error('API Error [/v2/users/AAAA/messages]: 机器人状态异常');
+    };
+    const channel = new QqChannel({
+      config: loadConfig,
+      log: quiet,
+      createBot: () => bot,
+      onInbound: () => {},
+    });
+    await channel.connect();
+    assert.equal(channel.status.connected, true);
+
+    await assert.rejects(() => channel.sendText('你好'), /重新扫码/);
+    assert.equal(channel.status.connected, false);
+    assert.match(channel.status.lastError, /已失效/);
+    await channel.stop();
+  });
+});
+
+test('a deregistered app is caught by the credential probe, not by a send', async () => {
+  await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
+    const bot = fakeBot();
+    const channel = new QqChannel({
+      config: loadConfig,
+      log: quiet,
+      createBot: () => bot,
+      onInbound: () => {},
+      fetchToken: async () => ({ code: 100007, message: 'appid invalid' }),
+    });
+    await channel.connect();
+    assert.equal(channel.status.connected, true);
+
+    const status = await channel.verify();
+    assert.equal(status.connected, false);
+    assert.match(status.lastError, /已失效/);
+  });
+});
+
+test('a flaky probe never claims the bot died', async () => {
+  await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
+    const bot = fakeBot();
+    const channel = new QqChannel({
+      config: loadConfig,
+      log: quiet,
+      createBot: () => bot,
+      onInbound: () => {},
+      fetchToken: async () => {
+        throw new Error('getaddrinfo ENOTFOUND bots.qq.com');
+      },
+    });
+    await channel.connect();
+    const status = await channel.verify();
+    assert.equal(status.connected, true);
+    await channel.stop();
+  });
+});
