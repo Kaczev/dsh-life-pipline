@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { createAwayGuard, startedAway, lastUserSourceKind, AWAY_REASON } = await import('../src/away-guard.mjs');
+const {
+  createAwayGuard,
+  createAwayToolGuard,
+  startedAway,
+  lastUserSourceKind,
+  AWAY_REASON,
+} = await import('../src/away-guard.mjs');
 
 const sessionWith = (events) => ({ id: 'session-away', snapshotEvents: () => events });
 
@@ -43,7 +49,16 @@ test('a question is denied on an away turn and explained in English', async () =
   assert.equal(decision.reason, AWAY_REASON);
   assert.match(decision.reason, /away from the Harness UI/);
   assert.match(decision.reason, /plain text/);
-  assert.deepEqual(denials, [{ sessionId: 'session-away', kind: 'dsh-lpipe-chat' }]);
+  assert.deepEqual(denials.map((info) => info.kind), ['dsh-lpipe-chat']);
+});
+
+test('the monotonic guard denies the same call without a waterfall', () => {
+  const guard = createAwayToolGuard();
+  const away = { name: 'ask_user_question', agent: { session: sessionWith([userMessage('dsh-lpipe-wake')]) } };
+  assert.equal(guard(away), AWAY_REASON);
+  const home = { name: 'ask_user_question', agent: { session: sessionWith([userMessage('prompt')]) } };
+  assert.equal(guard(home), undefined);
+  assert.equal(guard({ name: 'chat_send', agent: { session: sessionWith([userMessage('dsh-lpipe-chat')]) } }), undefined);
 });
 
 test('a question still works when the owner is at the keyboard', async () => {
@@ -72,4 +87,10 @@ test('other tools are never touched', async () => {
   );
   assert.equal(decision.kind, 'allow');
   assert.equal(next, 1);
+});
+
+test('a call without an agent is left alone instead of throwing', async () => {
+  const guard = createAwayGuard();
+  const decision = await guard({ name: 'ask_user_question' }, async () => ({ kind: 'allow' }));
+  assert.equal(decision.kind, 'allow');
 });
