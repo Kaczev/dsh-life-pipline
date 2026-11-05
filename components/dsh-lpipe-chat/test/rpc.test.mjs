@@ -6,6 +6,7 @@ import { createChatRpcHandler, registerChatRpc } from '../src/rpc.mjs';
 const BASE_CONFIG = {
   mainSessionId: 'session-1',
   quietSeconds: 1,
+  windowSeconds: 5,
   ownerOnly: true,
   ownerName: 'Kaczev',
   weixin: { enabled: true, botToken: 'tok', ownerUserId: 'owner@wx', accountId: 'acc', baseUrl: 'https://x/' },
@@ -95,6 +96,12 @@ test('config.save rejects an out-of-range quiet period and keeps the old value',
   const good = await handle('chat.config.save', { quietSeconds: 2.5, mainSessionId: '  session-1  ' });
   assert.equal(good.ok, true);
   assert.equal(config().quietSeconds, 2.5);
+  assert.equal(config().windowSeconds, 5, 'the big holder is untouched');
+  const badWindow = await handle('chat.config.save', { windowSeconds: 1 });
+  assert.equal(badWindow.ok, false);
+  const window = await handle('chat.config.save', { windowSeconds: 9 });
+  assert.equal(window.ok, true);
+  assert.equal(config().windowSeconds, 9);
   assert.equal(config().mainSessionId, 'session-1');
 });
 

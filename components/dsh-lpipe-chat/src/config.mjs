@@ -39,10 +39,17 @@ export function defaultConfig() {
     /** Session that receives every batched IM message. Filled from the config page. */
     mainSessionId: '',
     /**
-     * Seconds of silence that end a burst. Every new message restarts the
-     * count, so a run of quick messages arrives as one notice. Range 0.2-60.
+     * Small holder: seconds of silence that close a burst. Every new message
+     * restarts the count, so a run of quick messages arrives as one notice.
+     * Range 0.2-60.
      */
     quietSeconds: 1,
+    /**
+     * Big holder: after a notice goes out, messages arriving within this many
+     * seconds are collected and delivered together once the window ends.
+     * Range 3-120.
+     */
+    windowSeconds: 5,
     /** Only the owner is allowed through. Off = every sender reaches you. */
     ownerOnly: true,
     /** How the owner is labelled in injected batches. */
@@ -116,6 +123,12 @@ export function updateConfig(mutator) {
   const current = loadConfig();
   const next = mutator({ ...current });
   return saveConfig(next ?? current);
+}
+
+export function clampWindow(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value)) return defaultConfig().windowSeconds;
+  return Math.min(120, Math.max(3, Math.round(value)));
 }
 
 export function clampQuiet(seconds) {

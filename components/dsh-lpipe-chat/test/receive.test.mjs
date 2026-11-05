@@ -45,7 +45,7 @@ test('a WeChat message reaches the main session as a labelled prompt', async () 
   try {
     saveConfig({
       mainSessionId: 'session-main',
-      quietSeconds: 0.2,
+      quietSeconds: 0.2, windowSeconds: 3,
       ownerName: 'Kaczev',
       weixin: { botToken: 'tok', ownerUserId: OWNER, accountId: 'acc' },
     });
@@ -108,7 +108,7 @@ test('messages from anyone but the owner never leave the channel', async () => {
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
   try {
-    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, ownerOnly: true,
+    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, windowSeconds: 3, ownerOnly: true,
       weixin: { botToken: 'tok', ownerUserId: OWNER } });
     const api = fakeApi([{
       message_type: 1,
@@ -192,7 +192,7 @@ test('the newest inbound token wins over a caller-supplied one', async () => {
   try {
     saveConfig({
       mainSessionId: 'session-main',
-      quietSeconds: 0.2,
+      quietSeconds: 0.2, windowSeconds: 3,
       ownerName: 'Kaczev',
       weixin: { botToken: 'tok', ownerUserId: OWNER, accountId: 'acc' },
     });
@@ -232,7 +232,7 @@ test('new credentials forget the conversation tokens of the old bot', async () =
   process.env.DSH_HOME = home;
   try {
     const credentials = { botToken: 'tok-1', ownerUserId: OWNER, accountId: 'acc' };
-    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, ownerName: 'Kaczev', weixin: credentials });
+    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, windowSeconds: 3, ownerName: 'Kaczev', weixin: credentials });
     const api = fakeApi([{
       message_type: 1,
       from_user_id: OWNER,
@@ -253,7 +253,7 @@ test('new credentials forget the conversation tokens of the old bot', async () =
 
     saveConfig({
       mainSessionId: 'session-main',
-      quietSeconds: 0.2,
+      quietSeconds: 0.2, windowSeconds: 3,
       ownerName: 'Kaczev',
       weixin: { ...credentials, botToken: 'tok-2' },
     });

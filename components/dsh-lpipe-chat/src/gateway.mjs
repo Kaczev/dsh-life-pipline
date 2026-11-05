@@ -3,9 +3,13 @@ import { stampFor } from 'dsh-life-pipline/clock';
 import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
 
 /**
- * Debounced inbound notices: a burst is held until the owner stops sending.
- * Every new message restarts the quiet count, so one notice carries the whole
- * burst instead of one notice per message.
+ * Two holders in front of one notice.
+ *
+ * The small one waits for quiet: every message moves the deadline back, so a
+ * burst of quick messages becomes one notice. The big one starts after a
+ * notice goes out and collects whatever follows, so a long run is delivered in
+ * as few notices as possible. Both are decided by comparing the clock with a
+ * deadline, never by counting down.
  */
 export class InboundGateway {
   #getConfig;
@@ -14,9 +18,10 @@ export class InboundGateway {
   #saveImages;
   #buffer = [];
   #timer = null;
-  // Absolute instant the burst goes quiet, compared against the clock rather
-  // than counted down, so a timer that fires early or late cannot drift.
+  // Absolute instants, compared against the clock rather than counted down,
+  // so a timer that fires early or late cannot drift.
   #quietUntil = 0;
+  #windowUntil = 0;
   #sending = false;
   #disposed = false;
   // Timestamp of the newest message already spoken for, so a restart does not
@@ -51,14 +56,24 @@ export class InboundGateway {
     return Math.min(60, Math.max(0.2, Number(quietSeconds) || 1)) * 1000;
   }
 
+  #windowMs() {
+    const { windowSeconds } = this.#getConfig();
+    return Math.min(120, Math.max(3, Number(windowSeconds) || 5)) * 1000;
+  }
+
+  /** Both deadlines must pass: the burst is closed and the window is over. */
+  #dueAt() {
+    return Math.max(this.#quietUntil, this.#windowUntil);
+  }
+
   /** The timer is only a wake-up call; the clock decides whether to flush. */
   #schedule() {
     if (this.#disposed || this.#timer) return;
-    const wait = Math.max(0, this.#quietUntil - Date.now());
+    const wait = Math.max(0, this.#dueAt() - Date.now());
     this.#timer = setTimeout(() => {
       this.#timer = null;
       if (this.#disposed) return;
-      if (Date.now() < this.#quietUntil) {
+      if (Date.now() < this.#dueAt()) {
         this.#schedule();
         return;
       }
@@ -101,6 +116,8 @@ export class InboundGateway {
       };
       try {
         await this.#deliver({ sessionId: mainSessionId, message: publish('', refs) });
+        // The big holder opens only once a notice has actually gone out.
+        this.#windowUntil = Date.now() + this.#windowMs();
       } catch (error) {
         // A model without vision rejects the whole request. The words still
         // matter, so the pictures are what gets dropped, once.
@@ -109,6 +126,7 @@ export class InboundGateway {
         this.#log.warn?.(`[life-chat] notice with images refused: ${reason}`);
         const extra = `（图片没能随这条消息进入：${reason}）`;
         await this.#deliver({ sessionId: mainSessionId, message: publish(extra, []) });
+        this.#windowUntil = Date.now() + this.#windowMs();
       }
     } catch (error) {
       if (!this.#disposed) {

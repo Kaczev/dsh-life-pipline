@@ -33,7 +33,7 @@ async function withHome(config, run) {
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
   try {
-    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, ownerName: 'Kaczev', qq: config });
+    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, windowSeconds: 3, ownerName: 'Kaczev', qq: config });
     await run();
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME;

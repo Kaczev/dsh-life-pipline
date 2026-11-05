@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 
-import { clampQuiet } from './config.mjs';
+import { clampQuiet, clampWindow } from './config.mjs';
 import { readSessionTitle } from './session-title.mjs';
 
 export const CHAT_RPC_ENDPOINT = 'dsh-lpipe-chat';
@@ -50,6 +50,7 @@ function publicConfig(config, channels) {
   return {
     mainSessionId: String(config.mainSessionId ?? ''),
     quietSeconds: clampQuiet(config.quietSeconds),
+    windowSeconds: clampWindow(config.windowSeconds),
     ownerOnly: config.ownerOnly !== false,
     ownerName: String(config.ownerName ?? ''),
     weixin: {
@@ -124,6 +125,13 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
 
     if (method === 'chat.config.save') {
       const patch = {};
+      if (Object.hasOwn(input, 'windowSeconds')) {
+        const seconds = Number(input.windowSeconds);
+        if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {
+          return failure('chat/bad-request', '兜窗口必须在 3 到 120 秒之间。');
+        }
+        patch.windowSeconds = Math.round(seconds);
+      }
       if (Object.hasOwn(input, 'quietSeconds')) {
         const seconds = Number(input.quietSeconds);
         if (!Number.isFinite(seconds) || seconds < 0.2 || seconds > 60) {

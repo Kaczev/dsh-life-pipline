@@ -220,7 +220,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           `微信：${weixin.connected ? '已连接' : (config.weixin.botToken ? '已保存凭据但未连上' : '未接入')}`,
           `QQ：${qq.connected ? '已连接' : (config.qq.appId ? '已保存凭据但未连上' : '未接入')}`,
           `主会话：${config.mainSessionId || '未设置'}`,
-          `静默间隔：${config.quietSeconds} 秒`,
+          `小兜：${config.quietSeconds} 秒，兜窗口：${config.windowSeconds} 秒`,
         ];
         const conflict = ownershipWarning(dshImAccounts(), config);
         if (conflict) lines.push(`冲突：${conflict}`);
@@ -229,6 +229,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           qq,
           mainSessionId: config.mainSessionId,
           quietSeconds: config.quietSeconds,
+          windowSeconds: config.windowSeconds,
           dshImConflict: conflict,
           summary: lines.join('\n'),
         };

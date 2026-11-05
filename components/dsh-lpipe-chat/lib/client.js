@@ -168,6 +168,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [quietDraft, setQuietDraft] = React.useState('1');
+  const [windowDraft, setWindowDraft] = React.useState('5');
   const [login, setLogin] = React.useState({});
 
   const call = React.useCallback(async (method, payload) => {
@@ -184,6 +185,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const adopt = React.useCallback((value) => {
     setStatus(value);
     setQuietDraft((current) => (current === '1' ? String(value.config.quietSeconds) : current));
+    setWindowDraft((current) => (current === '5' ? String(value.config.windowSeconds) : current));
     setLogin((current) => ({
       weixin: value.channels?.weixin?.login ?? current.weixin,
       qq: value.channels?.qq?.login ?? current.qq,
@@ -346,7 +348,7 @@ function ChatSettingsPanel({ rpcCall }) {
       }, '社交管线')),
 
     h('div', { style: card },
-      h('label', { style: label }, '静默间隔（秒）'),
+      h('label', { style: label }, '小兜（秒）'),
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
         h('input', {
           style: { ...input, width: 100 },
@@ -362,7 +364,25 @@ function ChatSettingsPanel({ rpcCall }) {
           disabled: busy,
           onClick: () => save({ quietSeconds: Number(quietDraft) }),
         }, '保存')),
-      note('收到消息先等这么久；这期间又来了新的，就重新计时，直到安静下来再一起交给我。')),
+      note('收到消息先等这么久；这期间又来了新的，就重新计时——一口气发来的几条并成一串。')),
+
+    h('div', { style: card },
+      h('label', { style: label }, '兜窗口（秒）'),
+      h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+        h('input', {
+          style: { ...input, width: 100 },
+          type: 'number',
+          min: 3,
+          max: 120,
+          value: windowDraft,
+          onChange: (event) => setWindowDraft(event.target.value),
+        }),
+        h('button', {
+          style: button(),
+          disabled: busy,
+          onClick: () => save({ windowSeconds: Number(windowDraft) }),
+        }, '保存')),
+      note('一串送出后，这么多秒内继续来的消息先攒着，到窗口末尾合并成一次补上。')),
 
     h(ChannelCard, {
       name: 'weixin',

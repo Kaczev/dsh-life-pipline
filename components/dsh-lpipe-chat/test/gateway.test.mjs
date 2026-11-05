@@ -11,7 +11,9 @@ const flush = async (t, ms = 3000) => {
   t.mock.timers.tick(ms);
   await tick();
 };
-function setup(t, deliver, config = { mainSessionId: 'session-main', quietSeconds: 3 }, saveImages = null) {
+// Small holder 3s, big holder 6s: a burst closes on silence, and a notice
+// opens a window in which whatever follows is collected for one late delivery.
+function setup(t, deliver, config = { mainSessionId: 'session-main', quietSeconds: 3, windowSeconds: 6 }, saveImages = null) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const gateway = new InboundGateway({ getConfig: () => config, log: quiet, deliver, saveImages });
   t.after(() => gateway.dispose());
@@ -63,15 +65,39 @@ test('two separate bursts produce two notices', async (t) => {
   const gateway = setup(t, async (r) => notices.push(r));
   gateway.accept(message('早'));
   await flush(t);
+  assert.equal(notices.length, 1);
   gateway.accept(message('还在吗'));
-  await flush(t);
+  // The window opened by the first notice has to end before the next one goes.
+  await flush(t, 6000);
   assert.equal(notices.length, 2);
   assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev] 早');
   assert.equal(notices[1].message.content[0].text, '[微信 · Kaczev] 还在吗');
 });
 
+test('the big holder collects everything that follows a notice into one delivery', async (t) => {
+  const notices = [];
+  const gateway = setup(t, async (r) => notices.push(r));
+  gateway.accept(message('一'));
+  await flush(t);
+  assert.equal(notices.length, 1);
+  // Three separate bursts, each quiet on its own, but all inside the window.
+  gateway.accept(message('二'));
+  await flush(t, 2000);
+  gateway.accept(message('三'));
+  await flush(t, 2000);
+  gateway.accept(message('四'));
+  await flush(t, 2000);
+  assert.equal(notices.length, 1, 'the window still holds them together');
+  await flush(t, 3000);
+  assert.equal(notices.length, 2);
+  assert.equal(
+    notices[1].message.content[0].text,
+    ['[微信 · Kaczev] 二', '[微信 · Kaczev] 三', '[微信 · Kaczev] 四'].join(String.fromCharCode(10)),
+  );
+});
+
 test('unset main session retains all messages and recovers after configuration', async (t) => {
-  const config = { mainSessionId: '', quietSeconds: 3 };
+  const config = { mainSessionId: '', quietSeconds: 3, windowSeconds: 6 };
   const notices = [];
   const gateway = setup(t, async (r) => notices.push(r), config);
   gateway.accept(message('one'));
@@ -99,7 +125,7 @@ test('a slow delivery across the quiet deadline never discards buffered messages
   assert.equal(gateway.pending, 2, 'messages that arrive mid-flight are held');
   release();
   await tick();
-  await flush(t);
+  await flush(t, 7000);
   assert.equal(notices.length, 2);
   assert.match(notices[1].message.content[0].text, /two\n.*three/);
 });
