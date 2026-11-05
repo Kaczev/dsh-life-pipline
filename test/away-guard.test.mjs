@@ -14,9 +14,9 @@ const sessionWith = (events) => ({ id: 'session-away', snapshotEvents: () => eve
 const userMessage = (kind) => ({ type: 'user/message', data: { source: { kind } } });
 const assistantMessage = () => ({ type: 'assistant/message', data: {} });
 
-test('the newest user message decides where the turn came from', () => {
+test('the message that started the turn decides where it came from', () => {
   const session = sessionWith([
-    userMessage('prompt'),
+    userMessage('user'),
     assistantMessage(),
     userMessage('dsh-lpipe-chat'),
     assistantMessage(),
@@ -27,9 +27,20 @@ test('the newest user message decides where the turn came from', () => {
 });
 
 test('a GUI turn is not an away turn', () => {
-  assert.equal(startedAway(sessionWith([userMessage('prompt'), assistantMessage()])), false);
+  assert.equal(startedAway(sessionWith([userMessage('user'), assistantMessage()])), false);
   assert.equal(startedAway(sessionWith([])), false);
   assert.equal(startedAway(null), false);
+});
+
+test('a clock reading injected after the notice does not mask it', () => {
+  // time-context appends a user/message on nearly every step; the newest
+  // message of a WeChat turn is usually that clock, not the batch itself.
+  const away = sessionWith([userMessage('dsh-lpipe-chat'), userMessage('time-context')]);
+  assert.equal(lastUserSourceKind(away), 'dsh-lpipe-chat');
+  assert.equal(startedAway(away), true);
+
+  const gui = sessionWith([userMessage('user'), userMessage('time-context')]);
+  assert.equal(startedAway(gui), false);
 });
 
 test('both notice sources read as away', () => {

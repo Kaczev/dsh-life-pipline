@@ -27,8 +27,33 @@ import { homeDir } from './paths.mjs';
 /** Notice sources that may be delivered while the owner is not at the keyboard. */
 const AWAY_KINDS = new Set(['dsh-lpipe-chat', 'dsh-lpipe-wake']);
 
-/** The newest user-message event's source kind, or '' when there is none. */
+/**
+ * Kinds that can start a turn. Everything else in the `user/message` stream is
+ * context a plugin injected mid-turn — `time-context` is appended to almost
+ * every step, and looking at the *newest* message therefore read every turn as
+ * "time-context", including the ones that arrived over WeChat. So the scan
+ * walks past context and stops at the first message that can be an origin.
+ */
+const ORIGIN_KINDS = new Set(['user', 'dsh-lpipe-chat', 'dsh-lpipe-wake', 'schedule']);
+
+/**
+ * The kind of the message that started this turn, or '' when there is none.
+ * @param {any} session - the session whose log to read.
+ * @returns The decisive source kind, e.g. `user` or `dsh-lpipe-chat`.
+ */
 export function lastUserSourceKind(session) {
+  const events = eventsOf(session);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.type !== 'user/message') continue;
+    const kind = event?.data?.source?.kind;
+    if (typeof kind === 'string' && ORIGIN_KINDS.has(kind)) return kind;
+  }
+  return '';
+}
+
+/** The very newest user-message kind, context included; diagnostics only. */
+export function newestUserSourceKind(session) {
   const events = eventsOf(session);
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
@@ -88,7 +113,13 @@ export function awayReasonFor(exec, { onDecision } = {}) {
   } catch (thrown) {
     error = String(thrown?.message ?? thrown);
   }
-  const info = { sessionId: String(session?.id ?? ''), kind, away, hasSession: Boolean(session), error };
+  let newest = '';
+  try {
+    newest = session ? newestUserSourceKind(session) : '';
+  } catch {
+    newest = '';
+  }
+  const info = { sessionId: String(session?.id ?? ''), kind, newest, away, hasSession: Boolean(session), error };
   try {
     onDecision?.(info);
   } catch {
