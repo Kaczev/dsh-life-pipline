@@ -12,12 +12,9 @@ export const name = 'dsh-lpipe-memory'
 export const inject = []
 
 /**
- * 一轮结束就落一次盘：这是主要时机。
- * 保险业务：万一某轮没有 turn/end（比如崩溃后重建），也不能一直攒着。
+ * 一轮结束才落盘：一轮之内的行先攒在内存里，收到 turn/end 才一次性写进去。
+ * 盘上不会出现半截的轮次；没说完的轮次宁可不存，也不存一半。
  */
-export const FLUSH_MS = 60_000
-
-/** 一轮结束的事件。 */
 const TURN_END = 'turn/end'
 
 export function apply(ctx, options = {}) {
@@ -25,25 +22,33 @@ export function apply(ctx, options = {}) {
   const writer = options.writer ?? new MemoryWriter({ root })
   const reader = new MemoryReader({ root })
   let attachments = null
-  let timer = null
+  /** sessionId -> 这一轮已经攒下的行 */
+  const buffered = new Map()
   const warn = (message) => ctx.logger?.warn?.(message)
 
-  const flush = () => {
+  /** 把某个会话正在攒的轮次落盘；没有就什么也不做。 */
+  const commit = (sessionId) => {
+    const rows = buffered.get(sessionId)
+    buffered.delete(sessionId)
+    if (!rows || rows.length === 0) return 0
     try {
+      for (const row of rows) writer.append(row)
       writer.flush()
+      return rows.length
     } catch (error) {
       warn(`[dsh-lpipe-memory] 落盘失败：${error?.message ?? error}`)
+      return 0
     }
   }
 
-  ctx.effect(() => {
-    timer = setInterval(flush, FLUSH_MS)
-    timer?.unref?.()
-    return () => {
-      if (timer) clearInterval(timer)
+  ctx.effect(
+    () => () => {
+      // 卸载时还没说完的轮次不落盘，只把已落盘的部分收尾。
+      buffered.clear()
       writer.close()
-    }
-  }, 'dsh-lpipe-memory: turn-end flush')
+    },
+    'dsh-lpipe-memory: close on teardown',
+  )
 
   ctx.inject(['attachments'], (attachmentCtx) => {
     attachments = attachmentCtx.attachments ?? null
@@ -51,10 +56,11 @@ export function apply(ctx, options = {}) {
 
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessionsCtx.on('session/event', (session, event) => {
+      const sessionId = session?.id ?? ''
       try {
-        // 轮次结束本身不入档，但它是落盘的信号：这一轮的行到此为止。
+        // 轮次结束本身不入档，但它是这一轮完成的信号。
         if (event?.type === TURN_END) {
-          flush()
+          commit(sessionId)
           return
         }
         const projected = project(event)
@@ -64,8 +70,20 @@ export function apply(ctx, options = {}) {
           const captured = captureMedia({ attachments, parts: payload.parts, root, log: warn })
           payload = { ...payload, parts: captured.parts, media: captured.media }
         }
-        writer.append({
-          sessionId: session?.id ?? '',
+        const rows = buffered.get(sessionId) ?? []
+        // 新一轮开始了：上一轮若没收到 turn/end，先把它收掉，别两轮混在一起。
+        if (
+          projected.kind === 'user/message' &&
+          rows.length > 0 &&
+          projected.turn !== null &&
+          rows[0].turn !== null &&
+          projected.turn !== rows[0].turn
+        ) {
+          commit(sessionId)
+        }
+        const target = buffered.get(sessionId) ?? []
+        target.push({
+          sessionId,
           eventSeq: event?.seq,
           at: event?.time,
           kind: projected.kind,
@@ -73,9 +91,10 @@ export function apply(ctx, options = {}) {
           step: projected.step,
           payload,
         })
+        buffered.set(sessionId, target)
         if (projected.kind === 'user/message' && event?.seq === 0) {
-          const title = readSessionTitle?.(sessionsCtx.sessions, session?.id)
-          if (title?.title) writer.setTitle(session?.id, title.title)
+          const title = readSessionTitle?.(sessionsCtx.sessions, sessionId)
+          if (title?.title) writer.setTitle(sessionId, title.title)
         }
       } catch (error) {
         warn(`[dsh-lpipe-memory] 写入失败：${error?.message ?? error}`)

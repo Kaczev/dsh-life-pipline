@@ -18,8 +18,10 @@ function makeCtx() {
   }
   const ctx = {
     logger: { warn() {} },
+    disposers: [],
     effect(fn) {
-      fn()
+      const dispose = fn()
+      if (typeof dispose === 'function') this.disposers.push(dispose)
     },
     inject(names, handler) {
       if (names.includes('attachments')) handler({ attachments: null })
@@ -27,7 +29,10 @@ function makeCtx() {
     },
   }
   const fire = (event) => listeners.get('session/event')?.({ id: 'session-test' }, event)
-  return { ctx, fire }
+  const dispose = () => {
+    for (const fn of ctx.disposers.splice(0)) fn()
+  }
+  return { ctx, fire, dispose }
 }
 
 const dayFiles = (root) => {
@@ -74,6 +79,49 @@ test('events that are not part of a turn never invent rows', () => {
 
   fire({ type: 'session/end-seed', seq: 0, time: 1_700_000_000_000, data: {} })
   fire({ type: 'turn/end', seq: 1, time: 1_700_000_000_100, data: {} })
+
+  assert.deepEqual(dayFiles(root), [])
+})
+
+test('a turn interrupted by the next one is closed out instead of mixed in', () => {
+  const root = mkdtempSync(join(tmpdir(), 'life-turn-'))
+  const { ctx, fire } = makeCtx()
+  apply(ctx, { root })
+
+  fire({
+    type: 'user/message',
+    seq: 0,
+    time: 1_700_000_000_000,
+    data: { content: [{ type: 'text', text: '第一轮' }], turn: 1 },
+  })
+  // 第一轮没有 turn/end：下一轮的第一句应当把它收掉，而不是两轮混在一帧。
+  fire({
+    type: 'user/message',
+    seq: 1,
+    time: 1_700_000_100_000,
+    data: { content: [{ type: 'text', text: '第二轮' }], turn: 2 },
+  })
+
+  const reader = new MemoryReader({ root })
+  const summary = reader.sessions().find((item) => item.sessionId === 'session-test')
+  assert.equal(summary.rows, 1)
+  assert.equal(reader.read(0).text, '第一轮')
+  // 第二轮还在攒，等它自己的 turn/end。
+  assert.deepEqual(dayFiles(root).length, 1)
+})
+
+test('teardown never writes a half-finished turn', () => {
+  const root = mkdtempSync(join(tmpdir(), 'life-turn-'))
+  const { ctx, fire, dispose } = makeCtx()
+  apply(ctx, { root })
+
+  fire({
+    type: 'user/message',
+    seq: 0,
+    time: 1_700_000_000_000,
+    data: { content: [{ type: 'text', text: '没说完' }] },
+  })
+  dispose()
 
   assert.deepEqual(dayFiles(root), [])
 })
