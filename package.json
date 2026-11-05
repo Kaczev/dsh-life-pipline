@@ -4,7 +4,7 @@
   "description": "Common settings for the dsh-lpipe- series: every component registers a block into one shared Settings page.",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\" \"components/*/test/*.test.mjs\"",
+    "test": "node scripts/link-self.mjs && node --test \"test/*.test.mjs\" \"components/*/test/*.test.mjs\"",
     "install-local": "node scripts/install-local.mjs",
     "build-client": "node scripts/build-client.mjs && node components/dsh-lpipe-chat/scripts/build-client.mjs"
   },
@@ -31,6 +31,7 @@
   "icon": "assets/icon.png",
   "exports": {
     ".": "./index.js",
+    "./clock": "./src/clock.mjs",
     "./client": "./lib/client.js",
     "./icon": "./assets/icon.png",
     "./locale/en.json": "./locale/en.json",

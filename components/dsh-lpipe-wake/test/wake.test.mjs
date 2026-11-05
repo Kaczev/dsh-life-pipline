@@ -12,6 +12,16 @@ import { buildClient } from '../scripts/build-client.mjs';
 const HOUR = 60 * 60 * 1000;
 const T0 = Date.UTC(2026, 10, 4, 12, 0, 0);
 
+test('waking after an overnight gap says which day it was, not just a time', () => {
+  const now = new Date(2026, 10, 5, 9, 12).getTime();
+  const yesterday = new Date(2026, 10, 4, 19, 12).getTime();
+  assert.match(wakeText({ now, since: yesterday }), /昨天 19:12 之后你就停下来了，现在是 09:12/);
+  const older = new Date(2026, 9, 26, 21, 0).getTime();
+  assert.match(wakeText({ now, since: older }), /10月26日 21:00 之后你就停下来了/);
+  const sameDay = new Date(2026, 10, 5, 6, 30).getTime();
+  assert.match(wakeText({ now, since: sameDay }), /已经过了 2 小时 42 分，现在是 09:12/);
+});
+
 test('the first idle tick starts the clock from now', () => {
   const { state, action } = step({}, { now: T0, status: 'idle' });
   assert.equal(action, null);

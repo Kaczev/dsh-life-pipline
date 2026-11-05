@@ -58,6 +58,7 @@ export function apply(ctx, config) {
   let sessions = null;
   const gateway = new InboundGateway({
     getConfig, log,
+    lastAt: lastInboundAt(),
     deliver: (request) => {
       if (!delivery) throw new Error('notice delivery is unavailable');
       return delivery.deliver(request);
@@ -76,6 +77,23 @@ export function apply(ctx, config) {
         }
       },
     };
+  }
+
+  // Seed the stamp baseline from the archive: a restart must not replay a time
+  // the owner has already seen.
+  function lastInboundAt() {
+    try {
+      const rows = store.readMessages();
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (row?.direction !== 'in') continue;
+        const parsed = Date.parse(row.at);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    } catch (error) {
+      log.warn(`[life-chat] could not read the last inbound time: ${error?.message ?? error}`);
+    }
+    return null;
   }
 
   function acceptInbound(event) {

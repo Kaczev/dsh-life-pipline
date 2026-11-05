@@ -9,6 +9,8 @@
  * 3. After activity ends, the next wake is `lastActivityEndedAt + interval`.
  * 4. `wake_set` only places a `nextWakeAt`; rule 1 may clear it again.
  */
+import { formatStamp } from 'dsh-life-pipline/clock';
+
 export const DEFAULT_INTERVAL_MS = 2 * 60 * 60 * 1000;
 export const TICK_MS = 30 * 1000;
 
@@ -55,11 +57,24 @@ export function elapsedText(ms) {
   return minutes === 0 ? `${hours} 小时` : `${hours} 小时 ${pad(minutes)} 分`;
 }
 
-/** The sentence that wakes you: a statement, not a command. */
+/**
+ * The sentence that wakes you: a statement, not a command.
+ *
+ * The clock uses the same rule as the chat pipeline, so waking after an
+ * overnight gap reads `昨天 23:47` instead of a bare time that would look like
+ * it happened today.
+ */
 export function wakeText({ now, since }) {
   const tail = '想做什么就做什么，没事也可以什么都不做。';
-  if (since === null) return `（自己醒来）现在是 ${clockOf(now)}。${tail}`;
-  return `（自己醒来）已经过了 ${elapsedText(now - since)}，现在是 ${clockOf(now)}。${tail}`;
+  const nowStamp = formatStamp(now, now);
+  if (since === null) return `（自己醒来）现在是 ${nowStamp}。${tail}`;
+  // Once the silence crossed midnight, "2 小时 06 分" hides which day it was.
+  // Name the moment instead, written the way WeChat writes an old timestamp.
+  const sameDay = new Date(since).toDateString() === new Date(now).toDateString();
+  if (!sameDay) {
+    return `（自己醒来）${formatStamp(since, now)} 之后你就停下来了，现在是 ${nowStamp}。${tail}`;
+  }
+  return `（自己醒来）已经过了 ${elapsedText(now - since)}，现在是 ${nowStamp}。${tail}`;
 }
 
 /**

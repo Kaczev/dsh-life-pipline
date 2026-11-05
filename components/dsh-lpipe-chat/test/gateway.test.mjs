@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { InboundGateway } from '../src/gateway.mjs';
 
 const quiet = { warn() {} };
-const message = (text) => ({ channel: 'weixin', channelLabel: '微信', conversationKind: 'dm', senderName: 'Kaczev', text });
+const message = (text, at) => ({ channel: 'weixin', channelLabel: '微信', conversationKind: 'dm', senderName: 'Kaczev', text, ...(at ? { at } : {}) });
 const tick = () => new Promise(setImmediate);
 function setup(t, deliver, config = { mainSessionId: 'session-main', windowSeconds: 3 }) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -94,4 +94,30 @@ test('dispose during delivery prevents requeue, timers and late accepts', async 
   gateway.accept(message('late'));
   t.mock.timers.tick(9000);
   assert.equal(gateway.pending, 0);
+});
+
+test('a burst gets one timestamp at its head, not one per message', async (t) => {
+  const notices = [];
+  const gateway = setup(t, async (r) => notices.push(r));
+  const base = new Date(2026, 10, 5, 9, 0).getTime();
+  gateway.accept(message('早', new Date(base).toISOString()));
+  gateway.accept(message('刚醒', new Date(base + 60_000).toISOString()));
+  gateway.accept(message('错过了什么', new Date(base + 30 * 60_000).toISOString()));
+  t.mock.timers.tick(3000);
+  await tick();
+  // The batch behind the immediate notice is scheduled only once that delivery
+  // settles, so the fake clock has to move again.
+  t.mock.timers.tick(3000);
+  await tick();
+  const lines = notices
+    .map((notice) => notice.message.content[0].text)
+    .join(String.fromCharCode(10))
+    .split(String.fromCharCode(10));
+  assert.deepEqual(lines, [
+    '09:00',
+    '[微信 · Kaczev] 早',
+    '[微信 · Kaczev] 刚醒',
+    '09:30',
+    '[微信 · Kaczev] 错过了什么',
+  ]);
 });

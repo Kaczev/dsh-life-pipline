@@ -13,7 +13,9 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 ├── client/panel.js          # 「Lpipe 设置」整页容器（settings.section）
 ├── lib/client.js            # 构建产物（提交进仓库）
 ├── scripts/build-client.mjs  # 包模块壳
+├── scripts/link-self.mjs     # 让 checkout 能按包名解析共享模块（test 前自动跑）
 ├── scripts/install-local.mjs # 把本包与 components/* 装进 profile
+├── src/clock.mjs             # 共用时间规则，导出为 dsh-life-pipline/clock
 └── components/
     ├── dsh-lpipe-chat/       # 组件：自己的 bundle + 自己的插件，依赖 dsh-life-pipline
         ├── package.json      # name / icon / exports / dsh.bundle / dsh.client / dependencies
@@ -82,6 +84,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 - **入站**：扫码接入 → 长轮询收消息 → 只放行主人 → 第一条立即注入，其后 `windowSeconds` 内的消息合并成一次注入。
 - **注入**：独立来源 `dsh-lpipe-chat`、`form: notice` 的后台通知；通过 `sessionController.resolveAgent` 恢复目标会话，忙时 `agent.inject` 等下一步读取，空闲时 `agent.followup` 唤醒。不走普通用户 `prompt`，不使用 `steer`。
 - **标注**：注入正文形如 `[微信 · Kaczev] 原文`，群聊为 `[QQ · 群 · 昵称] 原文`。
+- **时间**：微信的分隔规则，实现在 `src/clock.mjs`（由公共包导出为 `dsh-life-pipline/clock`）。间隔不足 5 分钟不加时间；更久则在自己那一行写 `14:22` / `昨天 14:22` / `周二 14:22` / `11月1日 14:22` / `2025年11月1日 14:22`。时间永不落进消息正文，宿主重启时用归档里最后一条入站消息做基准，不重复播报已经见过的时间。
 - **出站**：`chat_send` 按渠道回复；回不回由当轮决定。
 - **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only，进出都记，不改写。
 
@@ -157,6 +160,7 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
   - 空闲且没有结束时间 → 以此刻为结束时间，`nextWakeAt = now + interval`。
   - 空闲且没有截止时间 → `nextWakeAt = lastActivityEndedAt + interval`。
   - `now >= nextWakeAt` → 注入一条，然后从这一刻重新起算（否则旧基准会让下一个心跳再醒一次，形成循环）。
+  - 跨过午夜后，句子不再说「已经过了 62 小时」，而是用同一套时间写法说「10月26日 21:00 之后你就停下来了，现在是 09:12」。
 - **心跳**：`src/runner.mjs` 每 30 秒读一次 `sessionController.resolveAgent(主会话)` 的 `status`；投递走 `agent.followup`，与 chat 同一条路径，只在对方 `idle` 时发。
 - **投递**：`source.kind = 'dsh-lpipe-wake'`、`form: 'notice'`，正文是「（自己醒来）已经过了 2 小时 06 分，现在是 23:47。想做什么就做什么，没事也可以什么都不做。」——陈述，不带指令。
 - **状态**：`~/.dsh/life-wake/state.json`，`{ enabled, defaultIntervalMs, lastActivityEndedAt, nextWakeAt, lastWokeAt, lastSeenAt }`，0600。

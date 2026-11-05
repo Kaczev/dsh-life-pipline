@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { stampFor } from 'dsh-life-pipline/clock';
 
 /** First message immediately; later messages coalesce within the window. */
 export class InboundGateway {
@@ -9,11 +10,15 @@ export class InboundGateway {
   #timer = null;
   #sending = false;
   #disposed = false;
+  // Timestamp of the newest message already spoken for, so a restart does not
+  // re-announce a stamp the owner has already seen.
+  #lastAt = null;
 
-  constructor({ getConfig, log, deliver }) {
+  constructor({ getConfig, log, deliver, lastAt = null }) {
     this.#getConfig = getConfig;
     this.#log = log;
     this.#deliver = deliver;
+    this.#lastAt = Number.isFinite(Number(lastAt)) ? Number(lastAt) : null;
   }
 
   accept(event) {
@@ -80,8 +85,17 @@ export class InboundGateway {
       const head = row.conversationKind === 'group'
         ? `${row.channelLabel} · ${shortId(row.conversationId)} · ${who}`
         : `${row.channelLabel} · ${who}`;
-      return `[${head}] ${row.text}`;
-    }).join('\n');
+      return { head, text: row.text, at: row.at };
+    }).reduce((lines, row) => {
+      // WeChat shows a time only when the conversation paused; a burst reads as
+      // one block. The stamp sits on its own line so the notice keeps its shape.
+      const stamp = stampFor(row.at, this.#lastAt);
+      if (stamp) lines.push(stamp);
+      lines.push(`[${row.head}] ${row.text}`);
+      const parsed = Date.parse(row.at);
+      if (Number.isFinite(parsed)) this.#lastAt = parsed;
+      return lines;
+    }, []).join('\n');
   }
 
   #ownerId(channel) {
