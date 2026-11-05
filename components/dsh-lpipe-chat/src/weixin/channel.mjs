@@ -24,6 +24,11 @@ export class WeixinChannel {
   #running = null;
   #login = null;
   #status = { connected: false, accountId: '', ownerUserId: '', lastError: '' };
+  // iLink carries a per-conversation `context_token` on every inbound message.
+  // A send that lacks a live one is accepted by the provider and then dropped,
+  // so the newest token seen for a conversation is the only safe one to reuse.
+  #contextTokens = new Map();
+  #tokenOwner = '';
 
   constructor({ config, onInbound, log, api = defaultApi }) {
     this.#api = api;
@@ -62,6 +67,12 @@ export class WeixinChannel {
       await this.stop();
     }
     const { botToken, baseUrl } = this.#credentials();
+    // Credentials that changed mean every captured token belongs to a bot that
+    // no longer exists: keeping them would produce silent drops, not errors.
+    if (this.#tokenOwner !== botToken) {
+      this.#contextTokens.clear();
+      this.#tokenOwner = botToken;
+    }
     const controller = new AbortController();
     this.#running = controller;
     this.#status = { ...this.#status, connected: false, lastError: '' };
@@ -139,6 +150,11 @@ export class WeixinChannel {
         return;
       }
     }
+    const contextToken = String(message.context_token ?? '').trim();
+    if (contextToken) {
+      this.#contextTokens.set(senderId, contextToken);
+      if (!this.#tokenOwner) this.#tokenOwner = this.#credentials().botToken;
+    }
     this.#onInbound({
       channel: 'weixin',
       channelLabel: '微信',
@@ -157,6 +173,8 @@ export class WeixinChannel {
     const { botToken, ownerUserId, baseUrl } = this.#credentials();
     const target = toUserId || ownerUserId;
     if (!botToken || !target) throw new Error('WeChat is not connected yet');
+    // What this channel heard last beats a caller's stale guess.
+    const token = this.#contextTokens.get(target) || contextToken || '';
     const chunks = splitWeixinText(String(text));
     const ids = [];
     for (const chunk of chunks) {
@@ -167,7 +185,7 @@ export class WeixinChannel {
           token: botToken,
           toUserId: target,
           text: chunk,
-          contextToken,
+          contextToken: token,
         });
       } catch (error) {
         // A rejected send is proof the token no longer works: stop claiming
@@ -178,7 +196,7 @@ export class WeixinChannel {
       }
       ids.push(...(sent?.providerMessageIds ?? []));
     }
-    return { messageIds: ids, toUserId: target };
+    return { messageIds: ids, toUserId: target, contextToken: Boolean(token) };
   }
 
   /** Begin a scan-to-connect attempt; resolves with the QR payload for the UI. */

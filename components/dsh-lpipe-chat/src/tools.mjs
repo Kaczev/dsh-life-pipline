@@ -62,9 +62,10 @@ export function createChatTools({ getConfig, update, channels, store }) {
         const channel = args.channel === 'qq' ? 'qq' : 'weixin';
         const config = getConfig();
         if (channel === 'weixin') {
-          const sent = await channels.weixin.sendText(text, {
-            contextToken: store.lastContextToken('weixin', config.weixin.ownerUserId),
-          });
+          // The channel reuses the token it last heard on this conversation;
+          // passing a stored one here would resurrect a token from an older
+          // bot, which the provider accepts and then silently drops.
+          const sent = await channels.weixin.sendText(text, {});
           store.appendMessage({
             channel: 'weixin',
             direction: 'out',
@@ -75,7 +76,15 @@ export function createChatTools({ getConfig, update, channels, store }) {
             text,
             messageIds: sent.messageIds,
           });
-          return { sent: true, channel, messageIds: sent.messageIds, summary: `已通过微信发出 ${text.length} 字。` };
+          const warning = sent.contextToken
+            ? ''
+            : '还没有这个会话的上下文凭据，若没收到，先在微信里发一条。';
+          return {
+            sent: true,
+            channel,
+            messageIds: sent.messageIds,
+            summary: `已通过微信发出 ${text.length} 字${warning ? `（${warning}）` : ''}。`,
+          };
         }
         const sent = await channels.qq.sendText(text, {
           scope: args?.scope === 'group' ? 'group' : 'c2c',

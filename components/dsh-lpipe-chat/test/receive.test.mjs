@@ -183,3 +183,87 @@ test('a refused send drops the channel out of connected', async () => {
   assert.match(channel.status.lastError, /拒绝/);
   await channel.stop();
 });
+
+test('the newest inbound token wins over a caller-supplied one', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-life-ctx-'));
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    saveConfig({
+      mainSessionId: 'session-main',
+      windowSeconds: 3,
+      ownerName: 'Kaczev',
+      weixin: { botToken: 'tok', ownerUserId: OWNER, accountId: 'acc' },
+    });
+    const api = fakeApi([{
+      message_type: 1,
+      from_user_id: OWNER,
+      create_time_ms: 1_793_728_666_199,
+      context_token: 'ctx-new',
+      item_list: [{ type: 1, text_item: { text: '在吗' } }],
+    }]);
+    const events = [];
+    const channel = new WeixinChannel({
+      config: loadConfig,
+      log: quiet,
+      api,
+      onInbound: (event) => events.push(event),
+    });
+    await channel.connect();
+    await waitFor(() => events.length > 0);
+
+    // A stored token from an older bot must not override the live one: the
+    // provider accepts the stale token and then drops the message.
+    const sent = await channel.sendText('嗯', { contextToken: 'ctx-stale' });
+    assert.equal(api.sent.contextToken, 'ctx-new');
+    assert.equal(sent.contextToken, true);
+    await channel.stop();
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test('new credentials forget the conversation tokens of the old bot', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-life-ctx2-'));
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    const credentials = { botToken: 'tok-1', ownerUserId: OWNER, accountId: 'acc' };
+    saveConfig({ mainSessionId: 'session-main', windowSeconds: 3, ownerName: 'Kaczev', weixin: credentials });
+    const api = fakeApi([{
+      message_type: 1,
+      from_user_id: OWNER,
+      create_time_ms: 1_793_728_666_199,
+      context_token: 'ctx-old-bot',
+      item_list: [{ type: 1, text_item: { text: '在吗' } }],
+    }]);
+    const events = [];
+    const channel = new WeixinChannel({
+      config: loadConfig,
+      log: quiet,
+      api,
+      onInbound: (event) => events.push(event),
+    });
+    await channel.connect();
+    await waitFor(() => events.length > 0);
+    await channel.stop();
+
+    saveConfig({
+      mainSessionId: 'session-main',
+      windowSeconds: 3,
+      ownerName: 'Kaczev',
+      weixin: { ...credentials, botToken: 'tok-2' },
+    });
+    await channel.connect();
+    const sent = await channel.sendText('嗯');
+    assert.ok(!api.sent.contextToken, 'a token from the previous bot is not reused');
+    assert.equal(sent.contextToken, false, 'and the caller is told the send had no context');
+    await channel.stop();
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});
