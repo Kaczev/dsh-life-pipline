@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
 
+import { clampQuiet } from './config.mjs';
 import { readSessionTitle } from './session-title.mjs';
 
 export const CHAT_RPC_ENDPOINT = 'dsh-lpipe-chat';
@@ -48,7 +49,7 @@ function publicConfig(config, channels) {
   const qqConfigured = Boolean(String(qq.appId ?? '').trim() && String(qq.appSecret ?? '').trim());
   return {
     mainSessionId: String(config.mainSessionId ?? ''),
-    windowSeconds: Number(config.windowSeconds ?? 5),
+    quietSeconds: clampQuiet(config.quietSeconds),
     ownerOnly: config.ownerOnly !== false,
     ownerName: String(config.ownerName ?? ''),
     weixin: {
@@ -123,12 +124,12 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
 
     if (method === 'chat.config.save') {
       const patch = {};
-      if (Object.hasOwn(input, 'windowSeconds')) {
-        const seconds = Number(input.windowSeconds);
-        if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {
-          return failure('chat/bad-request', '窗口秒数必须在 3 到 120 之间。');
+      if (Object.hasOwn(input, 'quietSeconds')) {
+        const seconds = Number(input.quietSeconds);
+        if (!Number.isFinite(seconds) || seconds < 0.2 || seconds > 60) {
+          return failure('chat/bad-request', '静默间隔必须在 0.2 到 60 秒之间。');
         }
-        patch.windowSeconds = Math.round(seconds);
+        patch.quietSeconds = Math.round(seconds * 10) / 10;
       }
       if (Object.keys(patch).length === 0) return failure('chat/bad-request', '没有可保存的字段。');
       update((current) => ({ ...current, ...patch }));

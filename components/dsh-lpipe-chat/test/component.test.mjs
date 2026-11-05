@@ -42,8 +42,8 @@ test('component loads, registers four tools and the prompt guidance', () => {
 
 test('apply tolerates a patch-row config and writes it through', () => {
   const registrations = { tools: [], prompts: [], promptsContext: [], promptsSection: [], effects: [] };
-  apply(fakeCtx(registrations), { windowSeconds: 9, ownerName: 'Kaczev' });
+  apply(fakeCtx(registrations), { quietSeconds: 9, ownerName: 'Kaczev' });
   const config = loadConfig();
-  assert.equal(config.windowSeconds, 9);
+  assert.equal(config.quietSeconds, 9);
   assert.equal(config.ownerName, 'Kaczev');
 });

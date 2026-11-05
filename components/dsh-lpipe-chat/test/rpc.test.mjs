@@ -5,7 +5,7 @@ import { createChatRpcHandler, registerChatRpc } from '../src/rpc.mjs';
 
 const BASE_CONFIG = {
   mainSessionId: 'session-1',
-  windowSeconds: 5,
+  quietSeconds: 1,
   ownerOnly: true,
   ownerName: 'Kaczev',
   weixin: { enabled: true, botToken: 'tok', ownerUserId: 'owner@wx', accountId: 'acc', baseUrl: 'https://x/' },
@@ -85,14 +85,16 @@ test('status uses the non-consuming peek', async () => {
   assert.deepEqual(calls, []);
 });
 
-test('config.save rejects an out-of-range window and keeps the old value', async () => {
+test('config.save rejects an out-of-range quiet period and keeps the old value', async () => {
   const { handle, config } = fixture();
-  const bad = await handle('chat.config.save', { windowSeconds: 1 });
-  assert.equal(bad.ok, false);
-  assert.equal(config().windowSeconds, 5);
-  const good = await handle('chat.config.save', { windowSeconds: 9, mainSessionId: '  session-1  ' });
+  const tooShort = await handle('chat.config.save', { quietSeconds: 0.1 });
+  assert.equal(tooShort.ok, false);
+  const tooLong = await handle('chat.config.save', { quietSeconds: 90 });
+  assert.equal(tooLong.ok, false);
+  assert.equal(config().quietSeconds, 1);
+  const good = await handle('chat.config.save', { quietSeconds: 2.5, mainSessionId: '  session-1  ' });
   assert.equal(good.ok, true);
-  assert.equal(config().windowSeconds, 9);
+  assert.equal(config().quietSeconds, 2.5);
   assert.equal(config().mainSessionId, 'session-1');
 });
 

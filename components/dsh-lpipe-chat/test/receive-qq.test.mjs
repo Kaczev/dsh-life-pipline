@@ -33,7 +33,7 @@ async function withHome(config, run) {
   const previous = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
   try {
-    saveConfig({ mainSessionId: 'session-main', windowSeconds: 3, ownerName: 'Kaczev', qq: config });
+    saveConfig({ mainSessionId: 'session-main', quietSeconds: 0.2, ownerName: 'Kaczev', qq: config });
     await run();
   } finally {
     if (previous === undefined) delete process.env.DSH_HOME;
@@ -69,7 +69,7 @@ test('a QQ private message reaches the main session with the sender label', asyn
       messageId: 'msg-1',
       timestamp: 1_793_728_666_199,
     });
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     assert.equal(events.length, 1);
     assert.equal(events[0].conversationKind, 'dm');

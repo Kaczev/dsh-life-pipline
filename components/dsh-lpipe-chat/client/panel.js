@@ -162,7 +162,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [windowDraft, setWindowDraft] = React.useState('5');
+  const [quietDraft, setQuietDraft] = React.useState('1');
   const [login, setLogin] = React.useState({});
 
   const call = React.useCallback(async (method, payload) => {
@@ -178,7 +178,7 @@ function ChatSettingsPanel({ rpcCall }) {
 
   const adopt = React.useCallback((value) => {
     setStatus(value);
-    setWindowDraft((current) => (current === '5' ? String(value.config.windowSeconds) : current));
+    setQuietDraft((current) => (current === '1' ? String(value.config.quietSeconds) : current));
     setLogin((current) => ({
       weixin: value.channels?.weixin?.login ?? current.weixin,
       qq: value.channels?.qq?.login ?? current.qq,
@@ -341,22 +341,23 @@ function ChatSettingsPanel({ rpcCall }) {
       }, '社交管线')),
 
     h('div', { style: card },
-      h('label', { style: label }, '兜窗口（秒）'),
+      h('label', { style: label }, '静默间隔（秒）'),
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
         h('input', {
           style: { ...input, width: 100 },
           type: 'number',
-          min: 3,
-          max: 120,
-          value: windowDraft,
-          onChange: (event) => setWindowDraft(event.target.value),
+          min: 0.2,
+          max: 60,
+          step: 0.1,
+          value: quietDraft,
+          onChange: (event) => setQuietDraft(event.target.value),
         }),
         h('button', {
           style: button(),
           disabled: busy,
-          onClick: () => save({ windowSeconds: Number(windowDraft) }),
+          onClick: () => save({ quietSeconds: Number(quietDraft) }),
         }, '保存')),
-      note('第一条消息立即送达，之后这么多秒内的消息合并成一次。')),
+      note('收到消息先等这么久；这期间又来了新的，就重新计时，直到安静下来再一起交给我。')),
 
     h(ChannelCard, {
       name: 'weixin',

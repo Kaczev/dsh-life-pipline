@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { stampFor } from 'dsh-life-pipline/clock';
 import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
 
-/** First message immediately; later messages coalesce within the window. */
+/**
+ * Debounced inbound notices: a burst is held until the owner stops sending.
+ * Every new message restarts the quiet count, so one notice carries the whole
+ * burst instead of one notice per message.
+ */
 export class InboundGateway {
   #getConfig;
   #log;
@@ -10,6 +14,9 @@ export class InboundGateway {
   #saveImages;
   #buffer = [];
   #timer = null;
+  // Absolute instant the burst goes quiet, compared against the clock rather
+  // than counted down, so a timer that fires early or late cannot drift.
+  #quietUntil = 0;
   #sending = false;
   #disposed = false;
   // Timestamp of the newest message already spoken for, so a restart does not
@@ -27,19 +34,36 @@ export class InboundGateway {
   accept(event) {
     if (this.#disposed) return;
     this.#buffer.push(event);
-    if (this.#timer || this.#sending) return;
-    void this.#flush();
+    // Every message moves the deadline: the burst ends only once nothing new
+    // has arrived for the whole quiet period.
+    this.#quietUntil = Date.now() + this.#quietMs();
+    if (this.#timer) {
+      clearTimeout(this.#timer);
+      this.#timer = null;
+    }
+    // A delivery in flight reschedules itself once it finishes.
+    if (this.#sending) return;
     this.#schedule();
   }
 
+  #quietMs() {
+    const { quietSeconds } = this.#getConfig();
+    return Math.min(60, Math.max(0.2, Number(quietSeconds) || 1)) * 1000;
+  }
+
+  /** The timer is only a wake-up call; the clock decides whether to flush. */
   #schedule() {
     if (this.#disposed || this.#timer) return;
-    const { windowSeconds } = this.#getConfig();
-    const windowMs = Math.min(120, Math.max(3, Number(windowSeconds) || 5)) * 1000;
+    const wait = Math.max(0, this.#quietUntil - Date.now());
     this.#timer = setTimeout(() => {
       this.#timer = null;
+      if (this.#disposed) return;
+      if (Date.now() < this.#quietUntil) {
+        this.#schedule();
+        return;
+      }
       void this.#flush();
-    }, windowMs);
+    }, wait);
   }
 
   get pending() { return this.#buffer.length; }
