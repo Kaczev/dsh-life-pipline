@@ -13,6 +13,7 @@
 - [assets/icon.png](assets/icon.png) / [locale/](locale/)：插件卡片的图标与显示名。
 - [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），自身也是 bundle，依赖本包。
 - [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖本包。
+- [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖本包。
 
 ## components/dsh-lpipe-chat
 
@@ -39,3 +40,18 @@
 - [components/dsh-lpipe-wake/assets/icon.png](components/dsh-lpipe-wake/assets/icon.png)：组件图标（青绿色日出与蓝色地平线，512² 透明 PNG）。
 - [components/dsh-lpipe-wake/assets/](components/dsh-lpipe-wake/assets/) 与 [locale/](components/dsh-lpipe-wake/locale/)：图标与显示名「Lpipe Wake / 唤醒管线」。
 - [components/dsh-lpipe-wake/test/wake.test.mjs](components/dsh-lpipe-wake/test/wake.test.mjs)：规则、心跳、RPC、工具与客户端回归。
+
+## components/dsh-lpipe-memory
+
+- [components/dsh-lpipe-memory/package.json](components/dsh-lpipe-memory/package.json)：包名、`exports`、`dsh.bundle`，以及对 `dsh-life-pipline` 的依赖。
+- [components/dsh-lpipe-memory/cordis.patch.yml](components/dsh-lpipe-memory/cordis.patch.yml)：组件自己的挂载行。
+- [components/dsh-lpipe-memory/src/paths.mjs](components/dsh-lpipe-memory/src/paths.mjs)：`~/.dsh/life-memory` 的目录规则（一对话一文件夹、按天分卷、media 全局寻址）。
+- [components/dsh-lpipe-memory/src/day.mjs](components/dsh-lpipe-memory/src/day.mjs)：凌晨 4 点换天的天界计算。
+- [components/dsh-lpipe-memory/src/chain.mjs](components/dsh-lpipe-memory/src/chain.mjs)：哈希链（`prev` / `hash` 与校验）。
+- [components/dsh-lpipe-memory/src/frames.mjs](components/dsh-lpipe-memory/src/frames.mjs)：8 KB 一帧的压缩与解压。
+- [components/dsh-lpipe-memory/src/writer.mjs](components/dsh-lpipe-memory/src/writer.mjs)：追加写入、偏移表、`meta.json` 与全局游标。
+- [components/dsh-lpipe-memory/src/reader.mjs](components/dsh-lpipe-memory/src/reader.mjs)：按 `seq` 读一行（只解一帧）、时间线、搜索与链校验。
+- [components/dsh-lpipe-memory/src/project.mjs](components/dsh-lpipe-memory/src/project.mjs)：四类白名单事件到记忆行的投影。
+- [components/dsh-lpipe-memory/src/index.js](components/dsh-lpipe-memory/src/index.js)：宿主半边，订阅 `session/event` 并定时落盘。
+- [components/dsh-lpipe-memory/test/store.test.mjs](components/dsh-lpipe-memory/test/store.test.mjs)：天界、跨会话、幂等、多帧、搜索与篡改检测。
+- [components/dsh-lpipe-memory/README.md](components/dsh-lpipe-memory/README.md)：存什么、存在哪、怎么读。

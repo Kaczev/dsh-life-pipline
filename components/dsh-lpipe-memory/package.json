@@ -1,0 +1,43 @@
+{
+  "name": "dsh-lpipe-memory",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "把会话原文逐字投影到长期文件：按会话分文件夹，按天分卷，哈希链可校验。",
+  "license": "AGPL-3.0-or-later",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "dsh-life-pipline": "^0.7.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "files": [
+    "src",
+    "locale",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaczev/dsh-life-pipline.git",
+    "directory": "components/dsh-lpipe-memory"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

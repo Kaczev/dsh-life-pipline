@@ -37,7 +37,8 @@
     "./icon": "./assets/icon.png",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./session-title": "./src/session-title.mjs"
   },
   "engines": {
     "node": "^22.19 || >=24",

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "唤醒管线",
+    "title": "唤醒管线（Lpipe Wake）",
     "description": "停下一段时间后，在主会话里把你叫醒。"
   }
 }

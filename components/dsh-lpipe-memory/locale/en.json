@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Lpipe Memory",
+    "description": "Keeps every conversation verbatim, one folder per conversation, one file per day, verifiable by hash chain."
+  }
+}

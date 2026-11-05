@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-lpipe-memory
+      name: dsh-lpipe-memory
+# 行名必须是裸包名：带 `/` 的 specifier 会让宿主跳过客户端半边。
+# 「Lpipe 设置」那一页由 dsh-life-pipline 插入，组件不重复插。

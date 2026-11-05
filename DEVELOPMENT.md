@@ -26,6 +26,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
         ├── locale/{en,zh}.json
         └── assets/icon.png   # 组件图标：两个气泡合流
     └── dsh-lpipe-wake/       # 组件：唤醒管线（同样自带 bundle 与 patch）
+    └── dsh-lpipe-memory/     # 组件：记忆管线（会话原文落盘，哈希链可校验）
         ├── src/engine.mjs    # 自然 / 主动两种唤醒的唯一规则
         ├── src/runner.mjs    # 30s 心跳 → agent.followup
         ├── src/rpc.mjs       # /api/dsh-lpipe-wake
@@ -87,6 +88,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | --- | --- | --- |
 | 社交（微信 / QQ） | `dsh-lpipe-chat` | 已实现 |
 | 唤醒 | `dsh-lpipe-wake` | 已实现 |
+| 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验；索引与 media 转存待做） |
 | 记忆、星图、回忆、联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
