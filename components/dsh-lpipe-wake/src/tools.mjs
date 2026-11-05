@@ -92,7 +92,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     const after = readSchedule(runner, now);
     return {
       ...after,
-      summary: `主动唤醒定在 ${clockText(at)}${reason ? `，缘由：${reason}` : ''}。${manualLine(after.manual)}`,
+      summary: `主动唤醒定在 ${clockText(at)}${reason ? `，缘由：${reason}` : ''}。${after.manual.count > 1 ? `现在一共 ${after.manual.count} 个安排。` : ''}`,
     };
   };
 
