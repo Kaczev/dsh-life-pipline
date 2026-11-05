@@ -112,9 +112,13 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
     }
   }
 
-  // Switched off: keep the numbers as they were, decide nothing.
+  // Switched off: never fire, but keep the numbers on the page honest — the
+  // deadline still reads as "when it would have woken", so the switch explains
+  // itself instead of blanking the row.
   if (state.enabled === false) {
-    state.nextWakeAt = null;
+    if (state.nextWakeAt === null && state.lastActivityEndedAt !== null) {
+      state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
+    }
     return { state, action: null };
   }
 

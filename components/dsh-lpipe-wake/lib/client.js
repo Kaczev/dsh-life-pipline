@@ -241,7 +241,7 @@ function WakePanel({ rpcCall }) {
         onClick: () => run('wake.config.save', { enabled: !on }),
       }, h('span', { style: knob(on) }))),
 
-    on ? null : note('已关闭：不会自行醒来，下面只是保留的数字。'),
+    on ? null : note('已关闭：不会自行醒来，下面是它本来会醒的时间。'),
     mainMissing ? note('还没有设置主会话：去上面的「公共」里填一个，唤醒才会生效。', 'error') : null,
 
     h('div', { style: cardStyle },

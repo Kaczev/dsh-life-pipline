@@ -97,7 +97,11 @@ export function createRunner({
   function setEnabled(enabled) {
     const state = snapshot();
     state.enabled = enabled !== false;
-    state.nextWakeAt = null;
+    // Keeping the deadline: switching off means "do not wake me", not "forget
+    // when you would have".
+    if (state.nextWakeAt === null && state.lastActivityEndedAt !== null) {
+      state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
+    }
     return writeState(state);
   }
 

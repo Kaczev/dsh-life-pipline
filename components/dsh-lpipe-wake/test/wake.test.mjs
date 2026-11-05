@@ -105,12 +105,17 @@ test('the wake sentence states elapsed time and the clock, never a command', () 
   assert.doesNotMatch(text, /请|做点|应该/);
 });
 
-test('switched off, nothing is armed and nothing fires', () => {
-  const off = { enabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 - 1, lastWokeAt: null };
+test('switched off never wakes, but the deadline stays on the page', () => {
+  const off = { enabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
   const { state, action } = step(off, { now: T0 + 9 * HOUR, status: 'idle' });
   assert.equal(action, null, 'a switched off pipeline never wakes');
-  assert.equal(state.nextWakeAt, null);
+  assert.equal(state.nextWakeAt, T0 + HOUR, 'the deadline reads as when it would have woken');
   assert.equal(state.enabled, false);
+
+  const blank = { enabled: false, defaultIntervalMs: HOUR, lastActivityEndedAt: T0 };
+  const derived = step(blank, { now: T0 + HOUR, status: 'idle' });
+  assert.equal(derived.state.nextWakeAt, T0 + HOUR, 'a missing deadline is derived, never left blank');
+  assert.equal(derived.action, null);
 });
 
 test('a corrupt state file degrades to the default interval', () => {
