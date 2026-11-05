@@ -7,6 +7,7 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./client": "./lib/client.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json",
@@ -16,10 +17,13 @@
     "dsh-life-pipline": "^0.7.0"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "build-client": "node scripts/build-client.mjs"
   },
   "files": [
     "src",
+    "lib",
+    "client",
     "assets",
     "locale",
     "cordis.patch.yml",
@@ -40,6 +44,13 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
     }
   },
   "icon": "assets/icon.png"

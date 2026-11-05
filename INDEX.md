@@ -54,6 +54,12 @@
 - [components/dsh-lpipe-memory/src/writer.mjs](components/dsh-lpipe-memory/src/writer.mjs)：追加写入、偏移表、`meta.json` 与全局游标。
 - [components/dsh-lpipe-memory/src/reader.mjs](components/dsh-lpipe-memory/src/reader.mjs)：按 `seq` 读一行（只解一帧）、时间线、搜索与链校验。
 - [components/dsh-lpipe-memory/src/project.mjs](components/dsh-lpipe-memory/src/project.mjs)：四类白名单事件到记忆行的投影。
-- [components/dsh-lpipe-memory/src/index.js](components/dsh-lpipe-memory/src/index.js)：宿主半边，订阅 `session/event` 并定时落盘。
+- [components/dsh-lpipe-memory/src/index.js](components/dsh-lpipe-memory/src/index.js)：宿主半边，订阅 `session/event`，一轮结束整轮落盘，并注册 `memory.stats`。
+- [components/dsh-lpipe-memory/src/stats.mjs](components/dsh-lpipe-memory/src/stats.mjs)：逐轮累计大小、磁盘占用，按 `state.seq` 缓存。
+- [components/dsh-lpipe-memory/src/rpc.mjs](components/dsh-lpipe-memory/src/rpc.mjs)：`/api/dsh-lpipe-memory` 的只读 RPC。
+- [components/dsh-lpipe-memory/client/panel.js](components/dsh-lpipe-memory/client/panel.js)：设置页里的记忆显示块（总量 + 最近 30 轮曲线）。
+- [components/dsh-lpipe-memory/lib/client.js](components/dsh-lpipe-memory/lib/client.js)：由 `scripts/build-client.mjs` 打包出的客户端半边。
+- [components/dsh-lpipe-memory/test/stats.test.mjs](components/dsh-lpipe-memory/test/stats.test.mjs)：逐轮累计、窗口截取与缓存失效。
+- [components/dsh-lpipe-memory/test/client.test.mjs](components/dsh-lpipe-memory/test/client.test.mjs)：只注册记忆块、格式化与曲线坐标。
 - [components/dsh-lpipe-memory/test/store.test.mjs](components/dsh-lpipe-memory/test/store.test.mjs)：天界、跨会话、幂等、多帧、搜索与篡改检测。
 - [components/dsh-lpipe-memory/README.md](components/dsh-lpipe-memory/README.md)：存什么、存在哪、怎么读。

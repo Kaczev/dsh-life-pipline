@@ -203,3 +203,7 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 ### 导入网页历史
 
 `components/dsh-lpipe-memory/scripts/import-deepseek-web.mjs` 读 DeepSeek 网页版的 `history_messages` JSON，投影成 `user/message` / `assistant/message` / `tool/call` / `tool/result` 四类行，直接写进同一个记忆根（`~/.dsh/life-memory`）。网页消息的片段类型：`REQUEST`、`RESPONSE`、`THINK`、`FILE`（只有名字）、`TOOL_SEARCH`、`TOOL_OPEN`、`TIP`（丢弃）。
+
+### 记忆大小的显示
+
+`components/dsh-lpipe-memory/src/stats.mjs` 逐轮累计字节（行 JSON + 去重后的 media），`createStatsCache` 按 `state.seq` 缓存；`src/rpc.mjs` 在 `/api/dsh-lpipe-memory` 上暴露只读的 `memory.stats`；`client/panel.js` 往 `lpipe.settings.panel` 注册一块（id `memory`、order 30），画总量、最近一轮增量与最近 30 轮的累计曲线，纵横轴都按数据自适应。落盘后 `index.js` 会 `reader.reload()` 并清缓存，页面下一次轮询就看得见新的一轮。

@@ -5,6 +5,8 @@ import { captureMedia } from './media.mjs'
 import { memoryRoot } from './paths.mjs'
 import { project } from './project.mjs'
 import { MemoryReader } from './reader.mjs'
+import { createMemoryRpcHandler, registerMemoryRpc } from './rpc.mjs'
+import { createStatsCache } from './stats.mjs'
 import { MemoryWriter } from './writer.mjs'
 
 export const name = 'dsh-lpipe-memory'
@@ -21,6 +23,7 @@ export function apply(ctx, options = {}) {
   const root = options.root ?? memoryRoot()
   const writer = options.writer ?? new MemoryWriter({ root })
   const reader = new MemoryReader({ root })
+  const stats = createStatsCache({ reader, root })
   let attachments = null
   /** sessionId -> 这一轮已经攒下的行 */
   const buffered = new Map()
@@ -34,11 +37,22 @@ export function apply(ctx, options = {}) {
     try {
       for (const row of rows) writer.append(row)
       writer.flush()
+      refresh()
       return rows.length
     } catch (error) {
       warn(`[dsh-lpipe-memory] 落盘失败：${error?.message ?? error}`)
       return 0
     }
+  }
+
+  // 落盘之后游标变了：读端与统计都得重新读一遍，页面才会看见这一轮。
+  const refresh = () => {
+    try {
+      reader.reload()
+    } catch (error) {
+      warn(`[dsh-lpipe-memory] 重读失败：${error?.message ?? error}`)
+    }
+    stats.invalidate()
   }
 
   ctx.effect(
@@ -49,6 +63,17 @@ export function apply(ctx, options = {}) {
     },
     'dsh-lpipe-memory: close on teardown',
   )
+
+  ctx.inject(['connection'], (connectionCtx) => {
+    try {
+      registerMemoryRpc(
+        connectionCtx,
+        createMemoryRpcHandler({ stats: (query) => stats.get(query) }),
+      )
+    } catch (error) {
+      warn(`[dsh-lpipe-memory] RPC 注册失败：${error?.message ?? error}`)
+    }
+  })
 
   ctx.inject(['attachments'], (attachmentCtx) => {
     attachments = attachmentCtx.attachments ?? null
@@ -102,5 +127,5 @@ export function apply(ctx, options = {}) {
     })
   })
 
-  return { writer, reader }
+  return { writer, reader, stats }
 }
