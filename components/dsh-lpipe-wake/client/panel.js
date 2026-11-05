@@ -25,7 +25,15 @@ const COLORS = {
   danger: 'var(--dsw-alias-state-error-primary)',
 };
 
-const row = { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 };
+// A two-up grid rather than flex-wrap: the pair stays side by side no matter
+// what the host's stylesheet does to flex containers, and folds to one column
+// only when the pane is genuinely narrow.
+const row = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+  gap: 12,
+  marginBottom: 12,
+};
 const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
@@ -334,21 +342,21 @@ function WakePanel({ rpcCall }) {
     mainMissing ? note('还没有设置主会话：去上面的「公共」里填一个，唤醒才会生效。', 'error') : null,
 
     h('div', { style: row },
-      h('div', { style: { ...cardStyle, flex: '1 1 230px', marginBottom: 0 } },
+      h('div', { style: { ...cardStyle, marginBottom: 0 } },
         h('span', { style: label }, '下次唤醒'),
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
           h('span', { style: value }, formatClock(status.nextWakeAt)),
           sourceBadge,
           h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
             countdown(status.nextWakeAt, nowMs)))),
-      h('div', { style: { ...cardStyle, flex: '1 1 185px', marginBottom: 0 } },
+      h('div', { style: { ...cardStyle, marginBottom: 0 } },
         h('span', { style: label }, '上次结束行动'),
         h('span', { style: { fontSize: 13, color: COLORS.text } }, formatClock(status.lastActivityEndedAt)),
         h('div', { style: { marginTop: 4, fontSize: 12, color: COLORS.muted } },
           agoText(status.lastActivityEndedAt, nowMs)))),
 
     h('div', { style: row },
-      h('div', { style: { ...cardStyle, flex: '1 1 250px', marginBottom: 0 } },
+      h('div', { style: { ...cardStyle, marginBottom: 0 } },
         h('label', { style: label }, '默认唤醒间隔'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
@@ -385,7 +393,7 @@ function WakePanel({ rpcCall }) {
             ? h('span', { style: { fontSize: 12, color: COLORS.danger } }, '范围 1 分钟到 24 小时')
             : null),
         note('我停下之后，过这么久再叫我。')),
-      h('div', { style: { ...cardStyle, flex: '1 1 250px', marginBottom: 0 } },
+      h('div', { style: { ...cardStyle, marginBottom: 0 } },
         h('label', { style: label }, '心跳间隔'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
