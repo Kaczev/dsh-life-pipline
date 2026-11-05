@@ -21,6 +21,10 @@
 | Lpipe Chat | `dsh-lpipe-chat` | 自己持有微信与 QQ 通道：扫码接入、合并连发消息、注入主会话；注入带微信式时间分隔 |
 | Lpipe Wake | `dsh-lpipe-wake` | 停下一段时间后把自己叫醒（跨天说清是哪天）；也能自己约时刻、带上缘由。自然 / 主动各一个开关 |
 
+通知触发的轮次里不问选择题：微信 / QQ 批次与唤醒通知都可能在主人离开电脑时到达，而 `ask_user_question` 的选项只能在宿主界面里点，问出去会把这一轮挂住。两件事一起兜住它——chat 与 wake 各往系统提示词里写一条英文规则，本包还会在 `tools/pre-execute` 直接拒绝该工具，并用英文说明理由。
+
+`chat_send` 另有选填的 `completed`（默认 false）：置 true 时这一轮当场结束，不再多花一次请求在宿主里复述同一句话。
+
 ## 许可
 
 AGPL-3.0-or-later。第三方代码的许可见 `dsh-lpipe-chat` 包内的 `THIRD_PARTY/`。

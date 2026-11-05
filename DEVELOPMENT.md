@@ -69,6 +69,18 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 
 图标用 ComfyUI（Krea 2 Turbo）出原型，再用 Photoshop 去白底、居中留白、缩到 512² 导出；候选留在 `不入库/设计/图标/candidates/`。亮形的几何图标（如唤醒的日出）可以直接用 PIL 画：写 `不入库/设计/图标/work/wake_icon.py` 这类脚本，4 倍超采样后降到 512²，颜色沿用同一套 `#6ecbbb` / `#7389d3`。
 
+## 通知触发的轮次
+
+微信 / QQ 批次（`source.kind = 'dsh-lpipe-chat'`）与唤醒通知（`source.kind = 'dsh-lpipe-wake'`）都可能在主人离开电脑时把主会话叫起来。宿主的 `ask_user_question` 是阻塞的：它要等到 UI provider 返回一个人类答案，所以这种轮次里问出去会把整轮挂住，连后续消息与唤醒一起堵。
+
+三层兜住：
+
+1. **系统提示词（英文）**：chat 与 wake 各自 `systemPrompt.context` 注入一条规则——这种轮次不要调用 `ask_user_question`。聊天那侧另有两条：`chat_send` 之后不要在宿主里重复同样的话；`completed: true` 可以当场收尾。
+2. **硬拦截**：公共包在 `tools/pre-execute` 上挂 `createAwayGuard()`（`src/away-guard.mjs`），只处理 `ask_user_question`；判断依据是 `exec.agent.session` 里**最新一条 `user/message` 的 `source.kind`**，属上面两种就返回 `{ kind: 'deny', reason: AWAY_REASON }`，理由全英。不维护「本轮是 IM 触发」这种内存标记，重启也不会残留。
+3. **回退**：真要在远场逐层降级，可以把宿主的 `ask_user_question` 改成 `mode: 'timed'`，超时返回 pending 结果而不是跳过。
+
+`AWAY_REASON` 让模型知道下一步该怎么做：把问题写成纯文本发出去（IM 轮次用 `chat_send`），或者自己先决定。拒绝只在「最新一条用户消息」是通知时生效——主人自己在 GUI 里打字问的轮次不受影响。
+
 ## 组件
 
 | 组件 | 包 | 状态 |
@@ -85,7 +97,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 - **注入**：独立来源 `dsh-lpipe-chat`、`form: notice` 的后台通知；通过 `sessionController.resolveAgent` 恢复目标会话，忙时 `agent.inject` 等下一步读取，空闲时 `agent.followup` 唤醒。不走普通用户 `prompt`，不使用 `steer`。
 - **标注**：注入正文形如 `[微信 · Kaczev] 原文`，群聊为 `[QQ · 群 · 昵称] 原文`。
 - **时间**：微信的分隔规则，实现在 `src/clock.mjs`（由公共包导出为 `dsh-life-pipline/clock`）。间隔不足 5 分钟不加时间；更久则在自己那一行写 `14:22` / `昨天 14:22` / `周二 14:22` / `11月1日 14:22` / `2025年11月1日 14:22`。时间永不落进消息正文，宿主重启时用归档里最后一条入站消息做基准，不重复播报已经见过的时间。
-- **出站**：`chat_send` 按渠道回复；回不回由当轮决定。
+- **出站**：`chat_send` 按渠道回复；回不回由当轮决定。`completed` 是选填布尔（默认 false）：发送成功且为 true 时调用 `exec.concludeTurn()`，这一轮当场结束，不再产生一次「在宿主里复述」的请求；发送失败不 conclude，错误照常抛出。
 - **记录**：`~/.dsh/life-chat/messages.jsonl`，append-only，进出都记，不改写。
 
 数据目录仍然叫 `life-chat`，改名会丢已扫码的凭据，所以不动。

@@ -29,7 +29,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
   return [
     {
       name: 'chat_send',
-      description: 'Send a text message to the owner over WeChat or QQ. Use this whenever you decide to answer an injected IM batch; silence is a valid choice too.',
+      description: 'Send a text message to the owner over WeChat or QQ. Use this whenever you decide to answer an injected IM batch; silence is a valid choice too. After sending, do not repeat the same words in the Harness reply; different information is fine.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -39,6 +39,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           scope: { type: 'string', enum: ['c2c', 'group'], description: 'QQ only: private chat (default) or group.' },
           targetId: { type: 'string', description: 'QQ only: user or group openid. Defaults to the owner.' },
           msgId: { type: 'string', description: 'QQ only: reply passively to this inbound message id.' },
+          completed: { type: 'boolean', description: 'Set true when this message is the whole answer for this turn: the turn ends here and nothing more is said in the Harness UI. Leave it out when you still have work to do after sending.' },
         },
         required: ['channel', 'text'],
       },
@@ -56,7 +57,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
         },
         render: (_args, value) => [{ type: 'text', text: value.summary }],
       },
-      async execute(args) {
+      async execute(args, exec) {
         const text = String(args?.text ?? '');
         if (!text.trim()) throw new Error('text is empty');
         const channel = args.channel === 'qq' ? 'qq' : 'weixin';
@@ -79,6 +80,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           const warning = sent.contextToken
             ? ''
             : '还没有这个会话的上下文凭据，若没收到，先在微信里发一条。';
+          if (args?.completed === true) exec?.concludeTurn?.();
           return {
             sent: true,
             channel,
@@ -101,6 +103,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           text,
           messageIds: sent.messageId ? [sent.messageId] : [],
         });
+        if (args?.completed === true) exec?.concludeTurn?.();
         return {
           sent: true,
           channel,

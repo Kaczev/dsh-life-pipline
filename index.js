@@ -1,6 +1,7 @@
 import { loadConfig } from './src/config.mjs';
 import { updateConfig } from './src/config.mjs';
 import { createPipelineRpcHandler, registerPipelineRpc } from './src/rpc.mjs';
+import { createAwayGuard } from './src/away-guard.mjs';
 
 export const name = 'dsh-life-pipline';
 
@@ -23,6 +24,16 @@ export function apply(ctx) {
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessions = sessionsCtx.sessions ?? null;
   });
+
+  // Turns delivered by a notice may run without anyone at the keyboard, so a
+  // blocking question would hang the session. Deny it and say why.
+  try {
+    ctx.on('tools/pre-execute', createAwayGuard({
+      onDeny: (info) => log(`[life-pipline] ask_user_question denied on a ${info.kind} turn`),
+    }));
+  } catch (error) {
+    log(`[life-pipline] away guard unavailable: ${error?.message ?? error}`);
+  }
 
   ctx.inject(['connection'], (connectionCtx) => {
     const handle = createPipelineRpcHandler({
