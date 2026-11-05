@@ -155,15 +155,15 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 ### dsh-lpipe-wake
 
 - **规则**（`src/engine.mjs` 的纯函数 `step`，测试直接打这里）：
+  - 基准来自主会话事件日志：`lastActivityEndedAt` 取最新一条事件的 `time`（`src/session-activity.mjs`，导出为 `dsh-life-pipline/session`）。日志比我们自己的运行时长更可信，宿主重启不会把你说过的话抹掉。
   - 开关关掉 → `nextWakeAt = null`，什么都不决定。
-  - 我开始活动（`status !== 'idle'`）→ `nextWakeAt = null`、`lastActivityEndedAt = null`。
-  - 空闲且没有结束时间 → 以此刻为结束时间，`nextWakeAt = now + interval`。
-  - 空闲且没有截止时间 → `nextWakeAt = lastActivityEndedAt + interval`。
-  - `now >= nextWakeAt` → 注入一条，然后从这一刻重新起算（否则旧基准会让下一个心跳再醒一次，形成循环）。
+  - 新事件出现 → 基准前移，`nextWakeAt = lastActivityEndedAt + interval` 跟着重算；手动设的点（`wakeSetAt` 晚于它的活动）同时作废。
+  - 没有结束时间（新会话）→ 以此刻为结束时间，`nextWakeAt = now + interval`。
+  - `now >= nextWakeAt` 且我空闲 → 注入一条，然后从这一刻重新起算（否则旧基准会让下一个心跳再醒一次，形成循环）；我还在跑就不发，等下一个心跳再看。
   - 跨过午夜后，句子不再说「已经过了 62 小时」，而是用同一套时间写法说「10月26日 21:00 之后你就停下来了，现在是 09:12」。
-- **心跳**：`src/runner.mjs` 每 30 秒读一次 `sessionController.resolveAgent(主会话)` 的 `status`；投递走 `agent.followup`，与 chat 同一条路径，只在对方 `idle` 时发。
+- **心跳**：`src/runner.mjs` 每 30 秒读一次主会话的最新事件时间（`sessions` 服务）与 `sessionController.resolveAgent(主会话)` 的 `status`；投递走 `agent.followup`，与 chat 同一条路径，只在对方 `idle` 时发。
 - **投递**：`source.kind = 'dsh-lpipe-wake'`、`form: 'notice'`，正文是「（自己醒来）已经过了 2 小时 06 分，现在是 23:47。想做什么就做什么，没事也可以什么都不做。」——陈述，不带指令。
-- **状态**：`~/.dsh/life-wake/state.json`，`{ enabled, defaultIntervalMs, lastActivityEndedAt, nextWakeAt, lastWokeAt, lastSeenAt }`，0600。
+- **状态**：`~/.dsh/life-wake/state.json`，`{ enabled, defaultIntervalMs, lastActivityEndedAt, nextWakeAt, lastWokeAt, wakeSetAt, lastSeenAt }`，0600；`wakeSetAt` 是手动点被设下的时刻，用来判断后续活动该不该作废它。
 - **公共配置**：主会话与 chat 共用 `~/.dsh/life-pipline/config.json`，同一处配置，不重复填。
 - **工具**：`wake_set` 接受 `in`（`45m`）、`at`（ISO 时刻）、`clear`，无参只读；时长与时刻随意，过去的时间就是下一次心跳立刻醒。
 - **设置块**：`lpipe.settings.panel` 的 `id: 'wake'`、`order: 20`；标题右侧是开关，关掉时卡片变淡并写明「不会自行醒来」。

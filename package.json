@@ -32,6 +32,7 @@
   "exports": {
     ".": "./index.js",
     "./clock": "./src/clock.mjs",
+    "./session": "./src/session-activity.mjs",
     "./client": "./lib/client.js",
     "./icon": "./assets/icon.png",
     "./locale/en.json": "./locale/en.json",

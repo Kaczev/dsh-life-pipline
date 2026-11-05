@@ -9,6 +9,7 @@ import { loadState, readMainSessionId, saveState } from './state.mjs';
  */
 export function createRunner({
   statusOf,
+  activityOf = () => null,
   deliver,
   log = { info() {}, warn() {} },
   readMain = readMainSessionId,
@@ -40,9 +41,14 @@ export function createRunner({
     warnedNoSession = false;
     busy = true;
     try {
-      const activity = await statusOf(sessionId);
+      const [status, lastActivityAt] = await Promise.all([
+        statusOf(sessionId),
+        // "When did the conversation last end" comes from the session log, so a
+        // Host restart cannot erase it.
+        Promise.resolve(activityOf(sessionId)).catch(() => null),
+      ]);
       const state = normalizeState(readState(), now());
-      const result = step(state, { now: now(), status: activity });
+      const result = step(state, { now: now(), activityAt: lastActivityAt, status });
       writeState(result.state);
       if (result.action) {
         await deliver({ sessionId, text: result.action.text });
@@ -75,12 +81,15 @@ export function createRunner({
   function setNextWake(at) {
     const state = snapshot();
     state.nextWakeAt = at;
+    // Remember when it was asked for: activity newer than this cancels it.
+    state.wakeSetAt = now();
     return writeState(state);
   }
 
   function clearNextWake() {
     const state = snapshot();
     state.nextWakeAt = null;
+    state.wakeSetAt = null;
     return writeState(state);
   }
 

@@ -36,12 +36,22 @@ test('a custom interval sets the deadline instead of the default one', () => {
   assert.notEqual(state.nextWakeAt, T0 + DEFAULT_INTERVAL_MS);
 });
 
-test('activity clears the pending wake immediately', () => {
+test('a new event in the session moves the deadline forward', () => {
   const before = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, lastWokeAt: null };
-  const { state, action } = step(before, { now: T0 + 10_000, status: 'running' });
+  const spoke = T0 + 50 * 60_000;
+  const { state, action } = step(before, { now: spoke, activityAt: spoke, status: 'running' });
   assert.equal(action, null);
-  assert.equal(state.nextWakeAt, null, 'starting to work drops the deadline');
-  assert.equal(state.lastActivityEndedAt, null);
+  assert.equal(state.lastActivityEndedAt, spoke, 'the log says when the conversation last moved');
+  assert.equal(state.nextWakeAt, spoke + HOUR, 'and the deadline follows it');
+});
+
+test('a hand-set point is cancelled by real activity after it', () => {
+  const setAt = T0;
+  const armed = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0, nextWakeAt: T0 + 5 * HOUR, wakeSetAt: setAt, lastWokeAt: null };
+  const spoke = T0 + 10 * 60_000;
+  const { state } = step(armed, { now: spoke, activityAt: spoke, status: 'idle' });
+  assert.equal(state.nextWakeAt, spoke + HOUR, 'back to the formula');
+  assert.equal(state.wakeSetAt, null);
 });
 
 test('stopping re-arms from the moment it stopped', () => {
@@ -59,6 +69,17 @@ test('a deadline that passed while the host was down fires on the next tick', ()
   assert.equal(action?.kind, 'wake');
   assert.equal(state.lastWokeAt, late);
   assert.equal(state.nextWakeAt, late + HOUR, 'the wake re-arms one interval after itself');
+});
+
+test('a restarted host trusts the session log over its own stale state', () => {
+  // The reported bug: the state file still said 08:42 while the owner had been
+  // talking until 12:31, so a fresh Host woke at 12:39 claiming 3 小时 57 分.
+  const stale = { defaultIntervalMs: HOUR, lastActivityEndedAt: T0 - 4 * HOUR, nextWakeAt: T0 - 2 * HOUR };
+  const justSpoke = T0 - 8 * 60_000;
+  const { state, action } = step(stale, { now: T0, activityAt: justSpoke, status: 'idle' });
+  assert.equal(action, null, 'eight minutes of silence is not a wake');
+  assert.equal(state.lastActivityEndedAt, justSpoke);
+  assert.equal(state.nextWakeAt, justSpoke + HOUR);
 });
 
 test('a wake re-arms itself instead of firing on every tick', () => {
@@ -162,12 +183,14 @@ test('wake_set parses durations and can place or clear a deadline', async () => 
 test('the runner wakes once, then waits for the next interval', async () => {
   let clock = 0;
   let status = 'idle';
+  let activityAt = null;
   let state = { defaultIntervalMs: HOUR };
   const delivered = [];
   let timerFn = null;
 
   const runner = createRunner({
     statusOf: async () => status,
+    activityOf: () => activityAt,
     deliver: async ({ text }) => { delivered.push(text); return true; },
     readMain: () => 'session-main',
     readState: () => state,
@@ -179,6 +202,9 @@ test('the runner wakes once, then waits for the next interval', async () => {
   });
 
   runner.start();
+  // start() already kicks a tick; wait for it instead of racing it.
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   await runner.tick();
   assert.equal(state.nextWakeAt, HOUR, 'armed one interval out');
 
@@ -191,15 +217,18 @@ test('the runner wakes once, then waits for the next interval', async () => {
   await runner.tick();
   assert.equal(delivered.length, 1, 'no second wake right after the first');
 
+  // A new event lands in the session while the agent works.
   status = 'running';
+  activityAt = 3 * HOUR;
   clock = 3 * HOUR;
   await runner.tick();
-  assert.equal(state.nextWakeAt, null, 'working clears the deadline');
+  assert.equal(state.nextWakeAt, 4 * HOUR, 'the deadline follows the newest event');
+  assert.equal(delivered.length, 1, 'and nothing fires mid-turn');
 
   status = 'idle';
   clock = 3 * HOUR + 60_000;
   await runner.tick();
-  assert.equal(state.nextWakeAt, 4 * HOUR + 60_000, 'stopping re-arms from the stop');
+  assert.equal(state.nextWakeAt, 4 * HOUR, 'stopping does not re-arm twice');
 
   runner.setEnabled(false);
   clock = 40 * HOUR;

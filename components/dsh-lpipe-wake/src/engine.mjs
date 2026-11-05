@@ -3,11 +3,13 @@
  * clock and fake activity, and the Host runner is a thin 30s tick around it.
  *
  * Rules (decided with the owner):
- * 1. The moment activity starts, `nextWakeAt` is cleared.
+ * 1. The base is the time of the newest event in the main session, so the
+ *    elapsed time is "now − when the conversation last ended", no matter how
+ *    many times the Host restarted in between.
  * 2. The trigger is strict: `now >= nextWakeAt` fires, including when the Host
  *    was closed and the deadline has passed.
  * 3. After activity ends, the next wake is `lastActivityEndedAt + interval`.
- * 4. `wake_set` only places a `nextWakeAt`; rule 1 may clear it again.
+ * 4. `wake_set` only places a `nextWakeAt`; real activity may clear it again.
  */
 import { formatStamp } from 'dsh-life-pipline/clock';
 
@@ -21,6 +23,7 @@ export function defaultState(now = Date.now()) {
     lastActivityEndedAt: null,
     nextWakeAt: null,
     lastWokeAt: null,
+    wakeSetAt: null,
     lastSeenAt: now,
   };
 }
@@ -38,6 +41,7 @@ export function normalizeState(raw, now = Date.now()) {
     lastActivityEndedAt: asTime(raw.lastActivityEndedAt),
     nextWakeAt: asTime(raw.nextWakeAt),
     lastWokeAt: asTime(raw.lastWokeAt),
+    wakeSetAt: asTime(raw.wakeSetAt),
     lastSeenAt: asTime(raw.lastSeenAt) ?? now,
   };
 }
@@ -80,10 +84,33 @@ export function wakeText({ now, since }) {
 /**
  * One tick. Returns the next state plus, when the deadline has passed, the
  * text to inject. Never mutates the input.
+ *
+ * `activityAt` is the time of the newest event in the main session — the
+ * answer to "when did the conversation last end", read from the session's own
+ * log instead of guessed from our own uptime. `status` only decides whether a
+ * due wake may be delivered right now.
  */
-export function step(rawState, { now = Date.now(), status = 'idle' } = {}) {
+export function step(rawState, { now = Date.now(), activityAt = null, status = 'idle' } = {}) {
   const state = normalizeState(rawState, now);
   state.lastSeenAt = now;
+
+  // The log always wins over our own memory: it survived every restart.
+  const activity = activityAt === null || activityAt === undefined
+    ? null
+    : (Number.isFinite(Number(activityAt)) ? Number(activityAt) : null);
+  if (activity !== null && (state.lastActivityEndedAt === null || activity > state.lastActivityEndedAt)) {
+    state.lastActivityEndedAt = activity;
+    // A hand-set point is one-shot: real activity after it cancels it.
+    if (state.wakeSetAt !== null && activity > state.wakeSetAt) {
+      state.wakeSetAt = null;
+      state.nextWakeAt = null;
+    }
+    // With no live manual point the deadline is always base + interval, so it
+    // moves with the conversation instead of pointing at a stale moment.
+    if (state.wakeSetAt === null) {
+      state.nextWakeAt = state.lastActivityEndedAt + state.defaultIntervalMs;
+    }
+  }
 
   // Switched off: keep the numbers as they were, decide nothing.
   if (state.enabled === false) {
@@ -91,15 +118,8 @@ export function step(rawState, { now = Date.now(), status = 'idle' } = {}) {
     return { state, action: null };
   }
 
-  if (status !== 'idle') {
-    // Rule 1: activity clears whatever was pending.
-    state.nextWakeAt = null;
-    state.lastActivityEndedAt = null;
-    return { state, action: null };
-  }
-
   if (state.lastActivityEndedAt === null) {
-    // Rule 3, first half: we were active and just stopped (or first run).
+    // Nothing in the log yet (brand new session): the clock starts now.
     state.lastActivityEndedAt = now;
     state.nextWakeAt = now + state.defaultIntervalMs;
     return { state, action: null };
@@ -110,20 +130,20 @@ export function step(rawState, { now = Date.now(), status = 'idle' } = {}) {
     return { state, action: null };
   }
 
-  if (now >= state.nextWakeAt) {
-    // Rule 2: strict comparison, so a deadline missed while the Host was down
-    // fires immediately on the first tick after it comes back.
-    const since = state.lastActivityEndedAt;
-    state.lastWokeAt = now;
-    // Re-arm from the wake itself, otherwise the stale base would make the
-    // next tick fire again and the pipeline would loop forever.
-    state.lastActivityEndedAt = now;
-    state.nextWakeAt = now + state.defaultIntervalMs;
-    return {
-      state,
-      action: { kind: 'wake', at: now, text: wakeText({ now, since }) },
-    };
-  }
+  if (now < state.nextWakeAt) return { state, action: null };
 
-  return { state, action: null };
+  // Due. Never cut a running turn in half; the next ticks keep checking.
+  if (status !== 'idle') return { state, action: null };
+
+  const since = state.lastActivityEndedAt;
+  state.lastWokeAt = now;
+  // Re-arm from the wake itself, otherwise the stale base would make the next
+  // tick fire again and the pipeline would loop forever.
+  state.lastActivityEndedAt = now;
+  state.nextWakeAt = now + state.defaultIntervalMs;
+  state.wakeSetAt = null;
+  return {
+    state,
+    action: { kind: 'wake', at: now, text: wakeText({ now, since }) },
+  };
 }

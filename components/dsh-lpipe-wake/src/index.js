@@ -1,3 +1,5 @@
+import { lastActivityAt } from 'dsh-life-pipline/session';
+
 import { createRunner, createWakeDelivery, statusReader } from './runner.mjs';
 import { createWakeRpcHandler, registerWakeRpc } from './rpc.mjs';
 import { createWakeTools } from './tools.mjs';
@@ -22,6 +24,11 @@ export function apply(ctx) {
 
   let runner = null;
   let delivery = null;
+  let sessions = null;
+
+  ctx.inject(['sessions'], (sessionsCtx) => {
+    sessions = () => sessionsCtx.sessions;
+  });
 
   ctx.inject(['sessionController'], (sessionCtx) => {
     const controller = sessionCtx.sessionController;
@@ -30,6 +37,9 @@ export function apply(ctx) {
 
     runner = createRunner({
       statusOf: statusReader(controller),
+      // The main session's own log answers "when did the conversation last
+      // end"; the sessions service is read lazily so a late mount still works.
+      activityOf: (sessionId) => lastActivityAt(sessions?.(), sessionId),
       deliver: (request) => current.deliver(request),
       log,
     });
