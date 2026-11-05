@@ -495,6 +495,13 @@ test('the client half adds one block to the shared page', async () => {
   assert.equal(typeof options.inject().rpcCall, 'function');
 });
 
+test('the page can lift a lock but never set one', async () => {
+  const code = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
+  assert.match(code, /解除锁定/, 'an existing lock can be lifted from the page');
+  assert.match(code, /wake\.lock/, 'and it goes through the lock endpoint');
+  assert.doesNotMatch(code, /锁 2 小时/, 'the page must not offer to set one');
+});
+
 test('countdown and clock formatting stay readable', async () => {
   const { exports } = await loadClient();
   const { countdown, formatClock } = exports.__test__;

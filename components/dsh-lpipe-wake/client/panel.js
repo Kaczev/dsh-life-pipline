@@ -348,11 +348,10 @@ function WakePanel({ rpcCall }) {
     h('div', { style: row },
       // Natural: driven by when the conversation last ended.
       h('div', { style: { ...card, marginBottom: 0, opacity: naturalOn ? 1 : 0.55 } },
-        heading('自然唤醒', naturalOn, () => run('wake.config.save', { naturalEnabled: !naturalOn }), [
-          locked
-            ? { label: '解除锁定', onClick: () => run('wake.lock', { until: null }) }
-            : { label: '锁 2 小时', onClick: () => run('wake.lock', { until: Date.now() + 2 * 3600 * 1000 }) },
-        ]),
+        // The lock is mine to set and the owner's to see; the page only offers
+        // to lift one that is already on — setting a new one is not his call.
+        heading('自然唤醒', naturalOn, () => run('wake.config.save', { naturalEnabled: !naturalOn }),
+          locked ? [{ label: '解除锁定', onClick: () => run('wake.lock', { until: null }) }] : []),
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
           h('span', { style: value }, formatClock(status.nextWakeAt)),
           h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
