@@ -178,6 +178,8 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 - **状态**：`~/.dsh/life-wake/state.json`，`{ naturalEnabled, manualEnabled, defaultIntervalMs, heartbeatMs, lastActivityEndedAt, nextWakeAt, plannedWakes, lastWokeAt, lastWokeKind, lastWokeReason, lastSeenAt }`，0600。
 - **RPC**：`wake.status`、`wake.config.save`（两个开关 / 间隔 / 心跳）、`wake.plan`、`wake.cancel`、`wake.tick`。
 - **公共配置**：主会话与 chat 共用 `~/.dsh/life-pipline/config.json`，同一处配置，不重复填。
-- **工具**：`wake_set`（`in` / `at` + `reason`，`cancel` 取消一条或全部）、`wake_check`（只读：下次主动唤醒及其缘由 + 下次自然唤醒）。
+- **锁**：`naturalLockUntil` 是「我自愿不出声」的到期时刻，压住自然唤醒而不动开关；`现在 >= 锁的时刻` 时引擎在同一跳把它清空。
+- **计时**：永远比时间戳（`now >= deadline`），心跳只决定多久看一次；不累加倒计时，掉帧与休眠都不会造成偏移。
+- **工具**：`wake_set`（`in` / `at` + `reason`，`cancel` 取消一条或全部，`lock` / `unlock` 设定时锁）、`wake_check`（只读：下次主动唤醒及其缘由 + 下次自然唤醒，含是否锁着）。
 - **设置块**：`lpipe.settings.panel` 的 `id: 'wake'`、`order: 20`；第一行两张卡（自然 / 主动）各带自己的开关，第二行是默认间隔与心跳间隔。
 - **不用宿主的 schedule**：它按墙钟走、有自己的开关、投递的是普通用户消息，表达不了「从我停下那一刻起算」。

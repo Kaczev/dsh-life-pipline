@@ -149,6 +149,15 @@ export function createRunner({
     return state;
   };
 
+  /** Lock the natural kind until a moment; `null` lifts it right now. */
+  const setNaturalLock = (until) => {
+    const state = snapshot();
+    const at = Number(until);
+    state.naturalLockUntil = Number.isFinite(at) && at > 0 ? at : null;
+    writeState(state);
+    return state;
+  };
+
   const setManualEnabled = (on) => {
     const state = snapshot();
     state.manualEnabled = on !== false;
@@ -182,7 +191,7 @@ export function createRunner({
 
   return {
     start, dispose, tick, snapshot,
-    planWake, cancelWake, setNaturalEnabled, setManualEnabled, setIntervalMs, setHeartbeatMs,
+    planWake, cancelWake, setNaturalEnabled, setManualEnabled, setNaturalLock, setIntervalMs, setHeartbeatMs,
   };
 }
 

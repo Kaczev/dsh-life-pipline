@@ -29,6 +29,7 @@ function readSchedule(runner, now) {
     natural: {
       enabled: state.naturalEnabled !== false,
       nextWakeAt: asIso(state.nextWakeAt),
+      lockUntil: asIso(state.naturalLockUntil),
       intervalMs: state.defaultIntervalMs,
       lastActivityEndedAt: asIso(state.lastActivityEndedAt),
     },
@@ -52,10 +53,21 @@ function readSchedule(runner, now) {
   };
 }
 
-function naturalLine(natural) {
+function lockedUntil(natural, now) {
+  if (!natural.lockUntil) return null;
+  const at = Date.parse(natural.lockUntil);
+  if (!Number.isFinite(at) || at <= now) return null;
+  return at;
+}
+
+function naturalLine(natural, now = Date.now()) {
   if (!natural.nextWakeAt) return '自然唤醒：还没有起算（主会话里还没有事件）。';
   const when = clockText(Date.parse(natural.nextWakeAt));
-  const tail = natural.enabled ? '' : '（开关关着，这个点不会叫。）';
+  const at = lockedUntil(natural, now);
+  const marks = [];
+  if (natural.enabled === false) marks.push('开关关着，这个点不会叫');
+  if (at !== null) marks.push(`${clockText(at)} 之前锁着，到点自动恢复`);
+  const tail = marks.length > 0 ? `（${marks.join('；')}。）` : '';
   return `自然唤醒：${when}，即上次结束行动 + ${Math.round(natural.intervalMs / 60000)} 分钟。${tail}`;
 }
 
@@ -116,6 +128,24 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
         summary: id ? '那个主动唤醒已经取消。' : '主动唤醒全部清空。',
       };
     }
+    if (input.unlock === true) {
+      runner.setNaturalLock(null);
+      return { ...readSchedule(runner, now), summary: '自然唤醒的锁解开了：到点就会叫。' };
+    }
+    if (Object.hasOwn(input, 'lock')) {
+      const raw = String(input.lock ?? '').trim();
+      const duration = parseDuration(raw);
+      const lockedUntilAt = duration !== null ? now() + duration : Date.parse(raw);
+      if (!Number.isFinite(lockedUntilAt) || lockedUntilAt <= now()) {
+        return { ...schedule, summary: `看不懂这个锁的时间：${raw}` };
+      }
+      runner.setNaturalLock(lockedUntilAt);
+      const tail = schedule.natural.enabled === false ? '自然唤醒开关本来就关着，锁是多余的。' : '';
+      return {
+        ...readSchedule(runner, now),
+        summary: `自然唤醒锁到 ${clockText(lockedUntilAt)}（${gapText(lockedUntilAt, now())}），这段时间不会自己醒来。${tail}`,
+      };
+    }
     let at = null;
     if (Object.hasOwn(input, 'in')) {
       const ms = parseDuration(input.in);
@@ -138,7 +168,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
 
   return [{
     name: 'wake_set',
-    description: 'Set an active (self-planned) wake-up: a moment I picked plus the reason I want to read when it fires. It ignores my activity — unlike the natural wake, which is cleared whenever I start working. Use `cancel: true` to clear them all, or `cancel: "<id>"` for one.',
+    description: 'Set an active (self-planned) wake-up: a moment I picked plus the reason I want to read when it fires. It ignores my activity — unlike the natural wake, which is cleared whenever I start working. Use `cancel: true` to clear them all, or `cancel: "<id>"` for one. `lock` silences the natural wake until a moment (e.g. "3h" or an ISO time) without touching its switch; `unlock: true` lifts it.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -147,6 +177,8 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
         at: { type: 'string', description: 'Wake at this instant (ISO 8601 with offset).' },
         reason: { type: 'string', description: 'The note I write for that moment, e.g. "remind him to take his medicine".' },
         cancel: { type: ['boolean', 'string'], description: 'true clears every planned wake; a string cancels that one by id.' },
+        lock: { type: 'string', description: 'Do not wake me naturally until then: a duration like "3h" or an ISO time.' },
+        unlock: { type: 'boolean', description: 'true lifts the natural wake lock.' },
       },
     },
     output: {
@@ -178,7 +210,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
       const schedule = readSchedule(runner, now);
       return {
         ...schedule,
-        summary: `${manualLine(schedule.manual, schedule.lastCancelled, schedule.lastWokeAt)}\n${naturalLine(schedule.natural)}`,
+        summary: `${manualLine(schedule.manual, schedule.lastCancelled, schedule.lastWokeAt)}\n${naturalLine(schedule.natural, now())}`,
       };
     },
   }];

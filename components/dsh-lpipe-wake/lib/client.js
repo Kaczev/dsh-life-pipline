@@ -290,6 +290,10 @@ function WakePanel({ rpcCall }) {
   const intervalMs = status.defaultIntervalMs;
   const mainMissing = !status.mainSessionId;
   const naturalOn = status.naturalEnabled !== false;
+  // A temporary lock silences the natural kind until its own moment passes; it
+  // is not the switch, so the card stays lit but says why it will not call.
+  const lockAt = status.naturalLockUntil ? Date.parse(status.naturalLockUntil) : NaN;
+  const locked = Number.isFinite(lockAt) && lockAt > nowMs;
   const manualOn = status.manualEnabled !== false;
   const planned = Array.isArray(status.plannedWakes) ? status.plannedWakes : [];
   const nextPlan = planned[0] ?? null;
@@ -349,7 +353,11 @@ function WakePanel({ rpcCall }) {
     h('div', { style: row },
       // Natural: driven by when the conversation last ended.
       h('div', { style: { ...card, marginBottom: 0, opacity: naturalOn ? 1 : 0.55 } },
-        heading('自然唤醒', naturalOn, () => run('wake.config.save', { naturalEnabled: !naturalOn })),
+        heading('自然唤醒', naturalOn, () => run('wake.config.save', { naturalEnabled: !naturalOn }), [
+          locked
+            ? { label: '解除锁定', onClick: () => run('wake.lock', { until: null }) }
+            : { label: '锁 2 小时', onClick: () => run('wake.lock', { until: Date.now() + 2 * 3600 * 1000 }) },
+        ]),
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
           h('span', { style: value }, formatClock(status.nextWakeAt)),
           h('span', { style: { marginLeft: 'auto', fontSize: 12, color: COLORS.muted } },
@@ -357,6 +365,10 @@ function WakePanel({ rpcCall }) {
         h('div', { style: { marginTop: 6, fontSize: 12, color: COLORS.muted } },
           `上次结束行动 ${formatClock(status.lastActivityEndedAt)}`,
           status.lastActivityEndedAt ? ` · ${agoText(status.lastActivityEndedAt, nowMs)}` : ''),
+        locked
+          ? h('div', { style: { marginTop: 6, fontSize: 12, color: COLORS.muted } },
+            `锁到 ${formatClock(status.naturalLockUntil)} · 到点自动恢复`)
+          : null,
         naturalOn ? null : note('已关闭：不会自行醒来，上面的时间是它本来会醒的时刻。')),
 
       // Manual: a moment I picked, untouched by my own activity.

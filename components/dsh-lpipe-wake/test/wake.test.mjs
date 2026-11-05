@@ -171,6 +171,37 @@ test('each kind has its own switch, and a switched off one only stops firing', (
   assert.equal(held.state.plannedWakes.length, 1, 'the plan is kept, not thrown away');
 });
 
+test('a lock silences the natural kind without touching its switch', () => {
+  const armed = {
+    lastActivityEndedAt: T0,
+    nextWakeAt: T0 + HOUR,
+    naturalEnabled: true,
+    defaultIntervalMs: HOUR,
+  };
+
+  // The deadline has passed, but the lock has not: nothing happens.
+  const locked = step({ ...armed, naturalLockUntil: T0 + 2 * HOUR }, { now: T0 + HOUR + 1000, status: 'idle' });
+  assert.equal(locked.action, null);
+  assert.equal(locked.state.naturalLockUntil, T0 + 2 * HOUR);
+  assert.equal(locked.state.nextWakeAt, T0 + HOUR, 'the deadline stays readable while locked');
+  assert.equal(locked.state.naturalEnabled, true, 'the switch belongs to the owner');
+
+  // The lock is a moment, not a countdown: once it is behind us it lifts by
+  // itself and the natural wake fires on the very same tick.
+  const after = step(locked.state, { now: T0 + 2 * HOUR + 1000, status: 'idle' });
+  assert.equal(after.state.naturalLockUntil, null);
+  assert.equal(after.action?.kind, 'natural');
+});
+
+test('a lock that already passed never delays a wake', () => {
+  const result = step(
+    { lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR, defaultIntervalMs: HOUR, naturalLockUntil: T0 + 60_000 },
+    { now: T0 + 2 * HOUR, status: 'idle' },
+  );
+  assert.equal(result.state.naturalLockUntil, null);
+  assert.equal(result.action?.kind, 'natural', 'a lock from the past is simply over');
+});
+
 test('a corrupt state file degrades to the default interval', () => {
   const state = normalizeState({ defaultIntervalMs: 'soon', nextWakeAt: 'later' }, T0);
   assert.equal(state.defaultIntervalMs, DEFAULT_INTERVAL_MS);
@@ -210,6 +241,7 @@ function fakeRunner(initial = {}) {
     setHeartbeatMs: (ms) => { state = { ...state, heartbeatMs: ms }; },
     setNaturalEnabled: (on) => { state = { ...state, naturalEnabled: on !== false }; },
     setManualEnabled: (on) => { state = { ...state, manualEnabled: on !== false }; },
+    setNaturalLock: (until) => { state = { ...state, naturalLockUntil: Number.isFinite(until) && until > 0 ? until : null }; },
     tick: async () => {},
   };
 }
@@ -310,6 +342,51 @@ test('a quiet switch and a cancelled plan both explain themselves', async () => 
   const told = await check2.execute({});
   assert.match(told.summary, /被我取消/);
   assert.equal(told.lastCancelled.source, 'tool');
+});
+
+test('a lock is set by a duration or a moment, and explained when it is on', async () => {
+  const runner = fakeRunner({ lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR });
+  const [set, check] = createWakeTools({ runner, now: () => T0 });
+
+  const locked = await set.execute({ lock: '3h' });
+  assert.equal(runner.snapshot().naturalLockUntil, T0 + 3 * HOUR);
+  assert.match(locked.summary, /自然唤醒锁到/);
+  assert.match(locked.summary, /这段时间不会自己醒来/);
+
+  const read = await check.execute({});
+  assert.match(read.summary, /锁着，到点自动恢复/);
+  assert.equal(read.natural.lockUntil, new Date(T0 + 3 * HOUR).toISOString());
+
+  const byMoment = await set.execute({ lock: '2026-11-05T09:00:00+08:00' });
+  assert.equal(runner.snapshot().naturalLockUntil, Date.parse('2026-11-05T09:00:00+08:00'));
+  assert.match(byMoment.summary, /自然唤醒锁到/);
+
+  const nonsense = await set.execute({ lock: 'before lunch' });
+  assert.match(nonsense.summary, /看不懂这个锁的时间/);
+  assert.equal(runner.snapshot().naturalLockUntil, Date.parse('2026-11-05T09:00:00+08:00'), 'a rejected lock changes nothing');
+
+  const unlocked = await set.execute({ unlock: true });
+  assert.equal(runner.snapshot().naturalLockUntil, null);
+  assert.match(unlocked.summary, /锁解开了/);
+  assert.doesNotMatch((await check.execute({})).summary, /锁着/);
+});
+
+test('the page can lock and unlock the natural kind over RPC', async () => {
+  const runner = fakeRunner({ lastActivityEndedAt: T0, nextWakeAt: T0 + HOUR });
+  const handle = createWakeRpcHandler({ runner, now: () => T0 });
+
+  const locked = await handle('wake.lock', { until: T0 + 2 * HOUR });
+  assert.equal(locked.ok, true);
+  assert.equal(locked.value.naturalLockUntil, new Date(T0 + 2 * HOUR).toISOString());
+
+  const refused = await handle('wake.lock', { until: 'tonight' });
+  assert.equal(refused.ok, false);
+
+  const missing = await handle('wake.lock', {});
+  assert.equal(missing.ok, false, 'a lock needs until, even to clear it');
+
+  const cleared = await handle('wake.lock', { until: null });
+  assert.equal(cleared.value.naturalLockUntil, null);
 });
 
 test('the runner wakes once, then waits for the next interval', async () => {

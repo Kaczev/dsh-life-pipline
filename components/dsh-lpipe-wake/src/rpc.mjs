@@ -3,7 +3,7 @@ import { readMainSessionId, statePath } from './state.mjs';
 
 export const WAKE_RPC_ENDPOINT = 'dsh-lpipe-wake';
 
-const METHODS = new Set(['wake.status', 'wake.config.save', 'wake.plan', 'wake.cancel', 'wake.tick']);
+const METHODS = new Set(['wake.status', 'wake.config.save', 'wake.plan', 'wake.cancel', 'wake.lock', 'wake.tick']);
 
 function failure(code, message) {
   return { ok: false, error: { code, message, details: {} } };
@@ -26,6 +26,7 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       heartbeatMs: state.heartbeatMs,
       lastActivityEndedAt: asIso(state.lastActivityEndedAt),
       nextWakeAt: asIso(state.nextWakeAt),
+      naturalLockUntil: asIso(state.naturalLockUntil),
       plannedWakes: state.plannedWakes.map((plan) => ({
         id: plan.id,
         at: asIso(plan.at),
@@ -87,6 +88,21 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       }
       const reason = typeof input.reason === 'string' ? input.reason.slice(0, 200) : '';
       runner.planWake({ at, reason });
+      return { ok: true, value: status() };
+    }
+
+    // wake.lock: silence the natural kind until a moment (null lifts it). The
+    // moment is a timestamp, so a suspended Host simply notices the lock has
+    // already passed instead of counting down to nothing.
+    if (method === 'wake.lock') {
+      if (!Object.hasOwn(input, 'until')) return failure('wake/bad-request', '需要 until（毫秒时间戳）或 until: null。');
+      if (input.until === null) {
+        runner.setNaturalLock(null);
+        return { ok: true, value: status() };
+      }
+      const until = Number(input.until);
+      if (!Number.isFinite(until) || until <= 0) return failure('wake/bad-request', 'until 必须是毫秒时间戳。');
+      runner.setNaturalLock(until);
       return { ok: true, value: status() };
     }
 

@@ -14,6 +14,14 @@
  *
  * Each kind has its own switch. When a kind is switched off its numbers stay
  * readable on the page; only the firing stops.
+ *
+ * The natural kind also has a temporary lock: `naturalLockUntil` silences it
+ * until that moment, then lifts itself. It exists for "this month's budget is
+ * thin, do not spend his money on me" — a refusal that expires on its own,
+ * unlike the switch, which is the owner's.
+ *
+ * Time is always compared as timestamps (`now >= deadline`), never counted by
+ * a timer, so a slow frame or a suspended Host cannot skew a wake.
  */
 import { formatStamp } from 'dsh-life-pipline/clock';
 
@@ -33,6 +41,8 @@ export function defaultState(now = Date.now()) {
     heartbeatMs: TICK_MS,
     lastActivityEndedAt: null,
     nextWakeAt: null,
+    // Silence the natural kind until this moment; null means unlocked.
+    naturalLockUntil: null,
     plannedWakes: [],
     lastWokeAt: null,
     lastWokeKind: null,
@@ -90,6 +100,7 @@ export function normalizeState(raw, now = Date.now()) {
       : base.heartbeatMs,
     lastActivityEndedAt: asTime(raw.lastActivityEndedAt),
     nextWakeAt: asTime(raw.nextWakeAt),
+    naturalLockUntil: asTime(raw.naturalLockUntil),
     plannedWakes: normalizePlan(raw.plannedWakes),
     lastWokeAt: asTime(raw.lastWokeAt),
     lastWokeKind: raw.lastWokeKind === 'manual' || raw.lastWokeKind === 'natural' ? raw.lastWokeKind : null,
@@ -175,6 +186,10 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
     state.nextWakeAt = now + state.defaultIntervalMs;
   }
 
+  // A lock is a moment, not a countdown: once that moment is behind us the
+  // natural kind is free again, and the deadline above was kept all along.
+  if (state.naturalLockUntil !== null && now >= state.naturalLockUntil) state.naturalLockUntil = null;
+
   // Never cut a running turn in half; the next heartbeats keep checking.
   if (status !== 'idle') return { state, action: null };
 
@@ -196,6 +211,8 @@ export function step(rawState, { now = Date.now(), activityAt = null, status = '
   }
 
   if (state.naturalEnabled === false) return { state, action: null };
+  // Locked: the deadline keeps moving, the wake does not happen.
+  if (state.naturalLockUntil !== null) return { state, action: null };
   if (state.nextWakeAt === null || now < state.nextWakeAt) return { state, action: null };
 
   const since = state.lastActivityEndedAt;

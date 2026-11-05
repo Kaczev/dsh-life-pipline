@@ -80,6 +80,7 @@ export function apply(ctx) {
         setHeartbeatMs: (ms) => runner?.setHeartbeatMs(ms),
         setNaturalEnabled: (on) => runner?.setNaturalEnabled(on),
         setManualEnabled: (on) => runner?.setManualEnabled(on),
+        setNaturalLock: (until) => runner?.setNaturalLock(until),
         planWake: (plan) => runner?.planWake(plan),
         cancelWake: (id, source) => runner?.cancelWake(id, source),
         tick: async () => { await runner?.tick(); },
@@ -98,6 +99,7 @@ export function apply(ctx) {
         snapshot: () => runner?.snapshot() ?? {},
         planWake: (plan) => runner?.planWake(plan),
         cancelWake: (id, source) => runner?.cancelWake(id, source),
+        setNaturalLock: (until) => runner?.setNaturalLock(until),
       },
     });
     for (const tool of tools) {
