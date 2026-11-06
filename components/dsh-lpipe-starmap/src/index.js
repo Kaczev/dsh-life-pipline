@@ -2,7 +2,7 @@
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { memoryRoot } from 'dsh-lpipe-memory/paths'
 
-import { buildTurn, groupTurns } from './build.mjs'
+import { RULES_VERSION, buildTurn, groupTurns } from './build.mjs'
 import { buildLexicon, matcherOf } from './lexicon.mjs'
 import { starmapRoot } from './paths.mjs'
 import { createQueries } from './query.mjs'
@@ -192,15 +192,18 @@ export function apply(ctx, options = {}) {
       // 已经点亮的轮次不会进「灰记忆」，只能整库重来一次。
       const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
       const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
-      if (builtWith !== format) {
-        info(`[dsh-lpipe-starmap] 记忆格式 ${builtWith ?? '未知'} → ${format}，整库重建一次`)
+      const builtRules = Number.isInteger(repo.state?.rules) ? repo.state.rules : null
+      if (builtWith !== format || builtRules !== RULES_VERSION) {
+        info(
+          `[dsh-lpipe-starmap] 记忆格式 ${builtWith ?? '未知'} → ${format}、抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}，整库重建一次`,
+        )
         rebuild({ full: true })
-        repo.setMemoryFormat(format)
-        return
+      } else {
+        info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
+        rebuild()
       }
-      info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
-      rebuild()
       repo.setMemoryFormat(format)
+      repo.setRules(RULES_VERSION)
     })
   }, warmDelay)
   warm.unref?.()

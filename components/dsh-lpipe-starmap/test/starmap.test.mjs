@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { buildTurn } from '../src/build.mjs'
+import { RULES_VERSION, buildTurn } from '../src/build.mjs'
 import { matcherOf } from '../src/lexicon.mjs'
 import { createQueries } from '../src/query.mjs'
 import { loadLexicon, openRepo, saveLexicon, starIdOf } from '../src/store.mjs'
@@ -203,4 +203,15 @@ test('重复的星星行，加载时收成一份', () => {
   const lines = readFileSync(starsFile(root), 'utf8').trim().split('\n')
   assert.equal(lines.length, 1, '重复的那行应当在加载时被收掉')
   assert.equal(repo.stars.size, 1)
+})
+
+test('星图记得自己是按哪一版抽星规则建的', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-rules-'))
+  const repo = openRepo({ root })
+  assert.equal(repo.state.rules, undefined, 'a brand new map has no rules version yet')
+  assert.equal(repo.setRules(RULES_VERSION), true, 'the first run records it')
+  assert.equal(repo.setRules(RULES_VERSION), false, 'recording the same version is a no-op')
+
+  const again = openRepo({ root })
+  assert.equal(again.state.rules, RULES_VERSION, 'the version survives a restart')
 })

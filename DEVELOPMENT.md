@@ -225,6 +225,7 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 - **词表冻结**：`lexicon/<v>.json` 一版一个文件；星源上记 `lex`。灰记忆攒到 200 轮就重长一版，否则继续用冻结的那一版。
 - **边不落盘**：星源里只有「哪一句有哪几颗星」，边在查询时现聚合——同句 1、相邻句 0.5，句内星数超过 8 时每对按 `1/(k-1)` 衰减。全库物化 96 万条边要 185 MB，现算一次 0.04–0.8 ms。
 - **长的工具输出不当成「说过的话」**：`tool/result` 只有短于 600 字才参与抽星；读文件、列目录的结果是数据，不是句子。
-- **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links`，全部只读。
+- **抽星规则带版本号**：`src/build.mjs` 的 `RULES_VERSION` 记在 `state.json` 的 `rules` 里。改了分句、抽星、成星判定就把这个数加一，启动时一比对不上就整库重抽（约十几秒）——名字是算出来的索引，按旧规则建出来的星表没有修补价值。规则稳定后它就不再动。
+- **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links` 与 `starmap.rebuild`（`{ full: true }` 时整库重抽），只有 `rebuild` 会写。
 - **设置块**：`lpipe.settings.panel` 的 `id: 'starmap'`、`order: 40`，显示亮了多少轮、灰了多少轮、多少颗星、词表第几版。
 - **依赖**：`dsh-lpipe-memory`（读记忆，走它的 `./reader` 与 `./paths` 导出）与 `dsh-life-pipline`（设置页）。

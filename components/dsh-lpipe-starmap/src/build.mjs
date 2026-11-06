@@ -4,6 +4,13 @@ import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
 
 /** 按 turn 分组；行本来就按 seq 递增，所以组内顺序天然是对的。 */
+/**
+ * 抽星规则的版本号。改了分句、抽星、成星判定就加一：
+ * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
+ * 调参期随便加；规则稳定之后它就不会再动。
+ */
+export const RULES_VERSION = 1
+
 export function groupTurns(rows) {
   const map = new Map()
   for (const row of rows) {
