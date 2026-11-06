@@ -181,6 +181,16 @@ export function apply(ctx, options = {}) {
   }
 
   const rowsOf = (sessionId) => {
+    // 记忆层能一次给整个会话（已解析、已补轮号）就别逐 seq 取：逐行读会把同一帧反复解码，
+    // 冷日打包后一天就是一个几兆的大帧，一千多行就是几十秒。
+    if (typeof memory.rows === 'function') {
+      try {
+        const all = memory.rows(sessionId)
+        if (Array.isArray(all)) return all
+      } catch (error) {
+        warn(`[dsh-lpipe-starmap] 整段读行失败，退回逐行：${error?.message ?? error}`)
+      }
+    }
     const info_ = sessions().find((entry) => entry.sessionId === sessionId)
     if (!info_) return []
     const rows = []

@@ -184,14 +184,25 @@ export function computeStats(reader, { turns = 30, root = memoryRoot() } = {}) {
   let diskTotal = 0
   let rows = 0
 
-  for (let seq = 0; seq <= lastSeq; seq += 1) {
-    let row
-    try {
-      row = reader.read(seq)
-    } catch {
-      continue
+  let all = []
+  try {
+    all = typeof reader.rows === 'function' ? reader.rows() : []
+  } catch {
+    all = []
+  }
+  if (all.length === 0) {
+    // 老版本 reader 没有 rows()：退回逐 seq，慢一点但不至于没有数。
+    for (let seq = 0; seq <= lastSeq; seq += 1) {
+      try {
+        const row = reader.read(seq)
+        if (row) all.push(row)
+      } catch {
+        // 坏行跳过
+      }
     }
-    if (!row) continue
+  }
+
+  for (const row of all) {
     const bytes = Buffer.byteLength(JSON.stringify(row)) + 1
     rows += 1
     total += bytes

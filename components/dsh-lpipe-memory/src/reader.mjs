@@ -35,6 +35,9 @@ export class MemoryReader {
     this.root = root
     this.cacheLimit = cacheFrames
     this.frameCache = new Map()
+    // 帧缓存按字节封顶：一天的整包解压后有七八兆，按“帧数”记会把内存吃光。
+    this.frameBytes = 0
+    this.cacheBytes = 64 * 1024 * 1024
     this.idxCache = new Map()
     this.rowCache = new Map()
     this.dayCache = new Map()
@@ -45,6 +48,7 @@ export class MemoryReader {
   reload() {
     this.state = readJson(stateFile(this.root), this.state)
     this.frameCache.clear()
+    this.frameBytes = 0
     this.idxCache.clear()
     this.rowCache.clear()
     this.dayCache.clear()
@@ -101,8 +105,8 @@ export class MemoryReader {
     const day = this.dayOf(seq)
     if (!day) return null
     const entry = this.#index(sessionId, day).get(seq)
-    const text = this.#frameText(sessionId, day, entry.f)
-    return JSON.parse(Buffer.from(text, 'utf8').subarray(entry.o, entry.o + entry.l).toString('utf8'))
+    const frame = this.#frameText(sessionId, day, entry.f)
+    return JSON.parse(frame.subarray(entry.o, entry.o + entry.l).toString('utf8'))
   }
 
   /** seq → 应当继承的轮号；一个会话只扫一遍。 */
@@ -137,6 +141,24 @@ export class MemoryReader {
     const day = this.dayOf(seq)
     if (!day) return null
     return readMedia(this.root, sessionId, day, sha256)
+  }
+
+  /**
+   * 一个会话的全部行（已补好轮号），按 seq 排序，解析一次就缓存。
+   * 统计与抽星都要整段原文，逐 seq read 会把同一帧反复解压。
+   */
+  rows(sessionId = null) {
+    const out = []
+    for (const info of this.sessions()) {
+      if (sessionId && info.sessionId !== sessionId) continue
+      const hints = this.#turnHints(info.sessionId)
+      for (const row of this.#rows(info.sessionId)) {
+        const hint = hints.get(row.seq)
+        out.push(hint === undefined || Number.isInteger(row.turn) ? row : { ...row, turn: hint })
+      }
+    }
+    out.sort((a, b) => a.seq - b.seq)
+    return out
   }
 
   /** 按时间回放；给了 session 就只回放那一个对话。 */
@@ -220,20 +242,28 @@ export class MemoryReader {
 
   #frameText(sessionId, day, frameNo) {
     const key = `${sessionId}|${day}|${frameNo}`
-    if (this.frameCache.has(key)) {
-      const text = this.frameCache.get(key)
+    const hit = this.frameCache.get(key)
+    if (hit) {
+      // 命中就挪到队尾，LRU 才有意义。
       this.frameCache.delete(key)
-      this.frameCache.set(key, text)
-      return text
+      this.frameCache.set(key, hit)
+      return hit
     }
     const meta = readLines(framesFile(this.root, sessionId, day))
       .map((line) => JSON.parse(line))
       .find((item) => item.n === frameNo)
     if (!meta) throw new Error(`帧 ${frameNo} 不在索引里：${sessionId}/${day}`)
-    const text = decompressFrame(readRange(dayFile(this.root, sessionId, day), meta.at, meta.len))
-    this.frameCache.set(key, text)
-    if (this.frameCache.size > this.cacheLimit) this.frameCache.delete(this.frameCache.keys().next().value)
-    return text
+    const buffer = Buffer.from(decompressFrame(readRange(dayFile(this.root, sessionId, day), meta.at, meta.len)), 'utf8')
+    this.frameCache.set(key, buffer)
+    this.frameBytes += buffer.length
+    while (this.frameCache.size > this.cacheLimit || this.frameBytes > this.cacheBytes) {
+      const oldest = this.frameCache.keys().next().value
+      if (oldest === key) break
+      const dropped = this.frameCache.get(oldest)
+      this.frameCache.delete(oldest)
+      this.frameBytes -= dropped?.length ?? 0
+    }
+    return buffer
   }
 
   #rows(sessionId) {
