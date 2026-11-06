@@ -5,6 +5,16 @@ import { dirname, join } from 'node:path'
 
 import { starmapRoot } from './paths.mjs'
 
+export const DEFAULT_MAX_TOKENS = 4000
+export const MIN_MAX_TOKENS = 200
+export const MAX_MAX_TOKENS = 32000
+
+const clampTokens = (value, fallback = DEFAULT_MAX_TOKENS) => {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(MAX_MAX_TOKENS, Math.max(MIN_MAX_TOKENS, Math.round(number)))
+}
+
 export const DEFAULT_CONFIG = {
   provider: '',
   model: '',
@@ -12,6 +22,9 @@ export const DEFAULT_CONFIG = {
   // 有些模型压根没有思考强度可选（dsh 不报 reasoning 元数据），
   // 那种模型允许强度留空——「留空就不抽星」只针对有强度可选、却故意不选的模型。
   effortFree: false,
+  // 这一轮问模型最多能写多少 token（含思考）。思考型模型写正文之前先思考，
+  // 额度太小会把半截 JSON 截回来，所以默认给 4000，并且允许自己填。
+  maxTokens: DEFAULT_MAX_TOKENS,
   concurrency: 3,
 }
 
@@ -28,6 +41,7 @@ export function loadConfig(root = starmapRoot()) {
       model: clean(parsed?.model),
       reasoningEffort: clean(parsed?.reasoningEffort),
       effortFree: parsed?.effortFree === true,
+      maxTokens: clampTokens(parsed?.maxTokens),
       concurrency: Number.isFinite(concurrency) ? Math.min(8, Math.max(1, Math.round(concurrency))) : DEFAULT_CONFIG.concurrency,
     }
   } catch {
@@ -41,6 +55,7 @@ export function saveConfig(root = starmapRoot(), patch = {}) {
   if (patch.model !== undefined) next.model = clean(patch.model)
   if (patch.reasoningEffort !== undefined) next.reasoningEffort = clean(patch.reasoningEffort)
   if (patch.effortFree !== undefined) next.effortFree = patch.effortFree === true
+  if (patch.maxTokens !== undefined) next.maxTokens = clampTokens(patch.maxTokens, next.maxTokens)
   if (patch.concurrency !== undefined) {
     const value = Number(patch.concurrency)
     if (Number.isFinite(value)) next.concurrency = Math.min(8, Math.max(1, Math.round(value)))

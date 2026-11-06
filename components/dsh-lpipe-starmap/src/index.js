@@ -170,7 +170,6 @@ export function apply(ctx, options = {}) {
       })
     }
     if (!reply.ok) {
-      progressState.failed += 1
       warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮抽星失败：${reply.error}`)
       progressState.failed += 1
       progressState.error = reply.error || '模型没有回出可用结果'
@@ -219,7 +218,7 @@ export function apply(ctx, options = {}) {
     const width = Math.max(1, Math.min(8, config.concurrency || 3))
     // 每个并发各自一条对话：前缀互不干扰，模型侧的缓存才稳。
     const lanes = Array.from({ length: width }, () =>
-      createExtractor({ llm, route: routeNow(), maxTokens: 1500 }),
+      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens }),
     )
     await Promise.all(lanes.map((extractor) => worker(extractor)))
     return built
