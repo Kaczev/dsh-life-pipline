@@ -189,10 +189,10 @@ function usageBars(daily) {
 
 function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
-  const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 4000 });
+  const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000 });
   const [saved, setSaved] = React.useState('');
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
-  const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 4000 });
+  const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
   const [catalog, setCatalog] = React.useState([]);
   const [efforts, setEfforts] = React.useState(null);
@@ -243,7 +243,7 @@ function StarmapPanel({ rpcCall }) {
           provider: config.provider || '',
           model: config.model || '',
           reasoningEffort: config.reasoningEffort || '',
-          maxTokens: Number(config.maxTokens) || 4000,
+          maxTokens: Number(config.maxTokens) || 32000,
         };
         setForm(loaded);
         setCommitted(loaded);

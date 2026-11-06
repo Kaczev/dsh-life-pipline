@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 
 import { starmapRoot } from './paths.mjs'
 
-export const DEFAULT_MAX_TOKENS = 4000
+export const DEFAULT_MAX_TOKENS = 32000
 export const MIN_MAX_TOKENS = 200
 export const MAX_MAX_TOKENS = 32000
 
@@ -23,7 +23,7 @@ export const DEFAULT_CONFIG = {
   // 那种模型允许强度留空——「留空就不抽星」只针对有强度可选、却故意不选的模型。
   effortFree: false,
   // 这一轮问模型最多能写多少 token（含思考）。思考型模型写正文之前先思考，
-  // 额度太小会把半截 JSON 截回来，所以默认给 4000，并且允许自己填。
+  // 额度太小会把半截 JSON 截回来，所以默认直接给满 32000，并且允许自己填小。
   maxTokens: DEFAULT_MAX_TOKENS,
   concurrency: 3,
 }
