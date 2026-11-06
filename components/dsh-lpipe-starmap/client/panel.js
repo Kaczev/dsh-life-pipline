@@ -135,11 +135,26 @@ function StarmapPanel({ rpcCall }) {
   };
 
   return h(
-    'div',
-    { style: card },
+    'section',
+    null,
     h(
       'div',
-      { style: head },
+      { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
+      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Starmap'),
+      h('span', {
+        style: {
+          fontSize: 11, padding: '2px 8px', borderRadius: 999,
+          background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
+          border: '1px solid rgba(94, 201, 180, 0.28)',
+        },
+      }, '星图'),
+    ),
+    h(
+      'div',
+      { style: card },
+      h(
+        'div',
+        { style: head },
       h(
         'div',
         { style: { display: 'flex', alignItems: 'baseline' } },
@@ -174,7 +189,8 @@ function StarmapPanel({ rpcCall }) {
       ),
     ),
     note ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, note) : null,
-    state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
+      state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
+    ),
   );
 }
 
