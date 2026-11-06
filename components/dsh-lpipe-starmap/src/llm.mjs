@@ -204,7 +204,7 @@ export function describeFailure(reason) {
 /** 模型没按格式回时的纠正话术。只追加一次，第二次还不行就让这一轮保持灰。 */
 const CORRECTION = 'That was not valid JSON. Reply again with only the JSON array — no prose, no explanation, no roleplay.'
 
-export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
+export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS, signal = null } = {}) {
   const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
   let chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
@@ -222,7 +222,7 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     let usage = null
     let truncated = false
     try {
-      for await (const chunk of llm.stream({ ...route, maxTokens, temperature: 0, messages })) {
+      for await (const chunk of llm.stream({ ...route, maxTokens, temperature: 0, messages, signal: signal ?? undefined })) {
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
         if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string') thinking += chunk.text
         if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
@@ -232,7 +232,9 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
         if (chunk?.type === 'finish' && chunk.reason?.kind === 'max-tokens') truncated = true
       }
     } catch (error) {
-      return { ok: false, error: String(error?.message ?? error), raw, usage }
+      // 用户按了「暂时停止」：这不是失败，是主动切断，交给上层安静收尾。
+      const aborted = error?.name === 'AbortError' || signal?.aborted === true
+      return { ok: false, aborted, error: String(error?.message ?? error), raw, usage }
     }
     const text = raw.trim() ? raw : thinking
     const parsed = parsePairs(text)

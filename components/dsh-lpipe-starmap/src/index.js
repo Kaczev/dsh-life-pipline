@@ -65,8 +65,15 @@ export function apply(ctx, options = {}) {
     if (!progressState.running) return { paused: false, running: false }
     stopRequested = true
     progressState.stopping = true
-    info('[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
-    return { paused: true, running: true }
+    // 正在等模型回话的那一下立刻切断；已经在跑的那一轮由 worker 自己收尾。
+    const inflight = Boolean(runSignal && !runSignal.signal.aborted)
+    try {
+      runSignal?.abort()
+    } catch {}
+    info(inflight
+      ? '[dsh-lpipe-starmap] 收到暂停：等模型的那一下已切断，其余的跑完这一轮就停'
+      : '[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
+    return { paused: true, running: true, aborted: inflight }
   }
 
   /**
@@ -110,6 +117,8 @@ export function apply(ctx, options = {}) {
   const progressState = { running: false, done: 0, total: 0, failed: 0, error: '' }
   /** 用户点了「暂停」：跑完手上这一轮就停，不会硬跑完整个库。 */
   let stopRequested = false
+  /** 这一次补做的切断开关：暂停时直接撕掉在途的模型请求，不用等它吐完。 */
+  let runSignal = null
   /** 现在有几路真的还在跑：暂停之后「还剩几路」就靠它。 */
   const lanesState = { active: 0, total: 0 }
   progressState.lanes = lanesState
@@ -176,6 +185,7 @@ export function apply(ctx, options = {}) {
     }
     if (!reply.ok) {
       warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮抽星失败：${reply.error}`)
+      if (reply.aborted) return 'stopped'
       progressState.failed += 1
       progressState.error = reply.error || '模型没有回出可用结果'
       noteRejects(sessionId, turn.turn, [{ pair: null, why: 'llm-failed', error: reply.error }])
@@ -204,12 +214,16 @@ export function apply(ctx, options = {}) {
         const turn = pending[cursor]
         cursor += 1
         let ok = false
+        let cut = false
         try {
-          ok = await buildOne(sessionId, turn, extractor)
+          const outcome = await buildOne(sessionId, turn, extractor)
+          cut = outcome === 'stopped'
+          ok = outcome === true
           if (ok) built += 1
         } catch (error) {
           warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮跳过：${error?.message ?? error}`)
         }
+        if (cut) break
         failureStreak = ok ? 0 : failureStreak + 1
         if (failureStreak === FAIL_STREAK_LIMIT) {
           info(`[dsh-lpipe-starmap] 连着 ${FAIL_STREAK_LIMIT} 轮抽星失败，先停下：${progressState.error || '看 rejects.jsonl'}`)
@@ -223,7 +237,7 @@ export function apply(ctx, options = {}) {
     const width = Math.max(1, Math.min(8, config.concurrency || 3))
     // 每个并发各自一条对话：前缀互不干扰，模型侧的缓存才稳。
     const lanes = Array.from({ length: width }, () =>
-      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens }),
+      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens, signal: runSignal }),
     )
     lanesState.total = width
     lanesState.active = width
@@ -304,11 +318,12 @@ export function apply(ctx, options = {}) {
    * 补做一次：跟上磁盘上的星图，把剩下的灰记忆交给模型抽星。
    * `full` 是整库重来：提示词或规则改过以后，旧轮次必须重新过一遍。
    */
-  const rebuild = async ({ full = false, manual = false } = {}) => {
+  const rebuild = async ({ full = false, manual = false, background = false } = {}) => {
     if (!ready()) {
       info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先不动')
       return { built: 0, skipped: 'unconfigured', ...status() }
     }
+    if (progressState.running) return { started: false, already: true, built: 0, ...status() }
     const started = Date.now()
     if (full) repo.reset()
     memory.reload()
@@ -321,14 +336,25 @@ export function apply(ctx, options = {}) {
     failureStreak = 0
     stopRequested = false
     progressState.stopping = false
-    try {
-      const built = await buildAll()
-      const result = { built, ...status(), elapsedMs: Date.now() - started }
-      info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
-      return result
-    } finally {
-      progressState.running = false
+    runSignal = new AbortController()
+    const job = (async () => {
+      try {
+        const built = await buildAll()
+        const result = { built, ...status(), elapsedMs: Date.now() - started }
+        info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
+        return result
+      } finally {
+        progressState.running = false
+        progressState.stopping = false
+        runSignal = null
+      }
+    })()
+    // 设置页要的是「点下去立刻有反应」：不等整库跑完，先回话，进度靠轮询。
+    if (background) {
+      job.catch((error) => warn(`[dsh-lpipe-starmap] 抽星中断：${error?.message ?? error}`))
+      return { started: true, ...status() }
     }
+    return job
   }
 
   // 启动后补做：先把灰记忆一轮一轮交给模型。

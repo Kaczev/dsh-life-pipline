@@ -47,7 +47,7 @@ export function createStarmapRpcHandler({ queries, rebuild, config, catalog, eff
       }
       if (method === 'starmap.rebuild') {
         if (typeof rebuild !== 'function') return failure('starmap/unavailable', 'Rebuild is not wired up.')
-        return { ok: true, value: await rebuild({ full: payload?.full === true }) }
+        return { ok: true, value: await rebuild({ full: payload?.full === true, background: true }) }
       }
       if (method === 'starmap.catalog') {
         if (typeof catalog !== 'function') return failure('starmap/unavailable', 'Catalog is not wired up.')

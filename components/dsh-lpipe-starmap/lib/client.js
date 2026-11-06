@@ -45,7 +45,10 @@ const card = {
   marginBottom: 12,
 };
 
-const head = { display: 'flex', alignItems: 'baseline', gap: 36, rowGap: 8, flexWrap: 'wrap' };
+// 头部两层：外层只管「数字区 + 按钮」不换行，内层数字区自己折行。
+// 否则按钮会被宽出来的「N 轮还是灰的」挤到下一行，底下空一截。
+const head = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' };
+const headNumbers = { display: 'flex', alignItems: 'baseline', gap: 36, rowGap: 8, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 };
 const big = { fontSize: 21, fontWeight: 600, color: COLORS.text, lineHeight: 1.2 };
 const unit = { fontSize: 11, fontWeight: 600, color: COLORS.text, marginLeft: 3 };
 const mid = { fontSize: 15, fontWeight: 600, color: COLORS.text };
@@ -312,6 +315,8 @@ function StarmapPanel({ rpcCall }) {
         .then((reply) => {
           if (!alive) return;
           if (reply && reply.ok) {
+            // 宿主真的跑起来了：本地那个「刚点下」的标记可以撤了。
+            if (reply.value?.extract?.running) setPending((current) => (current === 'starting' ? '' : current));
             runningRef.current = Boolean(reply.value?.extract?.running);
             setState({ loading: false, value: reply.value, error: '' });
           }
@@ -361,8 +366,7 @@ function StarmapPanel({ rpcCall }) {
   const extract = value?.extract || {};
   const usage = value?.usage || {};
   const busy = pending !== '' || Boolean(extract.running);
-  const buttonLabel =
-    pending === 'starting' ? '等待响应' : pending === 'stopping' ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
+  const buttonLabel = pending === 'stopping' ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
   const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
   // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
@@ -398,7 +402,11 @@ function StarmapPanel({ rpcCall }) {
         )
       })
       .catch((error) => setSaved(`没启动：${String(error?.message || error)}`))
-      .finally(() => setPending(''));
+      .finally(() => {
+        load();
+        // 宿主回话很快，但进度要下一次轮询才看得到；给一个兜底，别让按钮卡在「暂时停止」。
+        setTimeout(() => setPending((current) => (current === 'starting' ? '' : current)), 2500);
+      });
   };
 
   const save = () => {
@@ -472,6 +480,9 @@ function StarmapPanel({ rpcCall }) {
         { style: head },
         h(
           'div',
+          { style: headNumbers },
+        h(
+          'div',
           { style: { display: 'flex', alignItems: 'baseline' } },
           h('span', { style: big }, String(built)),
           h('span', { style: unit, position: 'relative', top: -3 }, `轮已亮 / ${turns}`),
@@ -493,20 +504,22 @@ function StarmapPanel({ rpcCall }) {
               h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.warning } }, '轮还是灰的'),
             )
           : null,
+        ),
         // 抽星按钮贴在头部右侧：它和「亮了多少轮」是同一件事的两个面，放一起最省地方。
         h(
           'button',
           {
             style: {
               ...button(configured || busy ? COLORS.accent : null),
+              flex: '0 0 auto',
               marginLeft: 'auto',
               alignSelf: 'center',
               padding: '7px 16px',
               fontSize: 13,
-              opacity: pending ? 0.6 : 1,
+              opacity: pending === 'stopping' ? 0.6 : 1,
             },
-            onClick: pending ? undefined : busy ? stop : start,
-            disabled: Boolean(pending) || (!busy && !configured),
+            onClick: pending === 'stopping' ? undefined : busy ? stop : start,
+            disabled: pending === 'stopping' || (!busy && !configured),
           },
           buttonLabel,
         ),
