@@ -185,8 +185,9 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
         total: progressState.total ?? 0,
         failed: progressState.failed ?? 0,
         lanes: progressState.lanes ?? { active: 0, total: 0 },
+        updatedAt: progressState.updatedAt ?? null,
       }
-      : { error: '', running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 } }
+      : { error: '', running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 }, updatedAt: null }
     let fuzzy = 0
     for (const star of repo.stars.values()) if (star.kind === 'fuzzy') fuzzy += 1
     return {

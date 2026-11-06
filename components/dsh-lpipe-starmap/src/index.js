@@ -77,6 +77,17 @@ export function apply(ctx, options = {}) {
     try {
       runSignal?.abort()
     } catch {}
+    // 兜底：真实世界里总会有连接撕不断。30 秒还没收完就直接判定为已停，
+    // 界面上的按钮必须能回到「现在抽星」，用户才有机会重来。
+    if (stopTimer) clearTimeout(stopTimer)
+    stopTimer = setTimeout(() => {
+      stopTimer = null
+      progressState.running = false
+      progressState.stopping = false
+      stopRequested = false
+      info('[dsh-lpipe-starmap] 暂停超时：直接把状态置为停止')
+    }, 30000)
+    stopTimer.unref?.()
     info(inflight
       ? '[dsh-lpipe-starmap] 收到暂停：等模型的那一下已切断，其余的跑完这一轮就停'
       : '[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
@@ -126,6 +137,10 @@ export function apply(ctx, options = {}) {
   let stopRequested = false
   /** 这一次补做的切断开关：暂停时直接撕掉在途的模型请求，不用等它吐完。 */
   let runSignal = null
+  /** 暂停的兜底定时器：30 秒还没收完就不再等。 */
+  let stopTimer = null
+  /** 真的还有活儿没收尾（哪怕界面上的 running 已经被兜底置为 false）。 */
+  let jobActive = false
   /** 现在有几路真的还在跑：暂停之后「还剩几路」就靠它。 */
   const lanesState = { active: 0, total: 0 }
   progressState.lanes = lanesState
@@ -236,6 +251,7 @@ export function apply(ctx, options = {}) {
           info(`[dsh-lpipe-starmap] 连着 ${FAIL_STREAK_LIMIT} 轮抽星失败，先停下：${progressState.error || '看 rejects.jsonl'}`)
         }
         progressState.done += 1
+        progressState.updatedAt = Date.now()
         if (progressState.done % 25 === 0) {
           info(`[dsh-lpipe-starmap] 抽星 ${progressState.done}/${progressState.total}（${repo.stars.size} 颗星）`)
         }
@@ -330,12 +346,14 @@ export function apply(ctx, options = {}) {
       info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先不动')
       return { built: 0, skipped: 'unconfigured', ...status() }
     }
-    if (progressState.running) return { started: false, already: true, built: 0, ...status() }
+    if (jobActive) return { started: false, already: true, built: 0, ...status() }
     const started = Date.now()
     if (full) repo.reset()
     memory.reload()
     repo.reload()
+    jobActive = true
     progressState.running = true
+    progressState.updatedAt = Date.now()
     progressState.done = 0
     progressState.total = 0
     progressState.failed = 0
@@ -351,9 +369,15 @@ export function apply(ctx, options = {}) {
         info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
         return result
       } finally {
+        jobActive = false
         progressState.running = false
         progressState.stopping = false
+        progressState.updatedAt = Date.now()
         runSignal = null
+        if (stopTimer) {
+          clearTimeout(stopTimer)
+          stopTimer = null
+        }
       }
     })()
     // 设置页要的是「点下去立刻有反应」：不等整库跑完，先回话，进度靠轮询。

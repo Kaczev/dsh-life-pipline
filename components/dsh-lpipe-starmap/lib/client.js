@@ -365,9 +365,13 @@ function StarmapPanel({ rpcCall }) {
   const grey = value?.grey ?? 0;
   const extract = value?.extract || {};
   const usage = value?.usage || {};
-  const busy = pending !== '' || Boolean(extract.running);
+  const busy = pending !== '' || alive;
   // 「正在暂停」只在等宿主回话的那几秒出现；宿主那边停止之后必须回到「现在抽星」。
-  const stopping = pending === 'stopping' || Boolean(extract.stopping && extract.running);
+  // 另外：宿主 45 秒没有任何心跳（一轮都没落），就认为它已经不在跑了——
+  // 宁可让人重新点一次，也不能把按钮永久锁死。
+  const stale = Boolean(extract.running && extract.updatedAt && Date.now() - extract.updatedAt > 90000);
+  const alive = Boolean(extract.running) && !stale;
+  const stopping = pending === 'stopping' || Boolean(extract.stopping && alive);
   const buttonLabel = stopping ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
   const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
@@ -397,8 +401,10 @@ function StarmapPanel({ rpcCall }) {
         load()
         setSaved(
           reply?.ok
-            ? reply.value?.skipped === 'unconfigured'
-              ? '三项没填全，先不动'
+            ? reply.value?.already
+              ? '上一轮还在收尾，等它停了再点'
+              : reply.value?.skipped === 'unconfigured'
+                ? '三项没填全，先不动'
               : `已交给模型，点亮了 ${reply.value?.built ?? 0} 轮`
             : `没启动：${reply?.error?.message || '未知原因'}`,
         )
