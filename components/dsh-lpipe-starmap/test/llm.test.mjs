@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, turnSource } from '../src/llm.mjs'
+import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, salvagePairs, turnSource } from '../src/llm.mjs'
 import { textsOf } from '../src/build.mjs'
 
 test('解析模型回复：纯数组、代码块、夹着废话都能抠出来', () => {
@@ -130,3 +130,25 @@ test('用量字段各家叫法不同，统一成 input / output / cacheRead', ()
   assert.equal(normalizeUsage({}), null)
   assert.equal(normalizeUsage(null), null)
 })
+
+test('输出被截断时，把已经写完的对子捞回来，不整轮作废', () => {
+  const truncated = '[["记忆管线","星图管线"],["Kas","鲸鲸"],["时间戳","十分钟'
+  const pairs = salvagePairs(truncated)
+  assert.deepEqual(pairs, [['记忆管线', '星图管线'], ['Kas', '鲸鲸']])
+  assert.equal(salvagePairs('什么都没'), null)
+  assert.deepEqual(parsePairs(truncated), [['记忆管线', '星图管线'], ['Kas', '鲸鲸']])
+})
+
+test('一句话都写不出来时，报错要说清是截断而不是 not json', async () => {
+  const llm = {
+    async *stream() {
+      yield { type: 'finish', reason: { kind: 'max-tokens' } }
+    },
+  }
+  const extractor = createExtractor({ llm, maxTokens: 4000 })
+  const reply = await extractor.ask('原文')
+  assert.equal(reply.ok, false)
+  assert.match(reply.error, /截断/)
+  assert.match(reply.error, /4000/)
+})
+

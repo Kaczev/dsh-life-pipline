@@ -60,6 +60,14 @@ export function apply(ctx, options = {}) {
     return config.reasoningEffort ? { ...route, reasoningEffort: config.reasoningEffort } : route
   }
 
+  /** 暂停抽星：不再领新的轮次，正在跑的那一轮跑完就收工。 */
+  const pause = () => {
+    if (!progressState.running) return { paused: false, running: false }
+    stopRequested = true
+    info('[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
+    return { paused: true, running: true }
+  }
+
   /**
    * 把磁盘上的索引与当前的抽星规则对齐：规则或记忆格式变了，旧星星一律作废。
    * 这一步必须同步做完——异步补做会因为没配模型、灰记忆太多等原因提前返回，
@@ -99,6 +107,8 @@ export function apply(ctx, options = {}) {
 
   /** 抽星进度：设置页拿它显示「正在抽 N/M」。 */
   const progressState = { running: false, done: 0, total: 0, failed: 0, error: '' }
+  /** 用户点了「暂停」：跑完手上这一轮就停，不会硬跑完整个库。 */
+  let stopRequested = false
   /** 连着失败了几轮；模型那边出问题时用它及时刹车，不把额度烧在必然失败的调用上。 */
   let failureStreak = 0
   const rejectsFile = join(root, 'rejects.jsonl')
@@ -186,7 +196,7 @@ export function apply(ctx, options = {}) {
     // 连着失败这么多次，基本就是模型那边的问题（钥匙、模型名、额度），继续硬跑只是烧钱。
     const FAIL_STREAK_LIMIT = 5
     const worker = async (extractor) => {
-      while (cursor < pending.length && failureStreak < FAIL_STREAK_LIMIT) {
+      while (cursor < pending.length && failureStreak < FAIL_STREAK_LIMIT && !stopRequested) {
         const turn = pending[cursor]
         cursor += 1
         let ok = false
@@ -291,6 +301,7 @@ export function apply(ctx, options = {}) {
     progressState.failed = 0
     progressState.error = ''
     failureStreak = 0
+    stopRequested = false
     try {
       const built = await buildAll()
       const result = { built, ...status(), elapsedMs: Date.now() - started }
@@ -401,6 +412,7 @@ export function apply(ctx, options = {}) {
           rebuild,
           catalog,
           efforts,
+          pause,
           config: {
             get: () => loadConfig(root),
             set: (patch) => {

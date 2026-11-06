@@ -5,6 +5,8 @@
 export const MAX_INPUT = 12000
 /** 一轮最多认多少对：宁可少，不要凑数。 */
 export const MAX_PAIRS = 60
+/** 单次调用留给答案的 token：思考也计入这个额度，给太小会只出思考、不出 JSON。 */
+export const MAX_OUTPUT_TOKENS = 4000
 
 export const SYSTEM_PROMPT = [
   '你是知识图谱的抽星器。用户给你一轮对话的原文，你只回答一件事：',
@@ -18,9 +20,11 @@ export const SYSTEM_PROMPT = [
   '2. 只要成对的：每一对是 [概念甲, 概念乙]，两项都在原文里出现过。',
   '3. 同一对不要重复；顺序无所谓。',
   '4. 最多 ' + MAX_PAIRS + ' 对。宁可只给三对，也不要拿废话凑数。',
-  '5. 只输出 JSON 数组，不要解释、不要代码块、不要多余的字。',
+  '5. 只输出 JSON 数组，第一行就是 [，最后一行是 ]。不要解释、不要代码块、不要前言、不要总结。',
+  '6. 对子多的时候也要在输出上限之内写完；写不完就少给几对，绝不能半截停下。',
   '',
   '输出示例：[["记忆管线", "星图管线"], ["Kas", "鲸鲸"]]',
+  '空的话就输出：[]',
 ].join('\n')
 
 /** 把一轮的行拼成「谁说了什么」，喂给模型。 */
@@ -55,7 +59,23 @@ export function parsePairs(text) {
       // 换下一种抠法
     }
   }
-  return null
+  // 兜底：输出被截断时（最后一行没写完），把已经完整的对子一条条捞出来。
+  return salvagePairs(cleaned)
+}
+
+/** 从半截输出里救回完整的 [`"a"`, `"b"`] 段：截断不该等于整轮白跑。 */
+export function salvagePairs(text) {
+  const found = []
+  const pattern = /\[\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\]/g
+  let match
+  while ((match = pattern.exec(text)) !== null) {
+    try {
+      found.push([JSON.parse(`"${match[1]}"`), JSON.parse(`"${match[2]}"`)])
+    } catch {
+      // 单条坏了就跳过
+    }
+  }
+  return found.length > 0 ? found : null
 }
 
 /** 名字去掉包裹的引号、首尾空白与句末标点：模型常把「星图」连引号一起抄回来。 */
@@ -137,7 +157,7 @@ export function describeFailure(reason) {
  * 指令并进 system，而不是单独一条 user：这样每轮都是严格的「user → assistant」交替，
  * 不会因为末尾多一条 assistant 预填被供应商判成非法请求。
  */
-export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
+export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
   const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
   let chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
@@ -153,6 +173,7 @@ export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryC
     messages.push(messageOf('user', source))
     let raw = ''
     let usage = null
+    let truncated = false
     try {
       for await (const chunk of llm.stream({ ...route, maxTokens, messages })) {
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
@@ -161,6 +182,7 @@ export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryC
           messages.pop()
           return { ok: false, error: describeFailure(chunk.reason), raw, usage }
         }
+        if (chunk?.type === 'finish' && chunk.reason?.kind === 'max-tokens') truncated = true
       }
     } catch (error) {
       messages.pop()
@@ -169,7 +191,7 @@ export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryC
     const parsed = parsePairs(raw)
     if (!parsed) {
       messages.pop()
-      return { ok: false, error: 'not json', raw, usage }
+      return { ok: false, error: truncated ? `输出被截断（maxTokens ${maxTokens}），没凑出完整的 JSON` : 'not json', raw, usage }
     }
     messages.push(messageOf('assistant', raw))
     chars += source.length + raw.length
@@ -180,7 +202,7 @@ export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryC
   return { ask, reset, size: () => messages.length, chars: () => chars }
 }
 
-export async function requestPairs({ llm, route = {}, source, maxTokens = 1500, signal }) {
+export async function requestPairs({ llm, route = {}, source, maxTokens = MAX_OUTPUT_TOKENS, signal }) {
   if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
   if (!source || !source.trim()) return { ok: true, pairs: [], raw: '' }
   const messages = [
@@ -190,18 +212,20 @@ export async function requestPairs({ llm, route = {}, source, maxTokens = 1500, 
   const options = { ...route, maxTokens, messages }
   if (signal) options.signal = signal
   let raw = ''
+  let truncated = false
   try {
     for await (const chunk of llm.stream(options)) {
       if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
       if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
         return { ok: false, error: describeFailure(chunk.reason), raw }
       }
+      if (chunk?.type === 'finish' && chunk.reason?.kind === 'max-tokens') truncated = true
     }
   } catch (error) {
     return { ok: false, error: String(error?.message ?? error), raw }
   }
   const parsed = parsePairs(raw)
-  if (!parsed) return { ok: false, error: 'not json', raw }
+  if (!parsed) return { ok: false, error: truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json', raw }
   return { ok: true, pairs: dedupePairs(parsed), raw }
 }
 

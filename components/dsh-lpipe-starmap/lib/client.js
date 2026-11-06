@@ -19,6 +19,8 @@ const h = React.createElement;
 const RPC_ENDPOINT = 'dsh-lpipe-starmap';
 const PANEL_SLOT = 'lpipe.settings.panel';
 const POLL_MS = 20000;
+/** 抽星进行中的轮询间隔：进度条要跟着动。 */
+const BUSY_POLL_MS = 1200;
 
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
@@ -213,6 +215,8 @@ function StarmapPanel({ rpcCall }) {
       .catch(() => setEfforts(null));
   };
 
+  // 抽星进行中时轮询要快：进度条得随时在动，而不是二十秒跳一次。
+  const runningRef = React.useRef(false);
   React.useEffect(() => {
     let alive = true;
     let timer = null;
@@ -221,14 +225,17 @@ function StarmapPanel({ rpcCall }) {
         .then(() => rpcCall('starmap.progress', {}))
         .then((reply) => {
           if (!alive) return;
-          if (reply && reply.ok) setState({ loading: false, value: reply.value, error: '' });
+          if (reply && reply.ok) {
+            runningRef.current = Boolean(reply.value?.extract?.running);
+            setState({ loading: false, value: reply.value, error: '' });
+          }
           else setState({ loading: false, value: null, error: reply?.error?.message || '读不到星图' });
         })
         .catch((error) => {
           if (alive) setState({ loading: false, value: null, error: String(error?.message || error) });
         })
         .finally(() => {
-          if (alive) timer = setTimeout(load, POLL_MS);
+          if (alive) timer = setTimeout(load, runningRef.current ? BUSY_POLL_MS : POLL_MS);
         });
     };
     load();
@@ -267,7 +274,10 @@ function StarmapPanel({ rpcCall }) {
   const usage = value?.usage || {};
   const busy = Boolean(extract.running);
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
-  const configured = Boolean(committed.provider.trim() && committed.model.trim() && committed.reasoningEffort);
+  // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
+  const configured = Boolean(
+    committed.provider.trim() && committed.model.trim() && (committed.reasoningEffort || !(efforts?.efforts?.length)),
+  );
   const dirty = form.provider !== committed.provider || form.model !== committed.model || form.reasoningEffort !== committed.reasoningEffort;
 
   const start = () => {
@@ -302,6 +312,14 @@ function StarmapPanel({ rpcCall }) {
   };
 
   // 改坏了就退回去：草稿恢复成已保存的那一份。
+  const stop = () => {
+    setSaved('正在暂停…');
+    Promise.resolve()
+      .then(() => rpcCall('starmap.pause', {}))
+      .then((reply) => setSaved(reply?.ok ? '已暂停：手上这一轮跑完就停' : `暂停失败：${reply?.error?.message || '未知原因'}`))
+      .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`));
+  };
+
   const revert = () => {
     setForm({ ...committed });
     setSaved('');
@@ -355,7 +373,7 @@ function StarmapPanel({ rpcCall }) {
             )
           : null,
       ),
-      h('div', { style: track }, h('div', { style: fill(ratioOf(built, turns)) })),
+      h('div', { style: track }, h('div', { style: fill(busy ? ratioOf(extract.done ?? 0, extract.total ?? 0) || 0.02 : ratioOf(built, turns)) })),
       h(
         'div',
         { style: meta },
@@ -363,7 +381,7 @@ function StarmapPanel({ rpcCall }) {
           'span',
           null,
           busy
-            ? `模型正在抽星 ${extract.done ?? 0}/${extract.total ?? 0}`
+            ? `正在抽星 ${Math.round((ratioOf(extract.done ?? 0, extract.total ?? 0) || 0) * 100)}%`
             : `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮`,
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
@@ -384,8 +402,12 @@ function StarmapPanel({ rpcCall }) {
         ),
         h(
           'button',
-          { style: button(configured && !busy ? COLORS.accent : null), onClick: start, disabled: busy || !configured },
-          busy ? '正在抽星' : '现在抽星',
+          {
+            style: button(configured || busy ? COLORS.accent : null),
+            onClick: busy ? stop : start,
+            disabled: !busy && !configured,
+          },
+          busy ? '暂停' : '现在抽星',
         ),
       ),
       usageBars(usage.daily),
