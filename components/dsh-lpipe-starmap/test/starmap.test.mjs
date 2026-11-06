@@ -274,3 +274,66 @@ test('没有思考强度可选的模型：强度留空也能抽星，有强度�
   assert.deepEqual(routeOf({ provider: 'p', model: 'm' }), { provider: 'p', model: 'm' })
   assert.deepEqual(routeOf({ provider: 'p', model: 'm', reasoningEffort: 'low' }), { provider: 'p', model: 'm', reasoningEffort: 'low' })
 })
+
+test('思考强度从宿主的 resolveModelInfo 读：只有适配器同名方法时不该退回兜底', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-efforts-'))
+  const seen = []
+  const llm = {
+    // 宿主服务上只有 resolveModelInfo；故意不提供 resolveModel，模拟真实接口。
+    async resolveModelInfo(provider, model) {
+      seen.push(`${provider}/${model}`)
+      return {
+        provider,
+        id: model,
+        name: model,
+        reasoning: {
+          efforts: [
+            { id: 'low', name: 'Low' },
+            { id: 'medium', name: 'Medium' },
+            { id: 'high', name: 'High' },
+            { id: 'xhigh', name: 'Xhigh' },
+            { id: 'max', name: 'Max' },
+          ],
+          defaultEffort: 'medium',
+        },
+      }
+    },
+    listProviders: () => [{ id: 'four-router', name: 'Four Router' }],
+    async listModels() {
+      return [{ id: 'gpt-6-luna', name: '4R-GPT-6-Luna' }]
+    },
+  }
+  const bridge = {}
+  const ctx = {
+    logger: { info() {}, warn() {} },
+    inject(names, run) {
+      const inner = {
+        connection: { fetch: { register: (entry) => { bridge.entry = entry; return () => {} } } },
+        llm,
+        on() {},
+        sessions: { on() {} },
+      }
+      run(inner)
+      return undefined
+    },
+    effect() {},
+  }
+  apply(ctx, { root, llm, warmDelay: 0, noWarm: true, reader: { sessions: () => [], reload() {}, state: { version: 2 } } })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  const response = await bridge.entry.fetch(new Request('http://local/api/dsh-lpipe-starmap', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: 'client-request',
+      rpcId: 'probe-1',
+      method: 'dsh-lpipe-starmap',
+      payload: { method: 'starmap.efforts', payload: { provider: 'four-router', model: 'gpt-6-luna' } },
+    }),
+  }))
+  const { result: reply } = await response.json()
+  assert.equal(reply.ok, true)
+  assert.deepEqual(reply.value.efforts.map((entry) => entry.id), ['low', 'medium', 'high', 'xhigh', 'max'])
+  assert.equal(reply.value.defaultEffort, 'medium')
+  assert.deepEqual(seen, ['four-router/gpt-6-luna'])
+})

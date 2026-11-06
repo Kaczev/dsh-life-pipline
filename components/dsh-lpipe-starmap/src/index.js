@@ -372,9 +372,16 @@ export function apply(ctx, options = {}) {
 
   /** 这个模型支持哪些思考强度：读宿主的模型元数据，读不到就如实说没有。 */
   const efforts = async (provider, model) => {
-    if (typeof llm?.resolveModel !== 'function' || !provider || !model) return { efforts: [], defaultEffort: null }
+    // 宿主服务上的方法叫 resolveModelInfo；resolveModel 只存在于适配器基类里，
+    // 早先按适配器的名字调用，永远拿到 undefined，于是设置页一直退回到自造的兜底表。
+    const resolver = typeof llm?.resolveModelInfo === 'function'
+      ? llm.resolveModelInfo.bind(llm)
+      : typeof llm?.resolveModel === 'function'
+        ? llm.resolveModel.bind(llm)
+        : null
+    if (!resolver || !provider || !model) return { efforts: [], defaultEffort: null }
     try {
-      const info_ = await llm.resolveModel(provider, model)
+      const info_ = await resolver(provider, model)
       const reasoning = info_?.reasoning
       return {
         efforts: (reasoning?.efforts ?? []).map((effort) => ({ id: String(effort?.id ?? ''), name: String(effort?.name ?? effort?.id ?? '') })).filter((effort) => effort.id),
