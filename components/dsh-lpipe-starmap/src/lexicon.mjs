@@ -16,10 +16,10 @@ export const STOP_CHARS = new Set(
 )
 
 const MIN_COUNT = 3
-const MIN_TURNS = 2
+const MIN_TURNS = 3
 const MAX_DF_RATIO = 0.3
-const MIN_DEPENDENCE = 0.15
-const MIN_ENTROPY = 0.8
+const MIN_DEPENDENCE = 0.3
+const MIN_ENTROPY = 1.1
 const MIN_LEN = 2
 const MAX_LEN = 4
 

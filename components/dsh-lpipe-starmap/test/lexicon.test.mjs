@@ -6,8 +6,10 @@ import { buildLexicon, matchWords, matcherOf } from '../src/lexicon.mjs'
 /** 造一个「记忆管线」只在一部分轮次里成词、而「模型」到处都有的语料。 */
 function corpus() {
   const turns = []
+  const heads = ['我把', '今天的', '刚才的', '新的', '旧版']
+  const tails = ['整轮落盘修好了', '现在按轮写', '今天又改了一次', '跑得很快', '稳得很']
   for (let i = 0; i < 10; i += 1) {
-    turns.push(`我把记忆管线的整轮落盘修好了，记忆管线现在按轮写。第 ${i} 轮。`)
+    turns.push(`${heads[i % heads.length]}记忆管线${tails[i % tails.length]}，第 ${i} 轮。`)
   }
   for (let i = 0; i < 30; i += 1) {
     turns.push(`今天天气不错，我们出去走了一圈，回来喝了杯茶。第 ${i} 轮。`)

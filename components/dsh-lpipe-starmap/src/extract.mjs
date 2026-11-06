@@ -47,10 +47,18 @@ function isLatticePath(name) {
   return segments.every((segment) => segment.length <= 2 && /^[a-z]?\d*$/.test(segment))
 }
 
+/** r_s、varepsilon_0、i_1r_1、us6-b-r5 这类是数学下标和路径；要留下的是 dsh-lpipe-memory 这种有实词段的标识符。 */
+function hasWordSegment(name) {
+  if (!/[-_/]/.test(name)) return true
+  return name.split(/[-_/]/).some((segment) => /^[A-Za-z]{3,}$/.test(segment))
+}
+
 function isIdentifier(name) {
+  if (/^v?\d+(?:\.\d+)*[-+][0-9a-z.\-]+$/i.test(name)) return true // 0.2.2-rc.1 这种带标签的版本号
   if (/^v?\d+(?:\.\d+)+$/i.test(name)) return false // 版本号本身不成星
   if (letterCount(name) < 2) return false // q_1、e_2、3A、0W：下标和单位不是概念
   if (isLatticePath(name)) return false // a-r2-c-r3：电路里的一条路径
+  if (!hasWordSegment(name)) return false // r_s、i_1r_1、e-x：数学下标
   if (/[._/\\-]/.test(name)) return true
   if (/\d/.test(name)) return true
   if (/[a-z][A-Z]/.test(name)) return true // 驼峰
@@ -77,7 +85,7 @@ function isQuotedName(name) {
   if (/\.\s/.test(name) || /\s{2,}/.test(name)) return false // 「are. you. watching」不是名字
   if (isAsciiName(name)) return isIdentifier(name)
   const cjk = [...name].filter((ch) => CJK.test(ch)).length
-  return cjk >= 2 && cjk <= 10
+  return cjk >= 2 && cjk <= 6
 }
 
 const CN_DIGIT = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
