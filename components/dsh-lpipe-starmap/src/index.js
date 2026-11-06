@@ -30,14 +30,24 @@ export function apply(ctx, options = {}) {
   const memory = options.reader ?? new MemoryReader({ root: options.memoryRoot ?? memoryRoot() })
   const repo = openRepo({ root })
   // 星图是后台索引：写日志时也落到 stderr，宿主的日志里才找得到。
+  // 日志永远不许往外抛：宿主会把插件里的异常当成致命加载失败，整个进程退出。
   const warn = (message) => {
-    ctx.logger?.warn?.(message)
-    if (!ctx.logger?.warn) console.warn(message)
+    try {
+      if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+      else console.warn(message)
+    } catch {
+      // 连 logger 都坏了，就别再折腾
+    }
   }
+  // 必须写成 ctx.logger.info()：Cordis 的 logger 是可调用对象，拆出来再调用会丢掉 this，宿主当成致命加载失败直接退出。
   const info = (message) => {
-    const sink = ctx.logger?.info ?? ctx.logger?.warn
-    if (sink) sink(message)
-    else console.log(message)
+    try {
+      if (typeof ctx.logger?.info === 'function') ctx.logger.info(message)
+      else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+      else console.log(message)
+    } catch {
+      // 同上
+    }
   }
 
   let config = loadConfig(root)
@@ -200,11 +210,16 @@ export function apply(ctx, options = {}) {
   const queries = createQueries({ repo, memoryStatus: status, progressState, usageStats: () => usageStats(root) })
 
   const run = (label, work) => {
-    try {
-      return work()
-    } catch (error) {
+    const fail = (error) => {
       warn(`[dsh-lpipe-starmap] ${label}失败：${error?.message ?? error}`)
       return null
+    }
+    try {
+      const result = work()
+      if (result && typeof result.then === 'function') return result.catch(fail)
+      return result
+    } catch (error) {
+      return fail(error)
     }
   }
 

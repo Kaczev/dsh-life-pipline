@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { RULES_VERSION, buildTurn } from '../src/build.mjs'
+import { apply } from '../src/index.js'
 import { createQueries } from '../src/query.mjs'
 import { openRepo, starIdOf } from '../src/store.mjs'
 import { dayOf, sourceFile, starsFile, stateFile } from '../src/paths.mjs'
@@ -188,4 +189,35 @@ test('星图记得自己是按哪一版抽星规则建的', () => {
 
   const again = openRepo({ root })
   assert.equal(again.state.rules, RULES_VERSION, 'the version survives a restart')
+})
+
+test('启动补做写日志时保留 logger 的 this', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-log-'))
+  const calls = []
+  function logger() {
+    return {
+      info: (message) => calls.push(message),
+      warn: (message) => calls.push(message),
+    }
+  }
+  for (const level of ['info', 'warn']) {
+    logger[level] = function (...args) {
+      if (typeof this !== 'function') throw new TypeError('this is not a function')
+      return this()[level](...args)
+    }
+  }
+  const ctx = {
+    logger,
+    inject() {},
+    effect() {},
+  }
+  apply(ctx, {
+    root,
+    llm: {},
+    warmDelay: 0,
+    reader: { sessions: () => [] },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(calls.length, 1)
+  assert.match(calls[0], /抽星模型没配全/)
 })

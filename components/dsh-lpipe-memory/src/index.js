@@ -97,7 +97,16 @@ export function apply(ctx, options = {}) {
 
   // 冷日打包：启动后补做一次，之后每 6 小时一次；只碰「今天以外」的日子，打过的直接跳过。
   if (options.pack !== false) {
-    const note = (message) => (ctx.logger?.info ?? ctx.logger?.warn)?.(message)
+    // 必须写成 ctx.logger.info()：Cordis 的 logger 是可调用对象，方法取出来再调用会丢 this。
+    // 日志本身再出错也不能往外抛——宿主会把插件的异常当成致命加载失败。
+    const note = (message) => {
+      try {
+        if (typeof ctx.logger?.info === 'function') ctx.logger.info(message)
+        else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+      } catch {
+        // 日志写不进去就算了，打包已经完成
+      }
+    }
     const sweep = () => {
       try {
         const result = packColdDays(root, { log: warn })
@@ -109,7 +118,7 @@ export function apply(ctx, options = {}) {
         warn(`[dsh-lpipe-memory] 冷日打包失败：${error?.message ?? error}`)
       }
     }
-    const first = setTimeout(sweep, 5000)
+    const first = setTimeout(sweep, Number.isFinite(options.packDelay) ? options.packDelay : 5000)
     const repeat = setInterval(sweep, 6 * 60 * 60 * 1000)
     first.unref?.()
     repeat.unref?.()
