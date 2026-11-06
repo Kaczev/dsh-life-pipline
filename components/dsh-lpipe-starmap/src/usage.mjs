@@ -18,12 +18,26 @@ export function noteUsage(root, entry) {
 
 const DAY = 24 * 60 * 60 * 1000
 
+/** 本地日期键，用来把调用按天分桶。 */
+const dayKey = (at) => {
+  const date = new Date(at)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 /**
  * `calls` / `tokens` 是历史总计，`calls7d` / `tokens7d` 是最近七天。
  * token 一律按 input + output 算，缓存的读取也算进去（它确实占了上下文）。
  */
 export function usageStats(root, { now = Date.now(), days = 7 } = {}) {
-  const stats = { calls: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, calls7d: 0, tokens7d: 0, days }
+  const buckets = []
+  for (let index = days - 1; index >= 0; index -= 1) {
+    const day = dayKey(now - index * DAY)
+    buckets.push({ day, input: 0, output: 0, cacheRead: 0, calls: 0 })
+  }
+  const byDay = new Map(buckets.map((bucket) => [bucket.day, bucket]))
+  const stats = { calls: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, calls7d: 0, tokens7d: 0, days, daily: buckets }
   const since = now - days * DAY
   let text = ''
   try {
@@ -51,6 +65,13 @@ export function usageStats(root, { now = Date.now(), days = 7 } = {}) {
     if (Number.isFinite(at) && at >= since) {
       stats.calls7d += 1
       stats.tokens7d += input + output
+      const bucket = byDay.get(dayKey(at))
+      if (bucket) {
+        bucket.calls += 1
+        bucket.input += input
+        bucket.output += output
+        bucket.cacheRead += cacheRead
+      }
     }
   }
   return stats

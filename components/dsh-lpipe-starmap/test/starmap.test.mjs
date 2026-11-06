@@ -241,3 +241,24 @@ test('启动补做写日志时保留 logger 的 this', async () => {
   assert.equal(calls.length, 1)
   assert.match(calls[0], /抽星模型没配全/)
 })
+
+test('抽星规则升级后，旧星表整库作废、记忆全部退回灰色', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-rules-'))
+  const at = Date.parse('2026-11-06T12:40:00+08:00')
+  const repo = openRepo({ root })
+  const rows = [{ seq: 0, turn: 3, at, kind: 'user/message', text: '记忆管线的星表要作废旧星星。' }]
+  buildTurn({ repo, turn: makeTurn({ turn: 3, at, rows }), sessionId: 'sess-r', pairs: [['记忆管线', '星表']] })
+  repo.setMemoryFormat(2)
+  repo.setRules(RULES_VERSION - 1)
+  assert.ok(repo.stars.size > 0, '先造一批按旧规则切出来的星')
+
+  const ctx = { logger: { info() {}, warn() {} }, inject() {}, effect() {} }
+  apply(ctx, { root, llm: {}, warmDelay: 0, reader: { sessions: () => [], reload() {} } })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  const after = openRepo({ root })
+  assert.equal(after.stars.size, 0, '规则变了，旧星星一颗都不留')
+  assert.equal(after.turns.size, 0, '星源也清空，所有轮次重新变灰')
+  assert.equal(after.state.rules, RULES_VERSION)
+  assert.deepEqual(after.state.built ?? {}, {})
+})

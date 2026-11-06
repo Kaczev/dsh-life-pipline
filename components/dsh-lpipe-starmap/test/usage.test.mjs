@@ -40,6 +40,32 @@ test('用量记账：调用次数与最近七天的 token 总量', () => {
   }
 })
 
+test('按天分桶：命中输入、未命中输入、输出各自归位', () => {
+  const root = tempRoot()
+  try {
+    const now = Date.parse('2026-11-06T12:00:00.000Z')
+    const day = 24 * 60 * 60 * 1000
+    noteUsage(root, { at: new Date(now).toISOString(), input: 1000, output: 200, cacheRead: 700 })
+    noteUsage(root, { at: new Date(now - 2 * day).toISOString(), input: 500, output: 100, cacheRead: 0 })
+    noteUsage(root, { at: new Date(now - 40 * day).toISOString(), input: 4000, output: 900, cacheRead: 0 })
+
+    const stats = usageStats(root, { now })
+    assert.equal(stats.daily.length, 7, '固定七根柱子，缺的那天也要占位')
+    const today = stats.daily.at(-1)
+    assert.equal(today.input, 1000)
+    assert.equal(today.output, 200)
+    assert.equal(today.cacheRead, 700)
+    assert.equal(today.calls, 1)
+    const older = stats.daily.at(-3)
+    assert.equal(older.input, 500)
+    assert.equal(older.cacheRead, 0)
+    assert.equal(stats.daily[0].calls, 0, '四十天前的调用不进窗口')
+    assert.equal(stats.daily.reduce((sum, row) => sum + row.calls, 0), 2)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('没有账本时给零，坏行跳过', () => {
   const root = tempRoot()
   try {

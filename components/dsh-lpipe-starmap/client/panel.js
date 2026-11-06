@@ -24,6 +24,8 @@ const COLORS = {
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   accent: '#5ec9b4',
+  cacheHit: 'rgba(94, 201, 180, 0.30)',
+  output: '#8b93f8',
   warning: 'var(--dsw-alias-state-warning-primary)',
   danger: 'var(--dsw-alias-state-error-primary)',
 };
@@ -118,10 +120,83 @@ function ratioOf(built, turns) {
   return Math.min(1, Math.max(0, built / turns));
 }
 
+const CHART_HEIGHT = 56;
+
+/**
+ * 最近七天的 token 柱状图：每根柱子从下往上依次是
+ * 命中缓存的输入（浅青）、未命中的输入（青）、输出（蓝紫），共用一条纵轴。
+ */
+function usageBars(daily) {
+  const rows = Array.isArray(daily) ? daily : [];
+  if (!rows.length) return null;
+  const totals = rows.map((row) => (Number(row.input) || 0) + (Number(row.output) || 0));
+  const peak = Math.max(1, ...totals);
+  const empty = totals.every((total) => total === 0);
+  const kinds = [
+    { key: 'hit', color: COLORS.cacheHit, label: '命中输入' },
+    { key: 'miss', color: COLORS.accent, label: '未命中输入' },
+    { key: 'out', color: COLORS.output, label: '输出' },
+  ];
+  return h(
+    'div',
+    { style: { marginTop: 14 } },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 } },
+      h('span', { style: { fontSize: 11, color: COLORS.faint } }, '最近 7 天抽星用的 token'),
+      h(
+        'span',
+        { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+        kinds.map((kind) =>
+          h(
+            'span',
+            { key: kind.key, style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: COLORS.muted } },
+            h('span', { style: { width: 8, height: 8, borderRadius: 2, background: kind.color } }),
+            kind.label,
+          )),
+      ),
+    ),
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'flex-end', gap: 8, height: CHART_HEIGHT } },
+      rows.map((row) => {
+        const hit = Number(row.cacheRead) || 0;
+        const miss = Math.max(0, (Number(row.input) || 0) - hit);
+        const out = Number(row.output) || 0;
+        const total = hit + miss + out;
+        const parts = [
+          { key: 'hit', value: hit, color: COLORS.cacheHit },
+          { key: 'miss', value: miss, color: COLORS.accent },
+          { key: 'out', value: out, color: COLORS.output },
+        ].filter((part) => part.value > 0);
+        return h(
+          'div',
+          { key: row.day, title: `${row.day} · 输入 ${formatTokens(row.input || 0)}（命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`, style: { flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'flex-end' } },
+          h(
+            'div',
+            { style: { width: '100%', height: `${Math.round((total / peak) * 100)}%`, minHeight: total > 0 ? 2 : 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', borderRadius: 3, overflow: 'hidden', background: total > 0 ? 'transparent' : COLORS.soft } },
+            parts.map((part) => h('div', { key: part.key, style: { height: `${(part.value / total) * 100}%`, background: part.color } })),
+          ),
+        );
+      }),
+    ),
+    h(
+      'div',
+      { style: { display: 'flex', gap: 8, marginTop: 5 } },
+      rows.map((row) =>
+        h('span', { key: row.day, style: { flex: 1, minWidth: 0, textAlign: 'center', fontSize: 9, color: COLORS.faint, whiteSpace: 'nowrap' } }, String(row.day || '').slice(5)),
+      ),
+    ),
+    empty ? h('div', { style: { fontSize: 10, color: COLORS.faint, marginTop: 4 } }, '这七天还一次都没调用过模型') : null,
+  );
+}
+
 function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
   const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '' });
   const [saved, setSaved] = React.useState('');
+  // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
+  const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '' });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
   const [catalog, setCatalog] = React.useState([]);
   const [efforts, setEfforts] = React.useState(null);
@@ -163,11 +238,13 @@ function StarmapPanel({ rpcCall }) {
       .then((reply) => {
         if (!alive || !reply?.ok) return;
         const config = reply.value || {};
-        setForm({
+        const loaded = {
           provider: config.provider || '',
           model: config.model || '',
           reasoningEffort: config.reasoningEffort || '',
-        });
+        };
+        setForm(loaded);
+        setCommitted(loaded);
         loadEfforts(config.provider || '', config.model || '');
       })
       .catch(() => {});
@@ -191,7 +268,8 @@ function StarmapPanel({ rpcCall }) {
   const usage = value?.usage || {};
   const busy = Boolean(extract.running);
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
-  const configured = Boolean(form.provider.trim() && form.model.trim() && form.reasoningEffort);
+  const configured = Boolean(committed.provider.trim() && committed.model.trim() && committed.reasoningEffort);
+  const dirty = form.provider !== committed.provider || form.model !== committed.model || form.reasoningEffort !== committed.reasoningEffort;
 
   const start = () => {
     setSaved('开始抽星…');
@@ -213,7 +291,14 @@ function StarmapPanel({ rpcCall }) {
     setSaved('保存中…');
     Promise.resolve()
       .then(() => rpcCall('starmap.config.set', form))
-      .then((reply) => setSaved(reply?.ok ? '已保存，下一轮起生效' : `保存失败：${reply?.error?.message || '未知原因'}`))
+      .then((reply) => {
+        if (reply?.ok) {
+          setCommitted({ ...form });
+          setSaved('已保存，下一轮起生效');
+        } else {
+          setSaved(`保存失败：${reply?.error?.message || '未知原因'}`);
+        }
+      })
       .catch((error) => setSaved(`保存失败：${String(error?.message || error)}`));
   };
 
@@ -292,6 +377,7 @@ function StarmapPanel({ rpcCall }) {
           busy ? '正在抽星' : '现在抽星',
         ),
       ),
+      usageBars(usage.daily),
       state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
     ),
     h(
@@ -365,9 +451,11 @@ function StarmapPanel({ rpcCall }) {
         h(
           'span',
           { style: { fontSize: 11, color: configured ? COLORS.muted : COLORS.warning } },
-          saved || (configured
-            ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
-            : '三元组必须都选。不选就是不抽星，不会替你挑模型，也不会产生费用。'),
+          saved || (dirty
+            ? '改了还没保存，保存之后「现在抽星」才会亮。'
+            : configured
+              ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
+              : '三元组必须都选。不选就是不抽星，不会替你挑模型，也不会产生费用。'),
         ),
       ),
     ),

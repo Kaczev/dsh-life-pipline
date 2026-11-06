@@ -255,6 +255,37 @@ export function apply(ctx, options = {}) {
   let warm = null
   const warmUp = () => {
     run('启动构建', async () => {
+      const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
+      const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
+      const builtRules = Number.isInteger(repo.state?.rules) ? repo.state.rules : null
+
+      // 从来没有建过：只是把版本记下来，别在全新安装时喊「整库清空」。
+      const fresh = builtWith === null && builtRules === null
+      if (fresh) {
+        repo.setMemoryFormat(format)
+        repo.setRules(RULES_VERSION)
+      }
+
+      // 抽星规则或记忆格式变了：旧星星是按旧规则切出来的，没有修补价值，整库清空重来。
+      // 清空之后每一条记忆都回到灰色，等用户自己决定什么时候开始抽。
+      if (!fresh && (builtWith !== format || builtRules !== RULES_VERSION)) {
+        const stale = status()
+        info(
+          `[dsh-lpipe-starmap] 抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}（记忆格式 ${builtWith ?? '未知'} → ${format}）：清掉 ${stale.stars} 颗旧星、${stale.lit} 轮已亮记忆全部退回灰色`,
+        )
+        repo.reset()
+        memory.reload()
+        repo.reload()
+        repo.setMemoryFormat(format)
+        repo.setRules(RULES_VERSION)
+        if (!ready()) {
+          info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先全部留灰')
+          return
+        }
+        info('[dsh-lpipe-starmap] 灰记忆超过 3 轮，等你在设置页按「现在抽星」')
+        return
+      }
+
       if (!ready()) {
         info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），灰记忆先留着')
         return
@@ -266,17 +297,8 @@ export function apply(ctx, options = {}) {
         return
       }
       const before = repo.turns.size
-      // 记忆格式或抽星规则变了：已经点亮的轮次不会进「灰记忆」，只能整库重来。
-      const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
-      const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
-      const builtRules = Number.isInteger(repo.state?.rules) ? repo.state.rules : null
-      if (builtWith !== format || builtRules !== RULES_VERSION) {
-        info(`[dsh-lpipe-starmap] 记忆格式 ${builtWith ?? '未知'} → ${format}、抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}，整库重抽一次`)
-        await rebuild({ full: true })
-      } else {
-        info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
-        await rebuild()
-      }
+      info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
+      await rebuild()
       repo.setMemoryFormat(format)
       repo.setRules(RULES_VERSION)
     })
