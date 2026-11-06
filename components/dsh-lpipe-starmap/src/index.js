@@ -66,6 +66,13 @@ export function apply(ctx, options = {}) {
     stopRequested = true
     progressState.stopping = true
     // 正在等模型回话的那一下立刻切断；已经在跑的那一轮由 worker 自己收尾。
+    // 一路都不在跑（比如上一条已经挂死、或者已经收了尾），别让界面停在「正在暂停」。
+    if (lanesState.active === 0) {
+      progressState.running = false
+      progressState.stopping = false
+      stopRequested = false
+      return { paused: true, running: false }
+    }
     const inflight = Boolean(runSignal && !runSignal.signal.aborted)
     try {
       runSignal?.abort()

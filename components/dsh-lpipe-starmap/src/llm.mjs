@@ -204,6 +204,17 @@ export function describeFailure(reason) {
 /** 模型没按格式回时的纠正话术。只追加一次，第二次还不行就让这一轮保持灰。 */
 const CORRECTION = 'That was not valid JSON. Reply again with only the JSON array — no prose, no explanation, no roleplay.'
 
+/** 一次模型请求最多等多久。没有它，一旦上游不回话，这一轮会永远挂着，
+ *  「暂停」也停不下来（宿主那边的 running 一直是 true）。 */
+export const REQUEST_TIMEOUT_MS = 120000
+
+/** 把「用户点了暂停」与「等太久了」合成一个 signal。 */
+function boundSignal(signal) {
+  const deadline = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : null
+  if (signal && deadline) return AbortSignal.any([signal, deadline])
+  return deadline ?? signal ?? undefined
+}
+
 export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS, signal = null } = {}) {
   const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
@@ -222,7 +233,8 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     let usage = null
     let truncated = false
     try {
-      for await (const chunk of llm.stream({ ...route, maxTokens, temperature: 0, messages, signal: signal ?? undefined })) {
+      const bound = boundSignal(signal)
+      for await (const chunk of llm.stream({ ...route, maxTokens, temperature: 0, messages, signal: bound })) {
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
         if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string') thinking += chunk.text
         if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
@@ -233,8 +245,19 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
       }
     } catch (error) {
       // 用户按了「暂时停止」：这不是失败，是主动切断，交给上层安静收尾。
-      const aborted = error?.name === 'AbortError' || signal?.aborted === true
-      return { ok: false, aborted, error: String(error?.message ?? error), raw, usage }
+      // 等太久（上游不回话）也是一种切断，但要算一次失败并留下说明。
+      const timedOut = error?.name === 'TimeoutError'
+      const aborted = !timedOut && (error?.name === 'AbortError' || signal?.aborted === true)
+      return {
+        ok: false,
+        aborted,
+        timedOut,
+        error: timedOut
+          ? `请求超时（${Math.round(REQUEST_TIMEOUT_MS / 1000)} 秒没有回话）`
+          : String(error?.message ?? error),
+        raw,
+        usage,
+      }
     }
     const text = raw.trim() ? raw : thinking
     const parsed = parsePairs(text)
@@ -274,7 +297,11 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
       messages.pop()
       if (corrected) messages.pop()
       const why = reply.truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json'
-      const tail = reply.head ? `：${reply.head}` : '：模型一个字都没回'
+      const tail = reply.head
+        ? `：${reply.head}`
+        : reply.usage
+          ? '：模型一个字都没回（有用量，说明连上了，是它拒答或只回了空串）'
+          : '：模型一个字都没回，也没有用量（这一发可能没连上就被断了）'
       return { ok: false, error: `${why}${tail}`, raw: reply.raw, usage: reply.usage }
     }
   }
@@ -294,7 +321,7 @@ export async function requestPairs({ llm, route = {}, source, maxTokens = MAX_OU
   let raw = ''
   let truncated = false
   try {
-    for await (const chunk of llm.stream(options)) {
+    for await (const chunk of llm.stream({ ...options, signal: boundSignal(options?.signal) })) {
       if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
       if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
         return { ok: false, error: describeFailure(chunk.reason), raw }

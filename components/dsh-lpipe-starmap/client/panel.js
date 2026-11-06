@@ -361,7 +361,9 @@ function StarmapPanel({ rpcCall }) {
   const extract = value?.extract || {};
   const usage = value?.usage || {};
   const busy = pending !== '' || Boolean(extract.running);
-  const buttonLabel = pending === 'stopping' ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
+  // 「正在暂停」只在等宿主回话的那几秒出现；宿主那边停止之后必须回到「现在抽星」。
+  const stopping = pending === 'stopping' || Boolean(extract.stopping && extract.running);
+  const buttonLabel = stopping ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
   const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
   // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
@@ -437,7 +439,8 @@ function StarmapPanel({ rpcCall }) {
       .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`))
       .finally(() => {
         load();
-        setPending('');
+        // 宿主回话慢也不该让按钮一直停在「正在暂停」。
+        setTimeout(() => setPending((current) => (current === 'stopping' ? '' : current)), 8000);
       });
   };
 
@@ -513,8 +516,8 @@ function StarmapPanel({ rpcCall }) {
               fontSize: 13,
               opacity: pending === 'stopping' ? 0.6 : 1,
             },
-            onClick: pending === 'stopping' ? undefined : busy ? stop : start,
-            disabled: pending === 'stopping' || (!busy && !configured),
+            onClick: stopping ? undefined : busy ? stop : start,
+            disabled: stopping || (!busy && !configured),
           },
           buttonLabel,
         ),
@@ -526,7 +529,7 @@ function StarmapPanel({ rpcCall }) {
         h(
           'span',
           null,
-          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${busy ? ` · ${extract.stopping ? '暂停中' : '正在抽星'}${lanes.total > 1 || extract.stopping ? `，${lanes.active} 路在跑` : ''}` : ''}`,
+          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${busy ? ` · ${extract.stopping ? '暂停中' : '正在抽星'}${lanes.active > 0 ? `，${lanes.active} 路在跑` : ''}` : ''}`,
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
