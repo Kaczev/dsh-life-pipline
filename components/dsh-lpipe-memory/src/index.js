@@ -3,6 +3,7 @@ import { readSessionTitle } from 'dsh-life-pipline/session-title'
 
 import { captureMedia } from './media.mjs'
 import { migrateIfNeeded } from './compact.mjs'
+import { packColdDays } from './pack.mjs'
 import { memoryRoot } from './paths.mjs'
 import { project } from './project.mjs'
 import { MemoryReader } from './reader.mjs'
@@ -81,6 +82,33 @@ export function apply(ctx, options = {}) {
   ctx.inject(['attachments'], (attachmentCtx) => {
     attachments = attachmentCtx.attachments ?? null
   })
+
+  // 冷日打包：启动后补做一次，之后每 6 小时一次；只碰「今天以外」的日子，打过的直接跳过。
+  if (options.pack !== false) {
+    const note = (message) => (ctx.logger?.info ?? ctx.logger?.warn)?.(message)
+    const sweep = () => {
+      try {
+        const result = packColdDays(root, { log: warn })
+        if (result.packed > 0) {
+          stats.invalidate()
+          note(`[dsh-lpipe-memory] 冷日打包 ${result.packed} 天：${result.before} → ${result.after} 字节`)
+        }
+      } catch (error) {
+        warn(`[dsh-lpipe-memory] 冷日打包失败：${error?.message ?? error}`)
+      }
+    }
+    const first = setTimeout(sweep, 5000)
+    const repeat = setInterval(sweep, 6 * 60 * 60 * 1000)
+    first.unref?.()
+    repeat.unref?.()
+    ctx.effect(
+      () => () => {
+        clearTimeout(first)
+        clearInterval(repeat)
+      },
+      'dsh-lpipe-memory: settle cold days',
+    )
+  }
 
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessionsCtx.on('session/event', (session, event) => {
