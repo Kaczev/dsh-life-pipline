@@ -140,21 +140,18 @@ function MemoryPanel({ rpcCall }) {
       : null,
 
     h('div', { style: card },
-      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
-        h('span', { style: { fontSize: 12, color: COLORS.muted } }, '原文'),
-        h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
-          formatBytes(stats?.total ?? 0)),
-        lastTurn
-          ? h('span', { style: { fontSize: 11, color: COLORS.accent } },
-            `最近 +${formatBytes(lastTurn.added)}`)
-          : null,
+      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 40, flexWrap: 'wrap' } },
+        h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 7 } },
+          h('span', { style: { fontSize: 21, color: COLORS.muted } }, '原文'),
+          h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
+            formatBytes(stats?.total ?? 0)),
+          lastTurn
+            ? h('span', { style: { fontSize: 11, color: COLORS.accent } },
+              `最近 +${formatBytes(lastTurn.added)}`)
+            : null),
 
-        h('span', {
-          style: {
-            marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 7,
-          },
-        },
-          h('span', { style: { fontSize: 12, color: COLORS.muted } }, '落盘'),
+        h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 7 } },
+          h('span', { style: { fontSize: 15, color: COLORS.muted } }, '落盘'),
           h('span', { style: { fontSize: 16, fontWeight: 600, color: COLORS.disk } },
             formatBytes(stats?.disk ?? 0)),
           lastTurn
