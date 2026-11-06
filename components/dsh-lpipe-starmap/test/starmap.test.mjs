@@ -6,7 +6,7 @@ import test from 'node:test'
 
 import { canExtract, routeOf } from '../src/config.mjs'
 
-import { RULES_VERSION, buildTurn } from '../src/build.mjs'
+import { RULES_VERSION, buildTurn, starWorthy } from '../src/build.mjs'
 import { apply } from '../src/index.js'
 import { createQueries } from '../src/query.mjs'
 import { openRepo, starIdOf } from '../src/store.mjs'
@@ -477,3 +477,17 @@ test('模糊星只从交流记忆里抽：工具输出里的数字不算时间�
   }
 })
 
+test('整句、半句公式、量词短语都当不成星', () => {
+  const worth = (name) => starWorthy(name)
+  // 真概念
+  assert.equal(worth('记忆管线'), true)
+  assert.equal(worth('戴维南等效'), true)
+  assert.equal(worth('dsh-lpipe-memory'), true)
+  assert.equal(worth('Whale Loli'), true)
+  // 半句公式、整句、量词短语
+  assert.equal(worth('线电荷密度 \\(\\lambda\\)'), false)
+  assert.equal(worth('AB是半径为R的四分之一圆弧'), false)
+  assert.equal(worth('I am capable of discussing anything he wants'), false)
+  assert.equal(worth('4 个节点'), false)
+  assert.equal(worth('---'), false)
+})

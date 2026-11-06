@@ -14,7 +14,33 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 8
+export const RULES_VERSION = 9
+
+const SYMBOL_ONLY = /^[^\p{L}\p{N}]+$/u
+const CJK_MAX = 10
+
+/**
+ * 模型偶尔会把整句、公式、量词短语原样搬出来。这些当「星」没有意义：
+ * 下一次几乎不可能以完全相同的字面再出现，等于给星图塞了一批一次性噪音。
+ */
+export function starWorthy(name) {
+  const text = String(name ?? '').trim()
+  if (!text) return false
+  if (SYMBOL_ONLY.test(text)) return false
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
+  if (cjk > CJK_MAX) return false
+  // LaTeX 命令（\frac、\lambda）只有短小的才留；带等号或者太长的是整段公式，删。
+  // 夹着行内公式的短语（`线电荷密度 \(\lambda\)`）是半句解释，不是概念名。
+  if (text.includes('\\(') || text.includes('\\)') || text.includes('$')) return false
+  if (/\\[a-zA-Z]+/.test(text) && (text.length > 8 || text.includes('='))) return false
+  // 英文整句：五个词以上基本是句子而不是概念。
+  const words = text.split(/\s+/).filter(Boolean)
+  const latin = words.filter((word) => /^[A-Za-z][A-Za-z'’-]*$/.test(word))
+  if (latin.length >= 5 && latin.length === words.length) return false
+  // 「4 个节点」「6 条支路」是描述，不是概念。
+  if (/\d+\s*[个条只种项次]/.test(text)) return false
+  return true
+}
 
 export function groupTurns(rows) {
   const map = new Map()
@@ -115,6 +141,11 @@ export function planTurn(turn, pairs) {
     }
     if (a.toLowerCase() === b.toLowerCase()) {
       rejects.push({ pair: [a, b], why: 'same' })
+      continue
+    }
+    // 整句、整段公式、量词短语：留着只会白占一颗星，下一次几乎不可能原样再出现。
+    if (!starWorthy(a) || !starWorthy(b)) {
+      rejects.push({ pair: [a, b], why: 'noisy', noisy: starWorthy(a) ? b : a })
       continue
     }
     const ha = hitsOf(a)
