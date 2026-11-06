@@ -232,8 +232,9 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     let thinking = ''
     let usage = null
     let truncated = false
+    let bound = null
     try {
-      const bound = boundSignal(signal)
+      bound = boundSignal(signal)
       for await (const chunk of llm.stream({ ...route, maxTokens, temperature: 0, messages, signal: bound })) {
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
         if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string') thinking += chunk.text
@@ -262,7 +263,7 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     const text = raw.trim() ? raw : thinking
     // 暂停时有些连接会安静地结束：既没有正文，也不抛 AbortError。
     // 这种情况是「我们主动停的」，不该记成一次抽星失败。
-    if (!text.trim() && (signal?.aborted === true)) {
+    if (!text.trim() && (signal?.aborted === true || bound?.aborted === true)) {
       return { ok: false, aborted: true, error: '暂停时切断', raw, usage }
     }
     const parsed = parsePairs(text)

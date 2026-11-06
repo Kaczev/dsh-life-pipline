@@ -60,38 +60,25 @@ export function apply(ctx, options = {}) {
     return config.reasoningEffort ? { ...route, reasoningEffort: config.reasoningEffort } : route
   }
 
-  /** 暂停抽星：不再领新的轮次，正在跑的那一轮跑完就收工。 */
+  /** 暂停抽星：不再领新的轮次，正在跑的那一轮跑完就收工。
+   *  重点是「停下」而不是「停一会儿」——之后 turn/end 触发的自动补做也一并停住，
+   *  直到用户自己再点一次「现在抽星」。 */
   const pause = () => {
-    if (!progressState.running) return { paused: false, running: false }
+    pausedByUser = true
     stopRequested = true
-    progressState.stopping = true
-    // 正在等模型回话的那一下立刻切断；已经在跑的那一轮由 worker 自己收尾。
-    // 一路都不在跑（比如上一条已经挂死、或者已经收了尾），别让界面停在「正在暂停」。
-    if (lanesState.active === 0) {
-      progressState.running = false
-      progressState.stopping = false
-      stopRequested = false
-      return { paused: true, running: false }
-    }
     const inflight = Boolean(runSignal && !runSignal.signal.aborted)
     try {
       runSignal?.abort()
     } catch {}
-    // 兜底：真实世界里总会有连接撕不断。30 秒还没收完就直接判定为已停，
-    // 界面上的按钮必须能回到「现在抽星」，用户才有机会重来。
-    if (stopTimer) clearTimeout(stopTimer)
-    stopTimer = setTimeout(() => {
-      stopTimer = null
-      progressState.running = false
-      progressState.stopping = false
-      stopRequested = false
-      info('[dsh-lpipe-starmap] 暂停超时：直接把状态置为停止')
-    }, 30000)
-    stopTimer.unref?.()
+    // 立刻把界面状态置为「已停」：正在跑的那一轮由 worker 自己收尾，
+    // 但按钮必须马上回到「现在抽星」，不能挂在「正在暂停」上。
+    progressState.running = false
+    progressState.stopping = false
+    progressState.updatedAt = Date.now()
     info(inflight
       ? '[dsh-lpipe-starmap] 收到暂停：等模型的那一下已切断，其余的跑完这一轮就停'
       : '[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
-    return { paused: true, running: true, aborted: inflight }
+    return { paused: true, running: false, aborted: inflight }
   }
 
   /**
@@ -141,6 +128,8 @@ export function apply(ctx, options = {}) {
   let stopTimer = null
   /** 真的还有活儿没收尾（哪怕界面上的 running 已经被兜底置为 false）。 */
   let jobActive = false
+  /** 用户按下过暂停：之后的自动补做一律不领活儿，只有他点「现在抽星」才解除。 */
+  let pausedByUser = false
   /** 现在有几路真的还在跑：暂停之后「还剩几路」就靠它。 */
   const lanesState = { active: 0, total: 0 }
   progressState.lanes = lanesState
@@ -342,6 +331,11 @@ export function apply(ctx, options = {}) {
    * `full` 是整库重来：提示词或规则改过以后，旧轮次必须重新过一遍。
    */
   const rebuild = async ({ full = false, manual = false, background = false } = {}) => {
+    if (manual) pausedByUser = false
+    if (pausedByUser && !manual) {
+      info('[dsh-lpipe-starmap] 用户按了暂停，自动补做先不动')
+      return { started: false, paused: true, built: 0, ...status() }
+    }
     if (!ready()) {
       info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先不动')
       return { built: 0, skipped: 'unconfigured', ...status() }
@@ -512,6 +506,8 @@ export function apply(ctx, options = {}) {
       // 记忆层也在 turn/end 落盘：等它写完再读，否则会读到上一轮的磁盘状态。
       const delay = Number.isFinite(options.turnDelay) ? options.turnDelay : 1500
       const timer = setTimeout(() => {
+        // 用户按过暂停：新的轮次也不要偷偷接着抽，等他点「现在抽星」。
+        if (pausedByUser) return
         run('构建这一轮', async () => {
           memory.reload()
           const snapshot = status()

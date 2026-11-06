@@ -141,6 +141,23 @@ test('starmap.rebuild 与配置读写走得通，没接上如实说', async () =
   assert.equal((await without('starmap.config', {})).error.code, 'starmap/unavailable')
 })
 
+test('界面上点「现在抽星」走的是手动开始，能解除暂停', async () => {
+  const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
+  const queries = { progress: () => ({ built: 0, turns: 0, grey: 0 }) }
+  let seen = null
+  const handler = createStarmapRpcHandler({
+    queries,
+    rebuild: (options) => {
+      seen = options
+      return { started: true }
+    },
+  })
+  const reply = await handler('starmap.rebuild', {})
+  assert.equal(reply.ok, true)
+  assert.equal(seen.manual, true, '手动开始才算解除暂停')
+  assert.equal(seen.background, true, '不等整库跑完就回话')
+})
+
 test('设置页从宿主读提供者、模型和思考强度', async () => {
   const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
   const queries = { progress: () => ({ built: 0, turns: 0, grey: 0 }) }
