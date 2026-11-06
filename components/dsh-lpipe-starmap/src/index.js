@@ -196,6 +196,7 @@ export function apply(ctx, options = {}) {
   /** 一轮：问模型 → 落星源。模型挂了就记一笔，这一轮保持灰。 */
   const buildOne = async (sessionId, turn, extractor) => {
     if (!llm) return false
+    const startedAt = Date.now()
     const source = turnSource(turn, textsOf)
     if (!source.trim()) {
       buildTurn({ repo, turn, sessionId, pairs: [] })
@@ -219,6 +220,8 @@ export function apply(ctx, options = {}) {
       if (reply.aborted) return 'stopped'
       progressState.failed += 1
       progressState.error = reply.error || '模型没有回出可用结果'
+      progressState.errorAt = Date.now()
+      runLog('turn-fail', { turn: turn.turn, error: progressState.error, ms: Date.now() - startedAt })
       noteRejects(sessionId, turn.turn, [{ pair: null, why: 'llm-failed', error: reply.error }])
       return false
     }
@@ -365,6 +368,7 @@ export function apply(ctx, options = {}) {
       total: progressState.total ?? 0,
       failed: progressState.failed ?? 0,
       error: progressState.error || '',
+      errorAt: progressState.errorAt ?? null,
       tail,
     }
   }
@@ -414,6 +418,7 @@ export function apply(ctx, options = {}) {
     progressState.total = 0
     progressState.failed = 0
     progressState.error = ''
+    progressState.errorAt = null
     failureStreak = 0
     stopRequested = false
     progressState.stopping = false

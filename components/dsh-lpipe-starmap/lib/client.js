@@ -19,6 +19,15 @@ const h = React.createElement;
 const RPC_ENDPOINT = 'dsh-lpipe-starmap';
 const PANEL_SLOT = 'lpipe.settings.panel';
 const POLL_MS = 20000;
+
+/** 失败发生的那一秒比「失败了」三个字有用得多：带上时刻，才知道是不是刚刚那阵网络抽风。 */
+const clockText = (at) => {
+  const value = Number(at);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const date = new Date(value);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `（${pad(date.getHours())}:${pad(date.getMinutes())}）`;
+};
 /** 抽星进行中的轮询间隔：进度条要跟着动。 */
 const BUSY_POLL_MS = 1200;
 
@@ -558,7 +567,11 @@ function StarmapPanel({ rpcCall }) {
       ),
       // 抽星失败时把模型的原始报错露出来：只写「失败了」没法判断是钥匙、模型名还是额度。
       extract.error && !(held && !alive)
-        ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 8, lineHeight: '17px' } }, `上次失败：${extract.error}`)
+        ? h(
+            'div',
+            { style: { fontSize: 11, color: COLORS.danger, marginTop: 8, lineHeight: '17px' } },
+            `上次失败${clockText(extract.errorAt)}：${extract.error}`,
+          )
         : null,
       h(
         'div',

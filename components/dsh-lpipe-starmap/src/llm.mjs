@@ -234,6 +234,7 @@ export function createExtractor(options = {}) {
     let thinking = ''
     let usage = null
     let truncated = false
+    let finishReason = null
     let bound = null
     try {
       bound = boundSignal(signal)
@@ -245,6 +246,7 @@ export function createExtractor(options = {}) {
           return { ok: false, error: describeFailure(chunk.reason), raw, usage }
         }
         if (chunk?.type === 'finish' && chunk.reason?.kind === 'max-tokens') truncated = true
+        if (chunk?.type === 'finish' && chunk.reason) finishReason = chunk.reason
       }
     } catch (error) {
       // 用户按了「暂时停止」：这不是失败，是主动切断，交给上层安静收尾。
@@ -273,6 +275,8 @@ export function createExtractor(options = {}) {
       return {
         ok: false,
         retryable: true,
+        empty: !text.trim(),
+        reason: finishReason,
         // 把模型真正写回来的开头带上：只说一句「not json」根本看不出它到底写了什么。
         head: text.replace(/\s+/g, ' ').trim().slice(0, 60),
         truncated,
@@ -317,12 +321,17 @@ export function createExtractor(options = {}) {
       }
       messages.pop()
       if (corrected) messages.pop()
-      const why = reply.truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json'
+      const why = reply.truncated
+        ? `输出被截断（maxTokens ${maxTokens}）`
+        : reply.empty
+          ? '模型一个字都没回'
+          : 'not json'
+      const upstream = reply.empty && reply.reason ? `（上游：${describeFailure(reply.reason)}）` : ''
       const tail = reply.head
         ? `：${reply.head}`
         : reply.usage
-          ? '：模型一个字都没回（有用量，说明连上了，是它拒答或只回了空串）'
-          : '：模型一个字都没回，也没有用量（这一发可能没连上就被断了）'
+          ? `：有用量，说明连上了，是它拒答或只回了空串${upstream}`
+          : `：也没有用量${upstream}`
       // aborted / timedOut 必须原样传出去：上层靠它判断「这是暂停切断，不是失败」。
       return {
         ok: false,
