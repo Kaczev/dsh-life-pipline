@@ -3,28 +3,33 @@ import { test } from 'node:test'
 
 import { findInSentences, foldText } from '../src/llm.mjs'
 
-// 这四条来自 2026-11-07 的 rejects.jsonl：原文里明明有，却被判「找不到」。
-// 差别都不在字词，而在排版记号上——LaTeX、引号、空格、一个「的」。
+// 这些来自 2026-11-07 的第二批 rejects：原文里其实有，只是被排版记号挡住了。
+// 与字词无关的差别（LaTeX 命令、反引号、零宽字符、中括号）必须一律抹平再比。
 
-test('原文写 \\(+x\\) 轴，名字给 x轴：算同一个名字', () => {
-  const sentences = [{ text: '右边的电场方向沿 \\(+x\\) 轴向右；左边沿 \\(-x\\) 轴向左。' }]
-  assert.deepEqual(findInSentences(sentences, 'x轴'), [0])
+test('原文写 \\(f_{\\max}\\)，名字给 f_max：算同一个名字', () => {
+  const sentences = [{ text: '和 \\(f_{\\max}\\) 决定了你软件视觉边界。'.replace(/\\\\/g, '\\') }]
+  // 上面构造出 f_{\max}；模型那头常常没有反斜杠。
+  assert.deepEqual(findInSentences(sentences, 'f_max'), [0])
 })
 
-test('原文给词加了引号，名字没加：算同一个名字', () => {
-  const sentences = [{ text: '因为电场线不扩散，没有“摊薄”效应，所以场强与距离无关。' }]
-  assert.deepEqual(findInSentences(sentences, '摊薄效应'), [0])
+test('原文用反引号包着 D，名字是「D 的压制逻辑」：算同一个名字', () => {
+  const sentences = [{ text: '加上 `f(R) = R^(1/3)` 和 `D` 的压制逻辑。' }]
+  assert.deepEqual(findInSentences(sentences, 'D 的压制逻辑'), [0])
 })
 
-test('原文多了结构助词「的」，名字没有：算同一个名字', () => {
-  const sentences = [{ text: '那外部的场强怎么求？我们换个高斯面。' }]
-  assert.deepEqual(findInSentences(sentences, '外部场强'), [0])
+test('名字里混进零宽空格也要能找到', () => {
+  const sentences = [{ text: '用的就是 f_base 这个参数。' }]
+  assert.deepEqual(findInSentences(sentences, 'f_\u200bbase'), [0])
 })
 
-test('写法完全对得上的名字不会被这次放宽弄坏', () => {
-  const sentences = [{ text: '两边把 \\(S\\) 消掉，就得到了内部场强。' }, { text: '这里没有那个词。' }]
-  assert.deepEqual(findInSentences(sentences, '内部场强'), [0])
-  assert.deepEqual(findInSentences(sentences, '记忆管线'), [])
+test('\\text{V} 与 V 是同一个东西', () => {
+  const sentences = [{ text: '当 0.7\\text{V} 时导通。' }]
+  assert.deepEqual(findInSentences(sentences, '0.7V'), [0])
+})
+
+test('凭空概括出来的描述性名词仍然找不到', () => {
+  const sentences = [{ text: '余额为 0 的时候 D=1，软件的心跳会变慢。' }]
+  assert.deepEqual(findInSentences(sentences, '余额显示软件'), [])
 })
 
 test('折写只抹排版记号，不抹内容', () => {

@@ -37,6 +37,7 @@ export const SYSTEM_PROMPT = [
   '   The program looks your strings up in the original turn. A translated, shortened, renamed or re-cased name will not be found, and the pair is thrown away.',
   '2. Only give pairs. A pair is [concept, concept], and both names must appear in the text.',
   '   A concept that shows up alone is not a pair. Do not invent a partner just to fill the array.',
+  '   A name must be a thing the text names directly, not a description you invent for it. If the text says 余额 and 软件 separately, "余额显示软件" is not a name in that text — leave it out. Shortening is fine; summarising is not.',
   '3. Prefer the concepts that carry the turn: decisions, problems, causes, fixes, named things, people, projects, modules, files, tools, technologies, metrics, events.',
   '   Skip the incidental ones — scene dressing, mood, politeness, passing mentions, words that could belong to any turn. Fewer meaningful pairs beat many empty ones.',
   `4. At most ${MAX_PAIRS} pairs. Three sharp pairs are a better answer than thirty vague ones.`,
@@ -426,8 +427,13 @@ export function foldText(value) {
     text
       // 公式两侧的 $ 和 \( \) 只是排版记号，不参与「这个名字在不在原文里」。
       .replace(/\$|\\\(|\\\)/g, '')
+      // \text{V} 就是 V，\max 就是 max：反斜杠是排版命令，不是名字的内容。
+      .replace(/\\text\{([^{}]*)\}/g, '$1')
+      .replace(/\\([a-z]+)/g, '$1')
+      // 零宽空格与 BOM 是模型输出时的隐形字符，「f_{​base}」与「f_{base}」没有区别。
+      .replace(/[\u200b-\u200f\u2060\ufeff]/g, '')
       // 空白、引号、括号都不算名字的一部分：「\(+x\) 轴」与「x轴」、「“摊薄”效应」与「摊薄效应」是同一件事。
-      .replace(/[\s"'“”‘’「」『』《》()（）\[\]]/g, '')
+      .replace(/[\s"'`“”‘’「」『』《》()（）\[\]{}]/g, '')
       // 中文的「的 / 地 / 得」只是连接词：「外部的场强」与「外部场强」说的是同一个东西。
       .replace(/[的地得]/g, '')
       // 正负号属于式子，不属于名字主体：「+x 轴」与「x轴」。
