@@ -284,7 +284,7 @@ function StarmapPanel({ rpcCall }) {
   const save = () => {
     setSaved('保存中…');
     Promise.resolve()
-      .then(() => rpcCall('starmap.config.set', form))
+      .then(() => rpcCall('starmap.config.set', { ...form, effortFree: !(efforts?.efforts?.length) }))
       .then((reply) => {
         if (reply?.ok) {
           setCommitted({ ...form });

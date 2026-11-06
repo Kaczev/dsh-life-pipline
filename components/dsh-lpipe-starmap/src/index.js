@@ -397,9 +397,8 @@ export function apply(ctx, options = {}) {
           config: {
             get: () => loadConfig(root),
             set: (patch) => {
-              // 强度这项由宿主说了算：模型报了什么候选，才允许存什么；报不出候选就允许留空。
+              // effortFree 由设置页按宿主报的候选填好一起送上来：没有候选才是 true。
               config = saveConfig(root, patch)
-              config = saveConfig(root, { effortFree: config.reasoningEffort === '' })
               return config
             },
           },
