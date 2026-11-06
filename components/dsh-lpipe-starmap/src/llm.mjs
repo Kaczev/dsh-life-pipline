@@ -403,12 +403,24 @@ export async function requestPairs({ llm, route = {}, source, maxTokens = MAX_OU
 }
 
 /** 比对用的写法：全角转半角、英文小写、空白归一。只用来找位置，不改显示名。 */
+// 原文里的公式写成 \\rho、模型却回一个 ρ：两边先换成同一个符号再比，这种对子才不会白丢。
+const LATEX_SYMBOLS = [
+  [/\\rho\b/g, 'ρ'], [/\\lambda\b/g, 'λ'], [/\\varepsilon\b/g, 'ε'], [/\\epsilon\b/g, 'ε'],
+  [/\\sigma\b/g, 'σ'], [/\\mu\b/g, 'μ'], [/\\pi\b/g, 'π'], [/\\theta\b/g, 'θ'],
+  [/\\omega\b/g, 'ω'], [/\\Delta\b/g, 'δ'], [/\\delta\b/g, 'δ'], [/\\alpha\b/g, 'α'],
+  [/\\beta\b/g, 'β'], [/\\gamma\b/g, 'γ'], [/\\phi\b/g, 'φ'], [/\\varphi\b/g, 'φ'],
+  [/\\times\b/g, '×'], [/\\cdot\b/g, '·'], [/\\pm\b/g, '±'], [/\\infty\b/g, '∞'],
+]
+
 export function foldText(value) {
-  return String(value ?? '')
+  let text = String(value ?? '')
     .normalize('NFKC')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim()
+  for (const [pattern, symbol] of LATEX_SYMBOLS) text = text.replace(pattern, symbol)
+  // 公式两侧的 $ 和 \( \) 只是排版记号，不参与「这个名字在不在原文里」。
+  return text.replace(/\$|\\\(|\\\)/g, '')
 }
 
 /** 模型给的名字在原文里出现的位置（句子下标），找不到就是空数组。 */

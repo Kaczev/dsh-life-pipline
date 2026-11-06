@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, salvagePairs, trimReasoning, turnSource } from '../src/llm.mjs'
+import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, findInSentences, normalizeUsage, parsePairs, requestPairs, salvagePairs, trimReasoning, turnSource } from '../src/llm.mjs'
 import { textsOf } from '../src/build.mjs'
 
 test('解析模型回复：纯数组、代码块、夹着废话都能抠出来', () => {
@@ -304,4 +304,12 @@ test('提示词说清楚什么才算星星：句子、公式、数字都不算',
   assert.match(SYSTEM_PROMPT, /reusable noun/)
   assert.match(SYSTEM_PROMPT, /Never pair them/)
   assert.match(SYSTEM_PROMPT, /at most 10 characters/)
+})
+
+test('原文写 LaTeX 符号、模型回希腊字母，也算同一个名字', () => {
+  const sentences = [{ text: '线电荷密度 \(\\rho\) 与面电荷 \(\\sigma\)' }]
+  assert.deepEqual(findInSentences(sentences, 'ρ'), [0])
+  assert.deepEqual(findInSentences(sentences, 'σ'), [0])
+  assert.deepEqual(findInSentences(sentences, '线电荷密度'), [0])
+  assert.deepEqual(findInSentences(sentences, 'λ'), [])
 })

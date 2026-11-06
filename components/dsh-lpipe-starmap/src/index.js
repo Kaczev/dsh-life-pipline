@@ -2,7 +2,7 @@
 //
 // 抽星只问模型一次（哪两个概念一起出现过），落到哪一句、连多粗由我们自己算。
 // 模型不可用时什么都不点亮，灰记忆就一直是灰的——不猜、不用规则兜底。
-import { rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { renameSync, rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -127,6 +127,13 @@ export function apply(ctx, options = {}) {
           + `作废 ${repo.stars.size} 颗旧星、${repo.turns.size} 轮旧索引，全部记忆退回灰色`,
       )
       repo.reset()
+      // 旧星表作废，用量账本也一起换新：不然面板上还挂着上一套规则花掉的 token，看着像新规则烧的。
+      try {
+        const usage = join(root, 'usage.jsonl')
+        if (statSync(usage).size > 0) renameSync(usage, `${usage}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+      } catch {
+        // 没有账本就没什么好换的。
+      }
       memory.reload()
       repo.reload()
       repo.setMemoryFormat(format)

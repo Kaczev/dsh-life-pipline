@@ -39,6 +39,8 @@ export function starWorthy(name) {
   if (latin.length >= 5 && latin.length === words.length) return false
   // 「4 个节点」「6 条支路」是描述，不是概念。
   if (/\d+\s*[个条只种项次]/.test(text)) return false
+  // 「图片1」「图 2」是附件编号，不是概念。
+  if (/^图\s*\d+$/.test(text) || /^图\s*片\s*\d+$/.test(text)) return false
   return true
 }
 

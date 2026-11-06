@@ -490,4 +490,6 @@ test('整句、半句公式、量词短语都当不成星', () => {
   assert.equal(worth('I am capable of discussing anything he wants'), false)
   assert.equal(worth('4 个节点'), false)
   assert.equal(worth('---'), false)
+  assert.equal(worth('图片1'), false)
+  assert.equal(worth('图 2'), false)
 })

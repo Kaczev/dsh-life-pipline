@@ -179,6 +179,7 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
     const extract = progressState
       ? {
         error: progressState.error || '',
+        errorAt: progressState.errorAt ?? null,
         running: Boolean(progressState.running),
         stopping: Boolean(progressState.stopping),
         done: progressState.done ?? 0,
@@ -187,7 +188,7 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
         lanes: progressState.lanes ?? { active: 0, total: 0 },
         updatedAt: progressState.updatedAt ?? null,
       }
-      : { error: '', running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 }, updatedAt: null }
+      : { error: '', errorAt: null, running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 }, updatedAt: null }
     let fuzzy = 0
     for (const star of repo.stars.values()) if (star.kind === 'fuzzy') fuzzy += 1
     return {
