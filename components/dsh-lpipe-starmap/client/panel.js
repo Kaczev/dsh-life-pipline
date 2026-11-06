@@ -118,7 +118,7 @@ function StarmapPanel({ rpcCall }) {
           background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
           border: '1px solid rgba(94, 201, 180, 0.28)',
         },
-      }, '星图'),
+      }, '星图管线'),
     ),
     h(
       'div',
@@ -170,7 +170,7 @@ function apply(ctx) {
     name: PANEL_SLOT,
     id: 'starmap',
     order: 40,
-    label: () => '星图',
+    label: () => '星图管线',
     inject: () => ({ rpcCall }),
   }, StarmapPanel));
 }
