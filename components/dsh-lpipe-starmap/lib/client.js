@@ -144,7 +144,9 @@ function nicePeak(value) {
 function usageBars(daily) {
   const rows = Array.isArray(daily) ? daily : [];
   if (!rows.length) return null;
-  const totals = rows.map((row) => (Number(row.input) || 0) + (Number(row.output) || 0));
+  const totals = rows.map(
+    (row) => (Number(row.input) || 0) + (Number(row.cacheRead) || 0) + (Number(row.cacheWrite) || 0) + (Number(row.output) || 0),
+  );
   const peak = nicePeak(Math.max(0, ...totals));
   const empty = totals.every((total) => total === 0);
   const kinds = [
@@ -157,9 +159,10 @@ function usageBars(daily) {
     { style: { display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%', position: 'relative' } },
     rows.map((row) => {
       const hit = Number(row.cacheRead) || 0;
-      const miss = Math.max(0, (Number(row.input) || 0) - hit);
+      // 宿主报的 inputTokens 只算未命中部分，不要再减一次命中，否则会被压成 0。
+      const miss = Number(row.input) || 0;
       const out = Number(row.output) || 0;
-      const total = hit + miss + out;
+      const total = hit + miss + out + (Number(row.cacheWrite) || 0);
       const parts = [
         { key: 'hit', value: hit, color: COLORS.cacheHit },
         { key: 'miss', value: miss, color: COLORS.accent },
@@ -169,7 +172,7 @@ function usageBars(daily) {
         'div',
         {
           key: row.day,
-          title: `${row.day} · 输入 ${formatTokens((row.input || 0) + hit)}（未命中 ${formatTokens(row.input || 0)} + 命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`,
+          title: `${row.day} · 输入 ${formatTokens(miss + hit)}（未命中 ${formatTokens(miss)} + 命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`,
           style: { flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'flex-end' },
         },
         h(
@@ -603,7 +606,7 @@ function StarmapPanel({ rpcCall }) {
       ),
       h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 } },
+        { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 } },
         h(
           'button',
           {
@@ -627,15 +630,24 @@ function StarmapPanel({ rpcCall }) {
           },
           '取消',
         ),
-        h(
-          'span',
-          { style: { fontSize: 11, color: configured ? COLORS.muted : COLORS.warning } },
-          dirty
-            ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
-            : saved || (configured
-              ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
-              : '提供者和模型必须选；这个模型若提供思考强度，也一并选上。不选就是不抽星，不会替你挑模型。'),
-        ),
+      ),
+      h(
+        'div',
+        {
+          style: {
+            marginTop: 10,
+            paddingTop: 9,
+            borderTop: `1px solid ${COLORS.border}`,
+            fontSize: 11,
+            lineHeight: 1.6,
+            color: configured ? COLORS.muted : COLORS.warning,
+          },
+        },
+        dirty
+          ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
+          : saved || (configured
+            ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
+            : '提供者和模型必须选；这个模型若提供思考强度，也一并选上。不选就是不抽星，不会替你挑模型。'),
       ),
     ),
   );
