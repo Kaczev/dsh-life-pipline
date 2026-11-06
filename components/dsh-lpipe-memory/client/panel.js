@@ -137,20 +137,24 @@ function MemoryPanel({ rpcCall }) {
     h('div', { style: card },
       h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 40, flexWrap: 'wrap' } },
         h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 7 } },
-          h('span', { style: { fontSize: 21, color: COLORS.muted } }, '原文'),
-          h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
+          h('span', {
+            style: { fontSize: 21, fontWeight: 600, color: COLORS.muted, lineHeight: 1, position: 'relative', top: 1 },
+          }, '原文'),
+          h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text, lineHeight: 1 } },
             formatBytes(stats?.total ?? 0)),
           lastTurn
-            ? h('span', { style: { fontSize: 11, color: COLORS.accent } },
+            ? h('span', { style: { fontSize: 11, color: COLORS.accent, lineHeight: 1 } },
               `最近 +${formatBytes(lastTurn.added)}`)
             : null),
 
         h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 7 } },
-          h('span', { style: { fontSize: 15, color: COLORS.muted } }, '落盘'),
-          h('span', { style: { fontSize: 16, fontWeight: 600, color: COLORS.disk } },
+          h('span', {
+            style: { fontSize: 15, fontWeight: 600, color: COLORS.muted, lineHeight: 1, position: 'relative', top: 1 },
+          }, '落盘'),
+          h('span', { style: { fontSize: 16, fontWeight: 600, color: COLORS.disk, lineHeight: 1 } },
             formatBytes(stats?.disk ?? 0)),
           lastTurn
-            ? h('span', { style: { fontSize: 11, color: COLORS.disk } },
+            ? h('span', { style: { fontSize: 11, color: COLORS.disk, lineHeight: 1 } },
               `最近 +${formatBytes(lastTurn.diskAdded)}`)
             : null)),
 
@@ -159,8 +163,8 @@ function MemoryPanel({ rpcCall }) {
           h('div', {
             style: {
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              flex: '0 0 66px', width: 66, padding: '2px 0 1px', fontSize: 10,
-              color: COLORS.faint, textAlign: 'right', whiteSpace: 'nowrap',
+              flex: '0 0 52px', width: 52, padding: '2px 0 1px', fontSize: 9.5,
+              color: COLORS.faint, textAlign: 'left', whiteSpace: 'nowrap',
             },
           },
             h('span', null, formatBytes(plot.high)),
