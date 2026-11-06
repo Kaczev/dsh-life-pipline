@@ -415,3 +415,33 @@ test('starmap.near：差两分钟、差一点点都能认出来，差一个量�
   assert.equal(progress.exact, 0)
 })
 
+
+test('模糊星只从交流记忆里抽：工具输出里的数字不算时间感', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-fuzzy-chat-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T12:00:00+08:00')
+  const rows = [
+    { seq: 0, turn: 1, at, kind: 'user/message', text: '我 20:44 到的，温度 648.5 度。' },
+    {
+      seq: 1,
+      turn: 1,
+      at,
+      kind: 'tool/call',
+      name: 'chat_send',
+      arguments: JSON.stringify({ channel: 'weixin', text: '今晚 23:30 睡，别熬到 2 点。' }),
+    },
+    { seq: 2, turn: 1, at, kind: 'tool/result', text: '已通过微信发出 21 字节，耗时 312 毫秒，版本 0.7.0。' },
+    { seq: 3, turn: 1, at, kind: 'tool/call', name: 'ops_read_files' },
+    { seq: 4, turn: 1, at, kind: 'tool/result', text: '文件里写着 2026-11-06 20:44 有 541 行。' },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-c', pairs: [] })
+
+  const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  const names = stars.filter((star) => star.kind === 'fuzzy').map((star) => star.name).sort()
+  assert.deepEqual(names, ['02:00', '20:44', '23:30', '648.5'], '只有用户消息和发出去的话里的时间与数字成星（「熬到 2 点」也认）')
+
+  for (const junk of ['312', '21', '541', '0.7', '2026']) {
+    assert.ok(!stars.some((star) => star.name === junk), `工具输出里的 ${junk} 不该成星`)
+  }
+})
+

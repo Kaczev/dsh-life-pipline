@@ -14,7 +14,7 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 6
+export const RULES_VERSION = 7
 
 export function groupTurns(rows) {
   const map = new Map()
@@ -136,6 +136,17 @@ export function planTurn(turn, pairs) {
       ids.push(starIdOf(name))
     }
     // 模糊星（时间、数字）是「感觉」，不靠模型配对，也不进星链：这句话里出现就挂在这句上。
+    // 只从交流记忆里抽：工具输出里的数字是数据（版本号、行号、耗时），不是我要记得的时间感。
+    const spoken = turn.rows?.[sentence.row]
+    const conversation = spoken?.kind === 'user/message'
+      || spoken?.kind === 'assistant/message'
+      || (spoken?.kind === 'tool/call' && String(spoken?.name) === 'chat_send')
+    if (!conversation) {
+      if (ids.length === 0) continue
+      const clockOnly = clockOf(sentence.text)
+      lines.push(clockOnly === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock: clockOnly })
+      continue
+    }
     for (const star of fuzzyStarsIn(sentence.text)) {
       const id = starIdOf(star.name)
       if (!ids.includes(id)) ids.push(id)
