@@ -243,7 +243,7 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 - **模型必须配全才抽星**：`~/.dsh/life-starmap/config.json` 里存 `provider` / `model` / `reasoningEffort` / `concurrency`，三个设置项**任一为空就完全不抽**（默认全空）。留空不表示「用会话默认模型」，而是「现在不抽」——宁可不点亮，也不拿猜的星污染这张图。
 - **一条对话复用到底**：第一句用户消息固定是指令，之后每轮原文接在后面，模型逐条回答。前缀一直不变，模型侧的缓存才有机会命中；攒到 24 000 字符就换新的一条，并发的每一路各持一条，互不干扰。调用失败会把这一问撤回，保证重试的前缀与失败前一致。
 - **自动补做只收拾近处**：灰记忆超过 3 轮就停手，等用户在设置页点「现在抽星」。中途停掉的轮次保持灰色，重新抽即可——重发的是同一段原文，有没有缓存命中都不影响正确性。
-- **输出预算是 4000 token，不是 1500**：思考型模型的思考也算在输出里，1500 会在正文之前被截断，`finish` 的 `reason.kind` 是 `max-tokens`。截断时就地报「输出被截断（maxTokens 4000）」，并用 `salvagePairs()` 把已经写完的 `["甲","乙"]` 逐条捞回来，宁可少几对，也不整轮作废。
+- **输出上限可调，默认 4000**：200–32000 之间夹住（`config.json` 的 `maxTokens`，设置页也能改）。思考型模型的思考也算在输出里，1500 会在正文之前被截断，`finish` 的 `reason.kind` 是 `max-tokens`。截断时就地报「输出被截断（maxTokens 4000）」，并用 `salvagePairs()` 把已经写完的 `["甲","乙"]` 逐条捞回来，宁可少几对，也不整轮作废。
 - **抽星中可以暂停**：设置页的「现在抽星」在抽星时变成「暂停」，走 `starmap.pause`；宿主只置一个 `stopRequested` 标志，手上的那一轮跑完就收手，不做中断式取消（模型流没有可靠的取消点）。抽星期间客户端 1.2 秒轮询一次，进度条直接画抽星进度；空闲时 20 秒一次，画已点亮比例。
 - **用量记账**：每次调用追加一行 `~/.dsh/life-starmap/usage.jsonl`（`input` / `output` / `cacheRead`），设置页显示「调用 N 次 · 7 天 X token · 累计 Y token」。
 - **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links` / `starmap.config` / `starmap.config.set` 与 `starmap.rebuild`（`{ full: true }` 时整库重抽），只有最后两个与配置写会改盘。
