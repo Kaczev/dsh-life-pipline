@@ -360,14 +360,7 @@ function StarmapPanel({ rpcCall }) {
   const grey = value?.grey ?? 0;
   const extract = value?.extract || {};
   const usage = value?.usage || {};
-  const busy = pending !== '' || alive;
-  // 「正在暂停」只在等宿主回话的那几秒出现；宿主那边停止之后必须回到「现在抽星」。
-  // 另外：宿主 45 秒没有任何心跳（一轮都没落），就认为它已经不在跑了——
-  // 宁可让人重新点一次，也不能把按钮永久锁死。
-  const stale = Boolean(extract.running && extract.updatedAt && Date.now() - extract.updatedAt > 90000);
-  const alive = Boolean(extract.running) && !stale;
-  const stopping = pending === 'stopping' || Boolean(extract.stopping && alive);
-  const buttonLabel = stopping ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
+  const { alive, busy, stopping, buttonLabel } = runState(pending, extract);
   const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
   // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
@@ -726,6 +719,24 @@ function StarmapPanel({ rpcCall }) {
   );
 }
 
+/** 宿主 90 秒没有任何心跳（一轮都没落），就认为它已经不在跑了——
+ *  宁可让人重新点一次，也不能把按钮永久锁死。 */
+const STALE_MS = 90000;
+
+/** 按钮该显示什么、能不能点。纯函数：界面与测试共用同一套判断。 */
+function runState(pending, extract, now = Date.now()) {
+  const fresh = extract || {};
+  const stale = Boolean(fresh.running && fresh.updatedAt && now - fresh.updatedAt > STALE_MS);
+  const alive = Boolean(fresh.running) && !stale;
+  // 本地那个「刚点下」的标记也会过期：宿主没动静时它不能继续替宿主说话。
+  const live = stale ? '' : pending;
+  const busy = live !== '' || alive;
+  // 「正在暂停」只在等宿主回话的那几秒出现；宿主那边停止之后必须回到「现在抽星」。
+  const stopping = live === 'stopping' || Boolean(fresh.stopping && alive);
+  const buttonLabel = stopping ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
+  return { stale, alive, busy, stopping, buttonLabel };
+}
+
 const name = 'dsh-lpipe-starmap-settings';
 const inject = ['slots', 'connection'];
 
@@ -753,6 +764,8 @@ module.exports = {
     ratioOf,
     formatTokens,
     POLL_MS,
+    runState,
+    PANEL_ID: 'starmap',
   },
 };
 
