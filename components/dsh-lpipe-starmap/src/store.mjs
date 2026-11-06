@@ -78,6 +78,7 @@ export function openRepo({ root = starmapRoot() } = {}) {
   mkdirSync(root, { recursive: true })
   const state = readJson(stateFile(root), { version: 1, lex: 0, built: {} })
   if (!state.built) state.built = {}
+  if (!state.pending || typeof state.pending !== 'object') state.pending = {}
   if (!Number.isInteger(state.lex)) state.lex = 0
 
   /** id -> { id, name, lex, born } */
@@ -146,6 +147,7 @@ export function openRepo({ root = starmapRoot() } = {}) {
   function reload() {
     const next = readJson(stateFile(root), { version: 1, lex: 0, built: {} })
     state.built = next.built ?? {}
+    state.pending = next.pending && typeof next.pending === 'object' ? next.pending : {}
     state.lex = Number.isInteger(next.lex) ? next.lex : 0
     if (Number.isInteger(next.version)) state.version = next.version
 
@@ -194,6 +196,20 @@ export function openRepo({ root = starmapRoot() } = {}) {
     return star
   }
 
+  /** 只见过一次的名字记在 pending 里：见过第二次才真正成星。 */
+  function pendingTurn(name) {
+    const turn = state.pending[name]
+    return Number.isInteger(turn) ? turn : null
+  }
+
+  function setPending(name, turn) {
+    state.pending[name] = turn
+  }
+
+  function clearPending(name) {
+    delete state.pending[name]
+  }
+
   function recordTurn(record) {
     const file = sourceFile(root, record.session, dayOf(record.at))
     mkdirSync(sessionSourcesDir(root, record.session), { recursive: true })
@@ -210,6 +226,11 @@ export function openRepo({ root = starmapRoot() } = {}) {
     for (const [sessionId, info] of Object.entries(disk.built ?? {})) {
       const current = state.built[sessionId]
       if (!current || (info?.turn ?? 0) > (current?.turn ?? 0)) state.built[sessionId] = info
+    }
+    for (const [name, turn] of Object.entries(disk.pending ?? {})) {
+      if (!Number.isInteger(turn)) continue
+      const current = state.pending[name]
+      if (!Number.isInteger(current) || turn < current) state.pending[name] = turn
     }
   }
 
@@ -237,6 +258,9 @@ export function openRepo({ root = starmapRoot() } = {}) {
     byStar,
     byName,
     ensureStar,
+    pendingTurn,
+    setPending,
+    clearPending,
     recordTurn,
     raiseWatermark,
     removeTurn,

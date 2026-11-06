@@ -44,14 +44,32 @@ function textsOf(row) {
  * 抽星但不写盘：一轮 → { lines, names }。
  * `lines[].stars` 是星 id；`names` 是 id → 名字，写星表时要用。
  */
+/** 一句话里这个名字提了几次：一轮里提两次的名字才够格成星。 */
+function occurrences(text, name) {
+  const hay = String(text ?? '').toLowerCase()
+  const needle = name.toLowerCase()
+  if (!needle) return 0
+  let count = 0
+  let from = 0
+  while (true) {
+    const at = hay.indexOf(needle, from)
+    if (at < 0) break
+    count += 1
+    from = at + needle.length
+  }
+  return count
+}
+
 export function planTurn(turn, matcher) {
   const lines = []
   const names = new Map()
-  const add = (seq, rowIndex, names_, clock = null) => {
+  const counts = new Map()
+  const add = (seq, rowIndex, names_, clock = null, text = '') => {
     const ids = []
     for (const name of names_) {
       const id = starIdOf(name)
       names.set(id, name)
+      counts.set(id, (counts.get(id) ?? 0) + Math.max(1, occurrences(text, name)))
       ids.push(id)
     }
     if (ids.length === 0) return
@@ -66,19 +84,40 @@ export function planTurn(turn, matcher) {
     }
     for (const text of textsOf(row)) {
       for (const sentence of splitSentences(text)) {
-        add(row.seq, rowIndex, extractStars(sentence, matcher), clockOf(sentence))
+        add(row.seq, rowIndex, extractStars(sentence, matcher), clockOf(sentence), sentence)
       }
     }
   }
-  return { lines, names }
+  return { lines, names, counts }
 }
 
 /** 一轮落进星图：补星表、写星源、抬水位。 */
 export function buildTurn({ repo, turn, sessionId, lex, matcher }) {
   const plan = planTurn(turn, matcher)
   const born = new Date(turn.at ?? Date.now()).toISOString()
+  // 只出现一次的名字不算星：一轮里提两次、或者下一轮又提到，才点亮。
+  const mentions = plan.counts
+  const lit = new Set()
   for (const [id, name] of plan.names) {
-    if (!repo.stars.has(id)) repo.ensureStar(name, lex, born)
+    if (repo.stars.has(id)) {
+      lit.add(id)
+      continue
+    }
+    const seenAt = repo.pendingTurn(name)
+    if (seenAt === null && (mentions.get(id) ?? 0) < 2) {
+      repo.setPending(name, turn.turn)
+      continue
+    }
+    if (seenAt !== null && seenAt === turn.turn) continue
+    repo.ensureStar(name, lex, born)
+    repo.clearPending(name)
+    lit.add(id)
+  }
+  const lines = []
+  for (const line of plan.lines) {
+    const stars = (line.stars ?? []).filter((id) => lit.has(id))
+    if (stars.length === 0) continue
+    lines.push({ ...line, stars })
   }
   const record = {
     turn: turn.turn,
@@ -87,7 +126,7 @@ export function buildTurn({ repo, turn, sessionId, lex, matcher }) {
     lex,
     from: turn.from,
     to: turn.to,
-    lines: plan.lines,
+    lines,
   }
   repo.recordTurn(record)
   repo.raiseWatermark(sessionId, turn.turn, turn.to, lex)
