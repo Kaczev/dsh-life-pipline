@@ -92,13 +92,7 @@ const button = (accent) => ({
   whiteSpace: 'nowrap',
 });
 
-/** 模型没声明思考强度时的兜底表；即便如此也必须显式选，不留默认。 */
-const EFFORTS = [
-  { value: 'none', label: '不思考' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-];
+;
 
 function clock(ms) {
   if (!Number.isFinite(ms)) return '—';
@@ -455,9 +449,9 @@ function StarmapPanel({ rpcCall }) {
                 setSaved('');
               },
             },
-            h('option', { value: '' }, form.model ? '（不选）' : '先选模型'),
-            (efforts?.efforts?.length ? efforts.efforts : EFFORTS).map((item) =>
-              h('option', { key: item.id ?? item.value, value: item.id ?? item.value }, item.name ?? item.label)),
+            h('option', { value: '' }, !form.model ? '先选模型' : efforts?.efforts?.length ? '（不选）' : '（这个模型没有可选强度）'),
+            (efforts?.efforts ?? []).map((item) =>
+              h('option', { key: item.id, value: item.id }, item.name || item.id)),
           ),
         ),
       ),
@@ -477,7 +471,7 @@ function StarmapPanel({ rpcCall }) {
             ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
             : saved || (configured
               ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
-              : '三元组必须都选。不选就是不抽星，不会替你挑模型，也不会产生费用。'),
+              : '提供者和模型必须选；这个模型若提供思考强度，也一并选上。不选就是不抽星，不会替你挑模型。'),
         ),
       ),
     ),
@@ -511,6 +505,5 @@ module.exports = {
     ratioOf,
     formatTokens,
     POLL_MS,
-    EFFORTS,
   },
 };

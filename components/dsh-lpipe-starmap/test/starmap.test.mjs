@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { canExtract, routeOf } from '../src/config.mjs'
+
 import { RULES_VERSION, buildTurn } from '../src/build.mjs'
 import { apply } from '../src/index.js'
 import { createQueries } from '../src/query.mjs'
@@ -261,4 +263,14 @@ test('抽星规则升级后，旧星表整库作废、记忆全部退回灰色',
   assert.equal(after.turns.size, 0, '星源也清空，所有轮次重新变灰')
   assert.equal(after.state.rules, RULES_VERSION)
   assert.deepEqual(after.state.built ?? {}, {})
+})
+
+test('没有思考强度可选的模型：强度留空也能抽星，有强度时不选就不抽', () => {
+  assert.equal(canExtract({ provider: 'p', model: 'm', reasoningEffort: '', effortFree: true }), true)
+  assert.equal(canExtract({ provider: 'p', model: 'm', reasoningEffort: '', effortFree: false }), false)
+  assert.equal(canExtract({ provider: 'p', model: 'm', reasoningEffort: 'low' }), true)
+  assert.equal(canExtract({ provider: 'p', model: '', reasoningEffort: 'low' }), false)
+
+  assert.deepEqual(routeOf({ provider: 'p', model: 'm' }), { provider: 'p', model: 'm' })
+  assert.deepEqual(routeOf({ provider: 'p', model: 'm', reasoningEffort: 'low' }), { provider: 'p', model: 'm', reasoningEffort: 'low' })
 })

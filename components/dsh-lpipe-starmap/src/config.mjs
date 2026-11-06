@@ -9,6 +9,9 @@ export const DEFAULT_CONFIG = {
   provider: '',
   model: '',
   reasoningEffort: '',
+  // 有些模型压根没有思考强度可选（dsh 不报 reasoning 元数据），
+  // 那种模型允许强度留空——「留空就不抽星」只针对有强度可选、却故意不选的模型。
+  effortFree: false,
   concurrency: 3,
 }
 
@@ -24,6 +27,7 @@ export function loadConfig(root = starmapRoot()) {
       provider: clean(parsed?.provider),
       model: clean(parsed?.model),
       reasoningEffort: clean(parsed?.reasoningEffort),
+      effortFree: parsed?.effortFree === true,
       concurrency: Number.isFinite(concurrency) ? Math.min(8, Math.max(1, Math.round(concurrency))) : DEFAULT_CONFIG.concurrency,
     }
   } catch {
@@ -36,6 +40,7 @@ export function saveConfig(root = starmapRoot(), patch = {}) {
   if (patch.provider !== undefined) next.provider = clean(patch.provider)
   if (patch.model !== undefined) next.model = clean(patch.model)
   if (patch.reasoningEffort !== undefined) next.reasoningEffort = clean(patch.reasoningEffort)
+  if (patch.effortFree !== undefined) next.effortFree = patch.effortFree === true
   if (patch.concurrency !== undefined) {
     const value = Number(patch.concurrency)
     if (Number.isFinite(value)) next.concurrency = Math.min(8, Math.max(1, Math.round(value)))
@@ -51,14 +56,19 @@ export function saveConfig(root = starmapRoot(), patch = {}) {
 /** 传给 llm.stream 的路由：两个都填了才算指定，否则交给宿主的默认模型。 */
 export function routeOf(config = {}) {
   if (!config.provider || !config.model) return {}
-  return { provider: config.provider, model: config.model }
+  const route = { provider: config.provider, model: config.model }
+  // 强度留空就整条不传：宿主会按模型自己的默认值走，也不会把不支持的强度送上去。
+  if (clean(config.reasoningEffort)) route.reasoningEffort = clean(config.reasoningEffort)
+  return route
 }
 
 /**
- * 三个都填了才抽星：供应商、模型、思考强度。
- * 任何一个留空就完全不抽——宁可不点亮，也不拿猜的星污染这张图。
+ * 供应商和模型必须选；思考强度只在「这个模型确实提供强度」时才必须选。
+ * 模型没提供强度（dsh 报不出 reasoning 元数据）时，强度留空是正常状态，不是漏填。
  */
 export function canExtract(config = {}) {
-  return Boolean(clean(config.provider) && clean(config.model) && clean(config.reasoningEffort))
+  if (!clean(config.provider) || !clean(config.model)) return false
+  if (config.effortFree === true) return true
+  return Boolean(clean(config.reasoningEffort))
 }
 
