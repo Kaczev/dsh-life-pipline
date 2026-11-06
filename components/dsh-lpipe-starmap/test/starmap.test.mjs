@@ -139,6 +139,26 @@ test('starmap.rebuild 与配置读写走得通，没接上如实说', async () =
   assert.equal((await without('starmap.config', {})).error.code, 'starmap/unavailable')
 })
 
+test('设置页从宿主读提供者、模型和思考强度', async () => {
+  const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
+  const queries = { progress: () => ({ built: 0, turns: 0, grey: 0 }) }
+  const handler = createStarmapRpcHandler({
+    queries,
+    catalog: async () => ({ providers: [{ id: 'deepseek', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }] }),
+    efforts: async (provider, model) => ({ efforts: provider === 'deepseek' && model === 'deepseek-chat' ? [{ id: 'low', name: '低' }] : [], defaultEffort: null }),
+  })
+
+  const catalog = await handler('starmap.catalog', {})
+  assert.equal(catalog.value.providers[0].models[0].id, 'deepseek-chat')
+  assert.equal((await handler('starmap.efforts', { provider: 'deepseek', model: 'deepseek-chat' })).value.efforts[0].id, 'low')
+  assert.deepEqual((await handler('starmap.efforts', { provider: 'deepseek', model: 'nope' })).value.efforts, [])
+  assert.equal((await handler('starmap.catalog', {})).ok, true)
+
+  const without = createStarmapRpcHandler({ queries })
+  assert.equal((await without('starmap.catalog', {})).error.code, 'starmap/unavailable')
+  assert.equal((await without('starmap.efforts', {})).error.code, 'starmap/unavailable')
+})
+
 test('水位丢了：星源还在就能自己长回来', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const at = Date.parse('2026-11-06T12:40:00+08:00')

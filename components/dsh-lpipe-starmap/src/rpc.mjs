@@ -9,6 +9,8 @@ const METHODS = new Set([
   'starmap.rebuild',
   'starmap.config',
   'starmap.config.set',
+  'starmap.catalog',
+  'starmap.efforts',
 ])
 
 function failure(code, message) {
@@ -25,7 +27,7 @@ const clamp = (value, fallback, max) => {
   return Math.min(max, Math.max(1, Math.round(number)))
 }
 
-export function createStarmapRpcHandler({ queries, rebuild, config }) {
+export function createStarmapRpcHandler({ queries, rebuild, config, catalog, efforts }) {
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('starmap/unknown-method', `Unknown method: ${method}`)
     try {
@@ -40,6 +42,14 @@ export function createStarmapRpcHandler({ queries, rebuild, config }) {
       if (method === 'starmap.rebuild') {
         if (typeof rebuild !== 'function') return failure('starmap/unavailable', 'Rebuild is not wired up.')
         return { ok: true, value: await rebuild({ full: payload?.full === true }) }
+      }
+      if (method === 'starmap.catalog') {
+        if (typeof catalog !== 'function') return failure('starmap/unavailable', 'Catalog is not wired up.')
+        return { ok: true, value: await catalog() }
+      }
+      if (method === 'starmap.efforts') {
+        if (typeof efforts !== 'function') return failure('starmap/unavailable', 'Efforts are not wired up.')
+        return { ok: true, value: await efforts(payload?.provider ?? '', payload?.model ?? '') }
       }
       if (method === 'starmap.star') {
         const value = queries.star(payload?.id ?? payload?.name, { limit: clamp(payload?.limit, 80, 500) })

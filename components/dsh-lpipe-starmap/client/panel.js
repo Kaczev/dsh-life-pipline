@@ -90,8 +90,8 @@ const button = (accent) => ({
   whiteSpace: 'nowrap',
 });
 
+/** 模型没声明思考强度时的兜底表；即便如此也必须显式选，不留默认。 */
 const EFFORTS = [
-  { value: '', label: '默认' },
   { value: 'none', label: '不思考' },
   { value: 'low', label: '低' },
   { value: 'medium', label: '中' },
@@ -122,6 +122,22 @@ function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
   const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '' });
   const [saved, setSaved] = React.useState('');
+  // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
+  const [catalog, setCatalog] = React.useState([]);
+  const [efforts, setEfforts] = React.useState(null);
+
+  const loadEfforts = (provider, model) => {
+    if (!provider || !model) {
+      setEfforts(null);
+      return;
+    }
+    Promise.resolve()
+      .then(() => rpcCall('starmap.efforts', { provider, model }))
+      .then((reply) => {
+        if (reply?.ok) setEfforts(reply.value || { efforts: [], defaultEffort: null });
+      })
+      .catch(() => setEfforts(null));
+  };
 
   React.useEffect(() => {
     let alive = true;
@@ -152,6 +168,13 @@ function StarmapPanel({ rpcCall }) {
           model: config.model || '',
           reasoningEffort: config.reasoningEffort || '',
         });
+        loadEfforts(config.provider || '', config.model || '');
+      })
+      .catch(() => {});
+    Promise.resolve()
+      .then(() => rpcCall('starmap.catalog', {}))
+      .then((reply) => {
+        if (alive && reply?.ok) setCatalog(reply.value?.providers || []);
       })
       .catch(() => {});
     return () => {
@@ -277,24 +300,63 @@ function StarmapPanel({ rpcCall }) {
       h('div', { style: { ...label, marginBottom: 10 } }, '抽星模型'),
       h(
         'div',
-        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10, alignItems: 'end' } },
-        h('div', { style: field }, h('div', { style: label }, '提供者'), h('input', {
-          style: input,
-          value: form.provider,
-          placeholder: '留空用当前会话',
-          onChange: (event) => setForm({ ...form, provider: event.target.value }),
-        })),
-        h('div', { style: field }, h('div', { style: label }, '模型名'), h('input', {
-          style: input,
-          value: form.model,
-          placeholder: '留空用当前会话',
-          onChange: (event) => setForm({ ...form, model: event.target.value }),
-        })),
-        h('div', { style: field }, h('div', { style: label }, '思考强度'), h('select', {
-          style: input,
-          value: form.reasoningEffort,
-          onChange: (event) => setForm({ ...form, reasoningEffort: event.target.value }),
-        }, EFFORTS.map((item) => h('option', { key: item.value, value: item.value }, item.label)))),
+        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 140px', gap: 10, alignItems: 'end' } },
+        h(
+          'div',
+          { style: field },
+          h('div', { style: label }, '提供者'),
+          h(
+            'select',
+            {
+              style: input,
+              value: form.provider,
+              onChange: (event) => {
+                setForm({ provider: event.target.value, model: '', reasoningEffort: '' });
+                setEfforts(null);
+              },
+            },
+            h('option', { value: '' }, '（不选）'),
+            catalog.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name && entry.name !== entry.id ? `${entry.name} · ${entry.id}` : entry.id)),
+          ),
+        ),
+        h(
+          'div',
+          { style: field },
+          h('div', { style: label }, '模型'),
+          h(
+            'select',
+            {
+              style: { ...input, opacity: form.provider ? 1 : 0.55 },
+              value: form.model,
+              disabled: !form.provider,
+              onChange: (event) => {
+                const model = event.target.value;
+                setForm({ ...form, model, reasoningEffort: '' });
+                loadEfforts(form.provider, model);
+              },
+            },
+            h('option', { value: '' }, form.provider ? '（不选）' : '先选提供者'),
+            (catalog.find((entry) => entry.id === form.provider)?.models || []).map((model) =>
+              h('option', { key: model.id, value: model.id }, model.name && model.name !== model.id ? `${model.name} · ${model.id}` : model.id)),
+          ),
+        ),
+        h(
+          'div',
+          { style: field },
+          h('div', { style: label }, '思考强度'),
+          h(
+            'select',
+            {
+              style: { ...input, opacity: form.model ? 1 : 0.55 },
+              value: form.reasoningEffort,
+              disabled: !form.model,
+              onChange: (event) => setForm({ ...form, reasoningEffort: event.target.value }),
+            },
+            h('option', { value: '' }, form.model ? '（不选）' : '先选模型'),
+            (efforts?.efforts?.length ? efforts.efforts : EFFORTS).map((item) =>
+              h('option', { key: item.id ?? item.value, value: item.id ?? item.value }, item.name ?? item.label)),
+          ),
+        ),
       ),
       h(
         'div',
@@ -305,7 +367,7 @@ function StarmapPanel({ rpcCall }) {
           { style: { fontSize: 11, color: configured ? COLORS.muted : COLORS.warning } },
           saved || (configured
             ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
-            : '供应商、模型、思考强度都填了才会抽星；留空就是不抽。'),
+            : '三元组必须都选。不选就是不抽星，不会替你挑模型，也不会产生费用。'),
         ),
       ),
     ),

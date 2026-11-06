@@ -303,6 +303,43 @@ export function apply(ctx, options = {}) {
     'dsh-lpipe-starmap: stop warm-up',
   )
 
+  /** 宿主里有哪些提供者和模型：设置页的选择框直接读这份，不让用户手打。 */
+  const catalog = async () => {
+    if (typeof llm?.listProviders !== 'function') return { providers: [], error: 'llm unavailable' }
+    const providers = []
+    for (const entry of llm.listProviders() ?? []) {
+      const id = String(entry?.id ?? '')
+      if (!id) continue
+      let models = []
+      try {
+        models = typeof llm.listModels === 'function' ? (await llm.listModels(id)) ?? [] : []
+      } catch (error) {
+        warn(`[dsh-lpipe-starmap] 读不到 ${id} 的模型列表：${error?.message ?? error}`)
+      }
+      providers.push({
+        id,
+        name: String(entry?.name ?? id),
+        models: models.map((model) => ({ id: String(model?.id ?? ''), name: String(model?.name ?? model?.id ?? '') })).filter((model) => model.id),
+      })
+    }
+    return { providers }
+  }
+
+  /** 这个模型支持哪些思考强度：读宿主的模型元数据，读不到就如实说没有。 */
+  const efforts = async (provider, model) => {
+    if (typeof llm?.resolveModel !== 'function' || !provider || !model) return { efforts: [], defaultEffort: null }
+    try {
+      const info_ = await llm.resolveModel(provider, model)
+      const reasoning = info_?.reasoning
+      return {
+        efforts: (reasoning?.efforts ?? []).map((effort) => ({ id: String(effort?.id ?? ''), name: String(effort?.name ?? effort?.id ?? '') })).filter((effort) => effort.id),
+        defaultEffort: reasoning?.defaultEffort ? String(reasoning.defaultEffort) : null,
+      }
+    } catch (error) {
+      return { efforts: [], defaultEffort: null, error: String(error?.message ?? error) }
+    }
+  }
+
   ctx.inject(['connection'], (connectionCtx) => {
     try {
       registerStarmapRpc(
@@ -310,6 +347,8 @@ export function apply(ctx, options = {}) {
         createStarmapRpcHandler({
           queries,
           rebuild,
+          catalog,
+          efforts,
           config: {
             get: () => loadConfig(root),
             set: (patch) => {
