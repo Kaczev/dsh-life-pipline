@@ -14,7 +14,7 @@ import { MemoryWriter } from './writer.mjs'
  * 3 = 每条行都带轮号：早先 `user/message` 事件本身不带 turn，那些行是 null，
  *     星图按轮分组时会把它们整条跳过，于是你自己的话从来没有参与抽星。
  */
-export const FORMAT_VERSION = 3
+export const FORMAT_VERSION = 2
 
 const STRUCTURAL = new Set(['seq', 'day', 'at', 'session', 'turn', 'step', 'kind', 'prev', 'hash'])
 

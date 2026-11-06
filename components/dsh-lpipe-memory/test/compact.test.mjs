@@ -109,7 +109,7 @@ test('compacting keeps the event cursor, so a live session may keep appending', 
   writer.close()
 })
 
-test('compacting fills in the turn number that old rows were missing', () => {
+test('a row without a turn number reads back with the turn that follows it', () => {
   const root = store()
   const writer = new MemoryWriter({ root })
   const at = new Date('2026-11-05T12:00:00+08:00').getTime()
@@ -118,17 +118,11 @@ test('compacting fills in the turn number that old rows were missing', () => {
   writer.append({ sessionId: 'session-a', at: at + 1, kind: 'assistant/message', turn: 42, payload: { text: '\u5728' } })
   writer.close()
 
-  const stateFile = join(root, 'state.json')
-  const state = JSON.parse(readFileSync(stateFile, 'utf8'))
-  state.version = 2
-  writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8')
-  assert.ok(needsMigration(root))
-
-  compact({ root })
   const reader = new MemoryReader({ root })
+  assert.equal(reader.raw(0).turn, null, 'the bytes on disk stay untouched')
   assert.equal(reader.read(0).turn, 42, 'the empty turn is taken from the row that follows it')
   assert.equal(reader.read(1).turn, 42)
-  assert.deepEqual(reader.verify(), [])
+  assert.deepEqual(reader.verify(), [], 'verify still reads the raw bytes, so the chain is clean')
 })
 
 test('a fresh store is already current, so nothing is migrated', () => {

@@ -38,6 +38,7 @@ export class MemoryReader {
     this.idxCache = new Map()
     this.rowCache = new Map()
     this.dayCache = new Map()
+    this.turnCache = new Map()
     this.state = readJson(stateFile(root), { version: 1, seq: -1, hash: GENESIS, sessions: {} })
   }
 
@@ -47,6 +48,7 @@ export class MemoryReader {
     this.idxCache.clear()
     this.rowCache.clear()
     this.dayCache.clear()
+    this.turnCache.clear()
     return this
   }
 
@@ -83,6 +85,16 @@ export class MemoryReader {
 
   /** 取一行原文。命中帧缓存时零解压。 */
   read(seq) {
+    const row = this.raw(seq)
+    if (!row || Number.isInteger(row.turn)) return row
+    // 早先落盘的 user/message 没有轮号（事件本身不带 turn）。
+    // 与其改写整条哈希链去补它，不如读的时候补：同一会话里之后最近一个有轮号的行。
+    const hint = this.#turnHints(this.sessionOf(seq)).get(seq)
+    return hint === undefined ? row : { ...row, turn: hint }
+  }
+
+  /** 原样读一行，不做任何补全。verify 要的是磁盘上的字节。 */
+  raw(seq) {
     if (!Number.isInteger(seq)) throw new TypeError('read 需要整数 seq')
     const sessionId = this.sessionOf(seq)
     if (!sessionId) return null
@@ -91,6 +103,24 @@ export class MemoryReader {
     const entry = this.#index(sessionId, day).get(seq)
     const text = this.#frameText(sessionId, day, entry.f)
     return JSON.parse(Buffer.from(text, 'utf8').subarray(entry.o, entry.o + entry.l).toString('utf8'))
+  }
+
+  /** seq → 应当继承的轮号；一个会话只扫一遍。 */
+  #turnHints(sessionId) {
+    if (this.turnCache.has(sessionId)) return this.turnCache.get(sessionId)
+    const hints = new Map()
+    const info = this.state.sessions?.[sessionId]
+    if (info) {
+      let next = null
+      for (let seq = info.lastSeq; seq >= info.firstSeq; seq -= 1) {
+        const row = this.raw(seq)
+        if (!row) continue
+        if (Number.isInteger(row.turn)) next = row.turn
+        else if (next !== null) hints.set(seq, next)
+      }
+    }
+    this.turnCache.set(sessionId, hints)
+    return hints
   }
 
   /** 这一行实际躺在哪一天的文件里。行上的 `day` 字段按写入时刻算，换天时可能偏一格。 */
