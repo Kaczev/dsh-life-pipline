@@ -47,10 +47,12 @@
 
 - [components/dsh-lpipe-memory/package.json](components/dsh-lpipe-memory/package.json)：包名、`exports`、`dsh.bundle`，以及对 `dsh-life-pipline` 的依赖。
 - [components/dsh-lpipe-memory/cordis.patch.yml](components/dsh-lpipe-memory/cordis.patch.yml)：组件自己的挂载行。
-- [components/dsh-lpipe-memory/src/paths.mjs](components/dsh-lpipe-memory/src/paths.mjs)：`~/.dsh/life-memory` 的目录规则（一对话一文件夹、按天分卷、media 全局寻址）。
+- [components/dsh-lpipe-memory/src/paths.mjs](components/dsh-lpipe-memory/src/paths.mjs)：`~/.dsh/life-memory` 的目录规则（一对话一文件夹、按天分卷、图片跟着当天走）。
 - [components/dsh-lpipe-memory/src/day.mjs](components/dsh-lpipe-memory/src/day.mjs)：凌晨 4 点换天的天界计算。
 - [components/dsh-lpipe-memory/src/chain.mjs](components/dsh-lpipe-memory/src/chain.mjs)：哈希链（`prev` / `hash` 与校验）。
 - [components/dsh-lpipe-memory/src/frames.mjs](components/dsh-lpipe-memory/src/frames.mjs)：8 KB 一帧的压缩与解压。
+- [components/dsh-lpipe-memory/src/mediapack.mjs](components/dsh-lpipe-memory/src/mediapack.mjs)：一天一个媒体包（图片跟着当天的目录走，追加式帧 + 偏移表）。
+- [components/dsh-lpipe-memory/scripts/migrate-media-into-days.mjs](components/dsh-lpipe-memory/scripts/migrate-media-into-days.mjs)：把旧的全局 `media/` 一次性搬进各自那一天。
 - [components/dsh-lpipe-memory/src/writer.mjs](components/dsh-lpipe-memory/src/writer.mjs)：追加写入、偏移表、`meta.json` 与全局游标。
 - [components/dsh-lpipe-memory/src/pack.mjs](components/dsh-lpipe-memory/src/pack.mjs)：冷日打包——过完的那一天整天重打成一条 zstd 19 流，启动后补做。
 - [components/dsh-lpipe-memory/src/reader.mjs](components/dsh-lpipe-memory/src/reader.mjs)：按 `seq` 读一行（只解一帧）、时间线、搜索与链校验。

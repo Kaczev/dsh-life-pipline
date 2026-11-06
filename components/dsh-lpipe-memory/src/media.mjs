@@ -1,9 +1,9 @@
-// media 转存：把图片/附件的字节按 sha256 存进全局 media/，行里只留坐标。
+// media 转存：把图片/附件的字节搬进「它所属的那一天」的媒体包，行里只留坐标。
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync } from 'node:fs'
 
-import { mediaFile } from './paths.mjs'
+import { dayOf } from './day.mjs'
+import { appendMedia } from './mediapack.mjs'
 
 const MAGIC = [
   { ext: 'png', mediaType: 'image/png', test: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 },
@@ -46,12 +46,13 @@ function hostPathOf(attachments, ref) {
 }
 
 /**
- * 把内容块里的附件字节搬进 media/。
+ * 把内容块里的附件字节搬进当天那一个媒体包。
  * 返回新的 parts（含 sha256）与这一行要记的 media 清单；字节本身绝不进日志。
  */
-export function captureMedia({ attachments, parts, root, log }) {
+export function captureMedia({ attachments, parts, root, log, sessionId, at }) {
   if (!Array.isArray(parts) || parts.length === 0) return { parts, media: [] }
   const media = []
+  const items = []
   const next = []
   for (const part of parts) {
     const ref = part?.attachment
@@ -70,11 +71,7 @@ export function captureMedia({ attachments, parts, root, log }) {
       const trusted = declared !== '' && declared !== 'application/octet-stream'
       const mediaType = trusted ? declared : sniffed.mediaType
       const ext = trusted ? declared.split('/')[1]?.replace('jpeg', 'jpg') || sniffed.ext : sniffed.ext
-      const target = mediaFile(root, sha256, ext)
-      if (!existsSync(target)) {
-        mkdirSync(dirname(target), { recursive: true })
-        writeFileSync(target, bytes)
-      }
+      items.push({ sha256, ext, mediaType, bytes, name: ref.name ?? undefined })
       const record = { sha256, mediaType, bytes: bytes.length, name: ref.name ?? undefined }
       media.push(record)
       next.push({ ...part, sha256, mediaType, bytes: bytes.length })
@@ -82,6 +79,18 @@ export function captureMedia({ attachments, parts, root, log }) {
       const reason = String(error?.message ?? error).split('\n')[0]
       log?.(`[dsh-lpipe-memory] 附件没转存：${reason}`)
       next.push({ ...part, mediaError: reason })
+    }
+  }
+  if (items.length > 0) {
+    if (!sessionId) {
+      log?.('[dsh-lpipe-memory] 附件没转存：不知道属于哪个会话')
+    } else {
+      try {
+        appendMedia(root, sessionId, dayOf(Number.isFinite(at) ? at : Date.now()), items)
+      } catch (error) {
+        const reason = String(error?.message ?? error).split('\n')[0]
+        log?.(`[dsh-lpipe-memory] 媒体包写入失败：${reason}`)
+      }
     }
   }
   return { parts: next, media }

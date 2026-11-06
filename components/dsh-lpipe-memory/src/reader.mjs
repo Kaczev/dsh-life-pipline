@@ -3,6 +3,7 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } 
 
 import { GENESIS, checkRow } from './chain.mjs'
 import { decompressFrame } from './frames.mjs'
+import { readMedia } from './mediapack.mjs'
 import { dayFile, daysDir, framesFile, idxFile, memoryRoot, stateFile } from './paths.mjs'
 
 function readJson(file, fallback) {
@@ -85,11 +86,27 @@ export class MemoryReader {
     if (!Number.isInteger(seq)) throw new TypeError('read 需要整数 seq')
     const sessionId = this.sessionOf(seq)
     if (!sessionId) return null
-    const day = this.daysOf(sessionId).find((name) => this.#index(sessionId, name).has(seq))
+    const day = this.dayOf(seq)
     if (!day) return null
     const entry = this.#index(sessionId, day).get(seq)
     const text = this.#frameText(sessionId, day, entry.f)
     return JSON.parse(Buffer.from(text, 'utf8').subarray(entry.o, entry.o + entry.l).toString('utf8'))
+  }
+
+  /** 这一行实际躺在哪一天的文件里。行上的 `day` 字段按写入时刻算，换天时可能偏一格。 */
+  dayOf(seq) {
+    const sessionId = this.sessionOf(seq)
+    if (!sessionId) return null
+    return this.daysOf(sessionId).find((name) => this.#index(sessionId, name).has(seq)) ?? null
+  }
+
+  /** 取某一行带的那张图；字节在它所属那一天的媒体包里。 */
+  media(seq, sha256) {
+    const sessionId = this.sessionOf(seq)
+    if (!sessionId) return null
+    const day = this.dayOf(seq)
+    if (!day) return null
+    return readMedia(this.root, sessionId, day, sha256)
   }
 
   /** 按时间回放；给了 session 就只回放那一个对话。 */

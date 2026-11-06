@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { mediaPackBytes } from './mediapack.mjs'
 import { daysDir, framesFile, idxFile, memoryRoot, sessionsDir } from './paths.mjs'
 
 /** media 目录树加起来有多大（内容寻址，天然去重）。 */
@@ -80,7 +81,7 @@ function dayShares(root, sessionId, day) {
   if (idx.length === 0) return shares
 
   const frames = new Map()
-  let metaBytes = fileBytes(idxFile(root, sessionId, day))
+  let metaBytes = fileBytes(idxFile(root, sessionId, day)) + mediaPackBytes(root, sessionId, day)
   for (const line of readLines(framesFile(root, sessionId, day))) {
     const item = JSON.parse(line)
     if (Number.isFinite(item?.n) && Number.isFinite(item?.len)) frames.set(item.n, item.len)
@@ -179,7 +180,6 @@ export function computeStats(reader, { turns = 30, root = memoryRoot() } = {}) {
       mediaBytes += Number(item.bytes) || 0
     }
     total += mediaBytes
-    diskTotal += mediaBytes
 
     const key = `${row.session}|${row.turn}`
     const entry = groups.get(key) ?? {

@@ -40,6 +40,14 @@ export function stateFile(root) {
   return join(root, 'state.json')
 }
 
+export function mediaPackFile(root, sessionId, day) {
+  return join(daysDir(root, sessionId), `${day}.media.zst`)
+}
+
+export function mediaIdxFile(root, sessionId, day) {
+  return join(daysDir(root, sessionId), `${day}.media.idx`)
+}
+
 /** media 全局共享、内容寻址：同一份字节在两个会话里只存一次。 */
 export function mediaFile(root, sha256, ext = 'bin') {
   return join(root, 'media', sha256.slice(0, 2), sha256.slice(2, 4), `${sha256}.${ext}`)

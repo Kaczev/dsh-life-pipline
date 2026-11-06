@@ -123,7 +123,7 @@ export function apply(ctx, options = {}) {
         if (!projected) return
         let payload = projected.payload
         if (Array.isArray(payload?.parts) && payload.parts.some((part) => part?.attachment)) {
-          const captured = captureMedia({ attachments, parts: payload.parts, root, log: warn })
+          const captured = captureMedia({ attachments, parts: payload.parts, root, log: warn, sessionId, at: event?.time })
           payload = { ...payload, parts: captured.parts, media: captured.media }
         }
         const rows = buffered.get(sessionId) ?? []
