@@ -114,3 +114,20 @@ test('重启后从磁盘恢复：水位、星表、星源都还在', () => {
   saveLexicon(root, { version: 2, builtAt: at, turns: 1, words: [{ name: '星图', count: 3, df: 1 }] })
   assert.equal(loadLexicon(root).version, 2)
 })
+
+test('starmap.rebuild 走得通，没接上也如实说', async () => {
+  const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
+  const queries = { progress: () => ({ built: 3, turns: 5, grey: 2 }) }
+  const withRebuild = createStarmapRpcHandler({
+    queries,
+    rebuild: () => ({ built: 5, turns: 5, grey: 0 }),
+  })
+  const done = await withRebuild('starmap.rebuild', {})
+  assert.equal(done.ok, true)
+  assert.equal(done.value.built, 5)
+
+  const without = createStarmapRpcHandler({ queries })
+  const failed = await without('starmap.rebuild', {})
+  assert.equal(failed.ok, false)
+  assert.equal(failed.error.code, 'starmap/unavailable')
+})

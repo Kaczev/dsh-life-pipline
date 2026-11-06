@@ -58,6 +58,19 @@ const fill = (ratio) => ({
 
 const meta = { display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 11, color: COLORS.muted };
 
+const light = (busy) => ({
+  fontSize: 11,
+  fontWeight: 600,
+  color: COLORS.text,
+  fontFamily: 'inherit',
+  background: 'transparent',
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 999,
+  padding: '2px 10px 3px',
+  cursor: busy ? 'default' : 'pointer',
+  opacity: busy ? 0.55 : 1,
+});
+
 function clock(ms) {
   if (!Number.isFinite(ms)) return '—';
   const date = new Date(ms);
@@ -103,6 +116,24 @@ function StarmapPanel({ rpcCall }) {
   const turns = value?.turns ?? 0;
   const grey = value?.grey ?? 0;
 
+  const [busy, setBusy] = React.useState(false);
+  const [note, setNote] = React.useState('');
+
+  const lightUp = () => {
+    if (busy) return;
+    setBusy(true);
+    setNote('');
+    Promise.resolve()
+      .then(() => rpcCall('starmap.rebuild', {}))
+      .then((reply) => {
+        if (reply && reply.ok) setState({ loading: false, value: reply.value, error: '' });
+        else setState({ loading: false, value, error: reply?.error?.message || '这一次没点亮' });
+        setNote('');
+      })
+      .catch((error) => setNote(String(error?.message || error)))
+      .finally(() => setBusy(false));
+  };
+
   return h(
     'div',
     { style: card },
@@ -135,8 +166,14 @@ function StarmapPanel({ rpcCall }) {
       'div',
       { style: meta },
       h('span', null, `词表第 ${value?.lex ?? 0} 版${turns ? ` · ${Math.round(ratioOf(built, turns) * 100)}%` : ''}`),
-      h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
+      h(
+        'span',
+        { style: { display: 'flex', alignItems: 'center', gap: 10 } },
+        h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
+        h('button', { type: 'button', style: light(busy), disabled: busy, onClick: lightUp }, busy ? '点亮中…' : '现在点亮'),
+      ),
     ),
+    note ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, note) : null,
     state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
   );
 }

@@ -1,7 +1,7 @@
 // 星图的 RPC：只读查询，给设置页和以后的读取层用。
 export const STARMAP_RPC_ENDPOINT = 'dsh-lpipe-starmap'
 
-const METHODS = new Set(['starmap.progress', 'starmap.star', 'starmap.turn', 'starmap.links'])
+const METHODS = new Set(['starmap.progress', 'starmap.star', 'starmap.turn', 'starmap.links', 'starmap.rebuild'])
 
 function failure(code, message) {
   return { ok: false, error: { code, message, details: {} } }
@@ -17,11 +17,15 @@ const clamp = (value, fallback, max) => {
   return Math.min(max, Math.max(1, Math.round(number)))
 }
 
-export function createStarmapRpcHandler({ queries }) {
+export function createStarmapRpcHandler({ queries, rebuild }) {
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('starmap/unknown-method', `Unknown method: ${method}`)
     try {
       if (method === 'starmap.progress') return { ok: true, value: queries.progress() }
+      if (method === 'starmap.rebuild') {
+        if (typeof rebuild !== 'function') return failure('starmap/unavailable', 'Rebuild is not wired up.')
+        return { ok: true, value: await rebuild() }
+      }
       if (method === 'starmap.star') {
         const value = queries.star(payload?.id ?? payload?.name, { limit: clamp(payload?.limit, 80, 500) })
         return value ? { ok: true, value } : failure('starmap/no-such-star', 'No star with that id or name.')

@@ -95,7 +95,7 @@ export function createQueries({ repo, memoryStatus }) {
   /** 灰与亮：记忆里有多少轮、星图亮了多少轮。 */
   function progress() {
     const status = memoryStatus()
-    const built = Object.keys(repo.state?.built ?? {}).length > 0 ? repo.turns.size : 0
+    const built = Number.isFinite(status.lit) ? status.lit : repo.turns.size
     return {
       stars: repo.stars.size,
       lex: repo.state?.lex ?? 0,

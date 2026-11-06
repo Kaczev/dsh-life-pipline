@@ -21,8 +21,16 @@ export function apply(ctx, options = {}) {
   const root = options.root ?? starmapRoot()
   const memory = options.reader ?? new MemoryReader({ root: options.memoryRoot ?? memoryRoot() })
   const repo = openRepo({ root })
-  const warn = (message) => ctx.logger?.warn?.(message)
-  const info = (message) => (ctx.logger?.info ?? ctx.logger?.warn)?.(message)
+  // 星图是后台索引：写日志时也落到 stderr，宿主的日志里才找得到。
+  const warn = (message) => {
+    ctx.logger?.warn?.(message)
+    if (!ctx.logger?.warn) console.warn(message)
+  }
+  const info = (message) => {
+    const sink = ctx.logger?.info ?? ctx.logger?.warn
+    if (sink) sink(message)
+    else console.log(message)
+  }
 
   let lexicon = loadLexicon(root)
   let matcher = matcherOf(lexicon)
@@ -82,7 +90,7 @@ export function apply(ctx, options = {}) {
     return next
   }
 
-  /** 把某个会话里还没亮的轮次接过来。 */
+  /** 把某个会话里还没亮的轮次接过来。某一轮炸了只跳过这一轮，不拖累后面的。 */
   const buildSession = (sessionId) => {
     const rows = rowsOf(sessionId)
     if (rows.length === 0) return 0
@@ -92,8 +100,12 @@ export function apply(ctx, options = {}) {
     let built = 0
     for (const turn of turns) {
       if (repo.turns.has(turnKey(sessionId, turn.turn))) continue
-      buildTurn({ repo, turn, sessionId, lex: lexicon?.version ?? 0, matcher: matcher ?? emptyMatcher })
-      built += 1
+      try {
+        buildTurn({ repo, turn, sessionId, lex: lexicon?.version ?? 0, matcher: matcher ?? emptyMatcher })
+        built += 1
+      } catch (error) {
+        warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮跳过：${error?.message ?? error}`)
+      }
     }
     return built
   }
@@ -108,6 +120,7 @@ export function apply(ctx, options = {}) {
   const status = () => {
     const list = []
     let turns = 0
+    let lit = 0
     let lastBuiltAt = null
     let lastTurn = null
     for (const session of sessions()) {
@@ -120,6 +133,7 @@ export function apply(ctx, options = {}) {
       const builtInfo = repo.state?.built?.[session.sessionId] ?? null
       const builtTurns = builtInfo?.turn ?? 0
       turns += max
+      lit += Math.min(builtTurns, max)
       if (Number.isInteger(builtTurns)) {
         list.push({ sessionId: session.sessionId, turns: max, built: Math.min(builtTurns, max), grey: Math.max(0, max - builtTurns), to: builtInfo?.to ?? null })
       }
@@ -130,7 +144,7 @@ export function apply(ctx, options = {}) {
         lastTurn = record.turn
       }
     }
-    return { turns, sessions: list, lastBuiltAt, lastTurn }
+    return { turns, lit, sessions: list, lastBuiltAt, lastTurn }
   }
 
   const queries = createQueries({ repo, memoryStatus: status })
@@ -144,14 +158,25 @@ export function apply(ctx, options = {}) {
     }
   }
 
+  /** 补做一次：跟上磁盘上的星图、必要时重长词表、把剩下的灰记忆点亮。手动按钮也走这里。 */
+  const rebuild = () => {
+    const started = Date.now()
+    memory.reload()
+    repo.reload()
+    ensureLexicon()
+    const built = buildAll()
+    const result = { built, ...status(), elapsedMs: Date.now() - started }
+    info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
+    return result
+  }
+
   // 启动后补做：先把词表长出来，再把所有灰记忆一轮一轮点亮。
   const warmDelay = Number.isFinite(options.warmDelay) ? options.warmDelay : 4000
   const warm = setTimeout(() => {
     run('启动构建', () => {
-      memory.reload()
-      ensureLexicon()
-      const built = buildAll()
-      if (built > 0) info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
+      const before = repo.turns.size
+      info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
+      rebuild()
     })
   }, warmDelay)
   warm.unref?.()
@@ -165,7 +190,7 @@ export function apply(ctx, options = {}) {
 
   ctx.inject(['connection'], (connectionCtx) => {
     try {
-      registerStarmapRpc(connectionCtx, createStarmapRpcHandler({ queries }))
+      registerStarmapRpc(connectionCtx, createStarmapRpcHandler({ queries, rebuild }))
     } catch (error) {
       warn(`[dsh-lpipe-starmap] RPC 注册失败：${error?.message ?? error}`)
     }
@@ -188,5 +213,5 @@ export function apply(ctx, options = {}) {
     })
   })
 
-  return { repo, queries, buildAll, ensureLexicon }
+  return { repo, queries, buildAll, ensureLexicon, rebuild }
 }

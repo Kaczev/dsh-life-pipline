@@ -82,35 +82,21 @@ export function openRepo({ root = starmapRoot() } = {}) {
 
   /** id -> { id, name, lex, born } */
   const stars = new Map()
-  for (const star of readJsonl(starsFile(root))) {
-    if (star?.id && star?.name) stars.set(star.id, star)
-  }
   const byName = new Map()
-  for (const star of stars.values()) byName.set(star.name, star)
 
   /** "session#turn" -> { session, turn, at, from, to, lines: [{ seq, row, stars }] } */
   const turns = new Map()
   /** id -> [{ key, seq, row }] */
   const byStar = new Map()
 
-  const sources = sourcesDir(root)
-  if (existsSync(sources)) {
-    for (const sessionId of readdirSync(sources)) {
-      const dir = join(sources, sessionId)
-      if (!existsSync(dir) || !statSync(dir).isDirectory()) continue
-      for (const name of readdirSync(dir)) {
-        if (!name.endsWith('.jsonl')) continue
-        for (const record of readJsonl(join(dir, name))) {
-          if (!record || !Number.isInteger(record.turn)) continue
-          indexRecord(record)
-        }
-      }
-    }
-  }
-
   function indexRecord(record) {
     const key = turnKey(record.session, record.turn)
     const kept = { ...record, lines: Array.isArray(record.lines) ? record.lines : [] }
+    const previous = turns.get(key)
+    if (previous) {
+      // 同一轮被写了两遍（进程被杀后重算）：后面那份为准，先把旧的倒排摘掉。
+      for (const line of previous.lines) for (const id of line.stars ?? []) unindex(id, key)
+    }
     turns.set(key, kept)
     for (const [index, line] of kept.lines.entries()) {
       for (const id of line.stars ?? []) {
@@ -121,6 +107,49 @@ export function openRepo({ root = starmapRoot() } = {}) {
     }
     return kept
   }
+
+  function unindex(id, key) {
+    const list = byStar.get(id)
+    if (!list) return
+    const kept = list.filter((entry) => entry.key !== key)
+    if (kept.length > 0) byStar.set(id, kept)
+    else byStar.delete(id)
+  }
+
+  /** 从磁盘重读一遍。宿主里另一个进程（或上一次会话）写过，重新点亮前要跟上。 */
+  function reload() {
+    const next = readJson(stateFile(root), { version: 1, lex: 0, built: {} })
+    state.built = next.built ?? {}
+    state.lex = Number.isInteger(next.lex) ? next.lex : 0
+    if (Number.isInteger(next.version)) state.version = next.version
+
+    stars.clear()
+    byName.clear()
+    for (const star of readJsonl(starsFile(root))) {
+      if (star?.id && star?.name) stars.set(star.id, star)
+    }
+    for (const star of stars.values()) byName.set(star.name, star)
+
+    turns.clear()
+    byStar.clear()
+    const sources = sourcesDir(root)
+    if (existsSync(sources)) {
+      for (const sessionId of readdirSync(sources)) {
+        const dir = join(sources, sessionId)
+        if (!existsSync(dir) || !statSync(dir).isDirectory()) continue
+        for (const name of readdirSync(dir)) {
+          if (!name.endsWith('.jsonl')) continue
+          for (const record of readJsonl(join(dir, name))) {
+            if (!record || !Number.isInteger(record.turn)) continue
+            indexRecord(record)
+          }
+        }
+      }
+    }
+    return state
+  }
+
+  reload()
 
   function ensureStar(name, lex, born) {
     const existing = byName.get(name)
@@ -166,5 +195,6 @@ export function openRepo({ root = starmapRoot() } = {}) {
     raiseWatermark,
     removeTurn,
     lastBuilt,
+    reload,
   }
 }
