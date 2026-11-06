@@ -303,6 +303,8 @@ function StarmapPanel({ rpcCall }) {
 
   // 抽星进行中时轮询要快：进度条得随时在动，而不是二十秒跳一次。
   const runningRef = React.useRef(false);
+  // 轮询函数活在 effect 里，按钮回调要用它就得存一份引用：直接调 load() 会掉出作用域。
+  const reloadRef = React.useRef(null);
   React.useEffect(() => {
     let alive = true;
     let timer = null;
@@ -326,6 +328,7 @@ function StarmapPanel({ rpcCall }) {
           if (alive) timer = setTimeout(load, runningRef.current ? BUSY_POLL_MS : POLL_MS);
         });
     };
+    reloadRef.current = load;
     load();
     Promise.resolve()
       .then(() => rpcCall('starmap.config', {}))
@@ -352,6 +355,7 @@ function StarmapPanel({ rpcCall }) {
       .catch(() => {});
     return () => {
       alive = false;
+      reloadRef.current = null;
       if (timer) clearTimeout(timer);
     };
   }, [rpcCall]);
@@ -390,7 +394,7 @@ function StarmapPanel({ rpcCall }) {
     Promise.resolve()
       .then(() => rpcCall('starmap.rebuild', {}))
       .then((reply) => {
-        load()
+        reloadRef.current?.()
         setSaved(
           reply?.ok
             ? reply.value?.already
@@ -403,7 +407,7 @@ function StarmapPanel({ rpcCall }) {
       })
       .catch((error) => setSaved(`没启动：${String(error?.message || error)}`))
       .finally(() => {
-        load();
+        reloadRef.current?.();
         // 宿主回话很快，但进度要下一次轮询才看得到；给一个兜底，别让按钮卡在「暂时停止」。
         setTimeout(() => setPending((current) => (current === 'starting' ? '' : current)), 2500);
       });
@@ -444,7 +448,7 @@ function StarmapPanel({ rpcCall }) {
       })
       .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`))
       .finally(() => {
-        load();
+        reloadRef.current?.();
         // 宿主回话慢也不该让按钮一直停在「正在暂停」。
         setTimeout(() => setPending((current) => (current === 'stopping' ? '' : current)), 8000);
       });
