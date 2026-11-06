@@ -92,6 +92,8 @@ export function apply(ctx, options = {}) {
     progressState.running = false
     progressState.stopping = false
     progressState.updatedAt = Date.now()
+    // 停下来的那一刻，上一次的失败提示已经过期了，别再挂着吓人。
+    progressState.error = ''
     info(inflight
       ? '[dsh-lpipe-starmap] 收到暂停：等模型的那一下已切断，其余的跑完这一轮就停'
       : '[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
@@ -274,7 +276,7 @@ export function apply(ctx, options = {}) {
     const width = Math.max(1, Math.min(8, config.concurrency || 3))
     // 每个并发各自一条对话：前缀互不干扰，模型侧的缓存才稳。
     const lanes = Array.from({ length: width }, () =>
-      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens, signal: runSignal?.signal ?? null }),
+      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens, signal: runSignal?.signal ?? null, isStopping: () => pausedByUser || stopRequested }),
     )
     lanesState.total = width
     lanesState.active = width

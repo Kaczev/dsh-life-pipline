@@ -215,7 +215,9 @@ function boundSignal(signal) {
   return deadline ?? signal ?? undefined
 }
 
-export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS, signal = null } = {}) {
+export function createExtractor(options = {}) {
+  const isStopping = typeof options.isStopping === 'function' ? options.isStopping : () => false
+  const { llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS, signal = null } = options
   const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
   let chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
@@ -263,7 +265,7 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     const text = raw.trim() ? raw : thinking
     // 暂停时有些连接会安静地结束：既没有正文，也不抛 AbortError。
     // 这种情况是「我们主动停的」，不该记成一次抽星失败。
-    if (!text.trim() && (signal?.aborted === true || bound?.aborted === true)) {
+    if (!text.trim() && (signal?.aborted === true || bound?.aborted === true || isStopping())) {
       return { ok: false, aborted: true, error: '暂停时切断', raw, usage }
     }
     const parsed = parsePairs(text)

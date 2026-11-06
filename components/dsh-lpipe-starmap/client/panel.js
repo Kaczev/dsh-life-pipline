@@ -386,6 +386,7 @@ function StarmapPanel({ rpcCall }) {
     setSaved('');
     setHeld(false);
     setPending('starting');
+    setTimeout(() => setPending((current) => (current === 'starting' ? '' : current)), 3000);
     Promise.resolve()
       .then(() => rpcCall('starmap.rebuild', {}))
       .then((reply) => {
@@ -428,6 +429,8 @@ function StarmapPanel({ rpcCall }) {
     setSaved('');
     setHeld(true);
     setPending('stopping');
+    // 兜底要立刻挂上：如果等 RPC 回来再排，它不回话就永远排不上，按钮会一直停在「正在暂停」。
+    setTimeout(() => setPending((current) => (current === 'stopping' ? '' : current)), 3000);
     Promise.resolve()
       .then(() => rpcCall('starmap.pause', {}))
       .then((reply) => {
