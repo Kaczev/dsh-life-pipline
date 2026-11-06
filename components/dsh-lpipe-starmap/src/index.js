@@ -244,7 +244,7 @@ export function apply(ctx, options = {}) {
     const width = Math.max(1, Math.min(8, config.concurrency || 3))
     // 每个并发各自一条对话：前缀互不干扰，模型侧的缓存才稳。
     const lanes = Array.from({ length: width }, () =>
-      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens, signal: runSignal }),
+      createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens, signal: runSignal?.signal ?? null }),
     )
     lanesState.total = width
     lanesState.active = width
