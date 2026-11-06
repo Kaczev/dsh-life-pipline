@@ -1,15 +1,18 @@
-// 把一轮的行变成「每句有哪几颗星」，再写进星表与星源。
-import { clockOf, extractStars, normalizeName } from './extract.mjs'
+// 一轮 → 句子 → 星线。
+//
+// 抽星只问模型一次（它回答「哪两个概念一起出现过」），落到哪一句、连多粗，
+// 全在这里算：同一句 1（句内星多时按 1/(k-1) 分摊）、相邻句 0.5、都对不上的
+// 整轮记 0.5。这样权重永远是确定性的，模型换了也不会飘。
+import { clockOf } from './extract.mjs'
+import { cleanStarName, findInSentences } from './llm.mjs'
 import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
 
-/** 按 turn 分组；行本来就按 seq 递增，所以组内顺序天然是对的。 */
 /**
- * 抽星规则的版本号。改了分句、抽星、成星判定就加一：
+ * 抽星规则的版本号。改了提示词、分句、成星判定就加一：
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
- * 调参期随便加；规则稳定之后它就不会再动。
  */
-export const RULES_VERSION = 1
+export const RULES_VERSION = 2
 
 export function groupTurns(rows) {
   const map = new Map()
@@ -33,7 +36,7 @@ export function groupTurns(rows) {
 /** 一行里拿来抽星的文字：正文、思考；工具调用只取工具名，长工具输出不当成「说过的话」。 */
 const MAX_TOOL_RESULT = 600
 
-function textsOf(row) {
+export function textsOf(row) {
   // 运行期注入的上下文（短期上下文、记忆库快照）不是「说过的话」，不抽星。
   if (row?.kind === 'user/message' && row?.source?.kind === 'runtime-context') return []
   if (row?.kind === 'tool/result') {
@@ -47,95 +50,98 @@ function textsOf(row) {
   return texts
 }
 
-/**
- * 抽星但不写盘：一轮 → { lines, names }。
- * `lines[].stars` 是星 id；`names` 是 id → 名字，写星表时要用。
- */
-/** 一句话里这个名字提了几次：一轮里提两次的名字才够格成星。 */
-function occurrences(text, name) {
-  const hay = String(text ?? '').toLowerCase()
-  const needle = name.toLowerCase()
-  if (!needle) return 0
-  let count = 0
-  let from = 0
-  while (true) {
-    const at = hay.indexOf(needle, from)
-    if (at < 0) break
-    count += 1
-    from = at + needle.length
-  }
-  return count
-}
-
-export function planTurn(turn, matcher) {
-  const lines = []
-  const names = new Map()
-  const counts = new Map()
-  const add = (seq, rowIndex, names_, clock = null, text = '') => {
-    const ids = []
-    for (const name of names_) {
-      const id = starIdOf(name)
-      names.set(id, name)
-      counts.set(id, (counts.get(id) ?? 0) + Math.max(1, occurrences(text, name)))
-      ids.push(id)
-    }
-    if (ids.length === 0) return
-    // 时刻不单独成星，只作为这句的模糊时间标签（16:01 → 16:00）。
-    lines.push(clock === null ? { seq, row: rowIndex, stars: ids } : { seq, row: rowIndex, stars: ids, clock })
-  }
-  for (const [rowIndex, row] of turn.rows.entries()) {
+/** 这一轮的「句子」：每句带 seq 与行号，供匹配与连边用。工具调用自成一句。 */
+export function sentencesOf(turn) {
+  const out = []
+  for (const [rowIndex, row] of (turn.rows ?? []).entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
-      const name = normalizeName(row.name)
-      if (name) add(row.seq, rowIndex, [name])
+      out.push({ seq: row.seq, row: rowIndex, text: String(row.name) })
       continue
     }
     for (const text of textsOf(row)) {
       for (const sentence of splitSentences(text)) {
-        add(row.seq, rowIndex, extractStars(sentence, matcher), clockOf(sentence), sentence)
+        if (!sentence.trim()) continue
+        out.push({ seq: row.seq, row: rowIndex, text: sentence })
       }
     }
   }
-  return { lines, names, counts }
+  return out
+}
+
+/**
+ * 把模型给的概念对落到句子上，算出这一轮的星源行。
+ * 返回 { lines, names, pairs, rejects }：rejects 要落日志，方便回头分析模型为什么错。
+ */
+export function planTurn(turn, pairs) {
+  const sentences = sentencesOf(turn)
+  const hits = new Map()
+  const hitsOf = (name) => {
+    const key = name.toLowerCase()
+    let found = hits.get(key)
+    if (!found) {
+      found = findInSentences(sentences, name)
+      hits.set(key, found)
+    }
+    return found
+  }
+
+  const names = new Map()
+  const accepted = []
+  const rejects = []
+  for (const entry of pairs ?? []) {
+    const a = cleanStarName(Array.isArray(entry) ? entry[0] : '')
+    const b = cleanStarName(Array.isArray(entry) ? entry[1] : '')
+    if (!a || !b) {
+      rejects.push({ pair: [a, b], why: 'empty' })
+      continue
+    }
+    if (a.toLowerCase() === b.toLowerCase()) {
+      rejects.push({ pair: [a, b], why: 'same' })
+      continue
+    }
+    const ha = hitsOf(a)
+    const hb = hitsOf(b)
+    if (ha.length === 0 || hb.length === 0) {
+      rejects.push({ pair: [a, b], why: ha.length === 0 && hb.length === 0 ? 'both-missing' : 'one-missing', missing: ha.length === 0 ? a : b })
+      continue
+    }
+    for (const name of [a, b]) names.set(starIdOf(name), name)
+    accepted.push([starIdOf(a), starIdOf(b)])
+  }
+
+  // 每句里有哪些星：只有被模型配对过的名字才算星，没配对的词不进星源。
+  const lines = []
+  for (const [index, sentence] of sentences.entries()) {
+    const ids = []
+    for (const name of names.values()) {
+      if (!hitsOf(name).includes(index)) continue
+      ids.push(starIdOf(name))
+    }
+    if (ids.length === 0) continue
+    const clock = clockOf(sentence.text)
+    lines.push(clock === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock })
+  }
+
+  return { lines, names, pairs: accepted, rejects }
 }
 
 /** 一轮落进星图：补星表、写星源、抬水位。 */
-export function buildTurn({ repo, turn, sessionId, lex, matcher }) {
-  const plan = planTurn(turn, matcher)
+export function buildTurn({ repo, turn, sessionId, pairs }) {
+  const plan = planTurn(turn, pairs)
   const born = new Date(turn.at ?? Date.now()).toISOString()
-  // 只出现一次的名字不算星：一轮里提两次、或者下一轮又提到，才点亮。
-  const mentions = plan.counts
-  const lit = new Set()
   for (const [id, name] of plan.names) {
-    if (repo.stars.has(id)) {
-      lit.add(id)
-      continue
-    }
-    const seenAt = repo.pendingTurn(name)
-    if (seenAt === null && (mentions.get(id) ?? 0) < 2) {
-      repo.setPending(name, turn.turn)
-      continue
-    }
-    if (seenAt !== null && seenAt === turn.turn) continue
-    repo.ensureStar(name, lex, born)
-    repo.clearPending(name)
-    lit.add(id)
-  }
-  const lines = []
-  for (const line of plan.lines) {
-    const stars = (line.stars ?? []).filter((id) => lit.has(id))
-    if (stars.length === 0) continue
-    lines.push({ ...line, stars })
+    if (!repo.stars.has(id)) repo.ensureStar(name, 0, born)
   }
   const record = {
     turn: turn.turn,
     session: sessionId,
     at: turn.at,
-    lex,
     from: turn.from,
     to: turn.to,
-    lines,
+    lines: plan.lines,
+    pairs: plan.pairs,
   }
   repo.recordTurn(record)
-  repo.raiseWatermark(sessionId, turn.turn, turn.to, lex)
-  return record
+  repo.raiseWatermark(sessionId, turn.turn, turn.to, 0)
+  return { record, rejects: plan.rejects }
 }

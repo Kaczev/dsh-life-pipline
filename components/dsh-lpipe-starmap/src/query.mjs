@@ -1,10 +1,11 @@
 // 只读查询：哪颗星在哪些轮出现过、这一轮有哪几颗星、它和谁相连。
-// 边不落盘，查询时从星源现聚合：全库 96 万条边物化要 185 MB，现算一次 0.04–0.8 ms。
+// 边不落盘：星源里记着「这一轮哪些名字被配成对、每句有哪几颗星」，
+// 查询时现聚合。同句 1、相邻句 0.5、对不上句子的整轮 0.5。
 import { normalizeName } from './extract.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
-export function createQueries({ repo, memoryStatus }) {
+export function createQueries({ repo, memoryStatus, progressState }) {
   const find = (key) => {
     if (!key) return null
     const direct = repo.stars.get(key)
@@ -42,10 +43,28 @@ export function createQueries({ repo, memoryStatus }) {
         stars.push(repo.stars.get(id) ?? { id, name: id })
       }
     }
-    return { turn: record.turn, session: record.session, at: record.at, from: record.from, to: record.to, lex: record.lex, stars, lines: record.lines.length }
+    return {
+      turn: record.turn,
+      session: record.session,
+      at: record.at,
+      from: record.from,
+      to: record.to,
+      stars,
+      lines: record.lines.length,
+      pairs: (record.pairs ?? []).length,
+    }
   }
 
-  /** 和这颗星相连的星：同句 1、相邻句 0.5，按权重求和。 */
+  /** 一轮里某个星出现在哪几句（句子下标）。 */
+  const sentenceHits = (record, id) => {
+    const out = []
+    for (const [index, line] of record.lines.entries()) {
+      if ((line.stars ?? []).includes(id)) out.push(index)
+    }
+    return out
+  }
+
+  /** 和这颗星相连的星：同句 1、相邻句 0.5、整轮 0.5，按星线求和。 */
   function links(key, { min = 0, limit = 24 } = {}) {
     const found = find(key)
     if (!found) return null
@@ -59,22 +78,42 @@ export function createQueries({ repo, memoryStatus }) {
       weights.set(otherId, entry)
     }
 
+    // 按「轮」聚合，不按「行」：同一轮里这颗星出现在多句，只该算一遍。
+    const seenTurns = new Set()
     for (const ref of repo.byStar.get(found.id) ?? []) {
+      if (seenTurns.has(ref.key)) continue
+      seenTurns.add(ref.key)
       const record = repo.turns.get(ref.key)
       if (!record) continue
-      const line = record.lines[ref.index]
-      if (!line) continue
-      const stars = line.stars ?? []
-      const weight = stars.length > 8 ? 1 / (stars.length - 1) : 1
-      for (const other of stars) {
-        if (other !== found.id) touch(other, weight, line.seq, record.at)
-      }
-      for (const index of [ref.index - 1, ref.index + 1]) {
-        const neighbour = record.lines[index]
-        if (!neighbour || neighbour.row !== line.row) continue
-        for (const other of neighbour.stars ?? []) {
-          if (other !== found.id) touch(other, 0.5, neighbour.seq, record.at)
+      const mine = sentenceHits(record, found.id)
+      for (const pair of record.pairs ?? []) {
+        const [a, b] = pair
+        if (a !== found.id && b !== found.id) continue
+        const other = a === found.id ? b : a
+        // 同一句：这句的星越多，每一对分到的越少，避免「什么都在同一句」时一条边吃掉全部。
+        const shared = mine.filter((index) => (record.lines[index]?.stars ?? []).includes(other))
+        if (shared.length > 0) {
+          for (const index of shared) {
+            const line = record.lines[index]
+            const size = (line.stars ?? []).length
+            touch(other, size > 8 ? 1 / (size - 1) : 1, line.seq, record.at)
+          }
+          continue
         }
+        // 相邻句：同一行里挨着的那一句。
+        let adjacent = 0
+        for (const index of mine) {
+          for (const near of [index - 1, index + 1]) {
+            const line = record.lines[near]
+            if (!line || line.row !== record.lines[index].row) continue
+            if (!(line.stars ?? []).includes(other)) continue
+            touch(other, 0.5, line.seq, record.at)
+            adjacent += 1
+          }
+        }
+        if (adjacent > 0) continue
+        // 对不上任何一句：模型说它们这一轮里一起出现过，记整轮 0.5，证据取这一轮的头。
+        touch(other, 0.5, record.from, record.at)
       }
     }
 
@@ -96,15 +135,18 @@ export function createQueries({ repo, memoryStatus }) {
   function progress() {
     const status = memoryStatus()
     const built = Number.isFinite(status.lit) ? status.lit : repo.turns.size
+    const extract = progressState
+      ? { running: Boolean(progressState.running), done: progressState.done ?? 0, total: progressState.total ?? 0, failed: progressState.failed ?? 0 }
+      : { running: false, done: 0, total: 0, failed: 0 }
     return {
       stars: repo.stars.size,
-      lex: repo.state?.lex ?? 0,
       built,
       turns: status.turns,
       grey: Math.max(0, status.turns - built),
       sessions: status.sessions,
       lastBuiltAt: status.lastBuiltAt,
       lastTurn: status.lastTurn,
+      extract,
     }
   }
 

@@ -5,45 +5,32 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { RULES_VERSION, buildTurn } from '../src/build.mjs'
-import { matcherOf } from '../src/lexicon.mjs'
 import { createQueries } from '../src/query.mjs'
-import { loadLexicon, openRepo, saveLexicon, starIdOf } from '../src/store.mjs'
+import { openRepo, starIdOf } from '../src/store.mjs'
 import { dayOf, sourceFile, starsFile, stateFile } from '../src/paths.mjs'
-
-const matcher = matcherOf({
-  words: [
-    { name: '记忆管线', count: 40, df: 4 },
-    { name: '唤醒管线', count: 20, df: 3 },
-    { name: '星图', count: 12, df: 2 },
-  ],
-})
-
-/** 已经点亮的星：多数测试只验读写机制，先把星种进去，不必真的提两次。 */
-function seed(repo, names) {
-  for (const name of names) repo.ensureStar(name, 1, '2026-11-06T00:00:00.000Z')
-}
 
 function makeTurn({ turn, at, rows }) {
   return { turn, at, from: rows[0].seq, to: rows[rows.length - 1].seq, rows }
 }
 
+const queriesOf = (repo, at) =>
+  createQueries({ repo, memoryStatus: () => ({ turns: 9, sessions: [], lastBuiltAt: at, lastTurn: 9 }) })
+
 test('一轮落进星图：星表、星源、水位三样都写', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const repo = openRepo({ root })
-  seed(repo, ['记忆管线', '唤醒管线', 'wake_set'])
   const at = Date.parse('2026-11-06T12:00:00+08:00')
   const rows = [
     { seq: 0, turn: 1, at, kind: 'user/message', text: '记忆管线和唤醒管线一起工作。' },
     { seq: 1, turn: 1, at, kind: 'assistant/message', text: '好的。' },
     { seq: 2, turn: 1, at, kind: 'tool/call', name: 'wake_set' },
   ]
-  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-a', lex: 1, matcher })
+  // 模型只回答「哪两个概念一起出现过」：名字必须原样出现在原文里。
+  const pairs = [['记忆管线', '唤醒管线'], ['记忆管线', 'wake_set']]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-a', pairs })
 
   const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
-  const names = stars.map((star) => star.name)
-  assert.ok(names.includes('记忆管线'))
-  assert.ok(names.includes('唤醒管线'))
-  assert.ok(names.includes('wake_set'))
+  assert.deepEqual(stars.map((star) => star.name).sort(), ['wake_set', '唤醒管线', '记忆管线'])
   assert.equal(stars.find((star) => star.name === '记忆管线').id, starIdOf('记忆管线'))
 
   const file = sourceFile(root, 'sess-a', dayOf(at))
@@ -52,135 +39,124 @@ test('一轮落进星图：星表、星源、水位三样都写', () => {
   assert.equal(record.turn, 1)
   assert.equal(record.from, 0)
   assert.equal(record.to, 2)
-  assert.ok(record.lines.length >= 2, '一句话一行，工具调用自己一行')
-  assert.equal(record.lines.find((line) => line.seq === 2).stars.length, 1)
+  assert.equal(record.lines.find((line) => line.seq === 2).stars.length, 1, '工具调用自成一句')
+  assert.equal(record.pairs.length, 2)
 
   const state = JSON.parse(readFileSync(stateFile(root), 'utf8'))
   assert.deepEqual(state.built['sess-a'], { turn: 1, to: 2 })
 })
 
-test('同句相连得重，相邻句相连得轻', () => {
+test('同句 1、相邻句 0.5、隔开就只能算整轮 0.5', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const repo = openRepo({ root })
-  seed(repo, ['记忆管线', '唤醒管线', '星图'])
   const at = Date.parse('2026-11-06T12:10:00+08:00')
   const rows = [
     { seq: 0, turn: 2, at, kind: 'user/message', text: '记忆管线和唤醒管线是一对。' },
     { seq: 1, turn: 2, at, kind: 'assistant/message', text: '记忆管线先落盘。然后星图再抽星。' },
   ]
-  buildTurn({ repo, turn: makeTurn({ turn: 2, at, rows }), sessionId: 'sess-b', lex: 1, matcher })
-  const queries = createQueries({
+  const pairs = [['记忆管线', '唤醒管线'], ['记忆管线', '星图']]
+  buildTurn({ repo, turn: makeTurn({ turn: 2, at, rows }), sessionId: 'sess-b', pairs })
+
+  const links = queriesOf(repo, at).links('记忆管线')
+  assert.equal(links.links.find((entry) => entry.star.name === '唤醒管线').weight, 1, '同句相连得重')
+  assert.equal(links.links.find((entry) => entry.star.name === '星图').weight, 0.5, '相邻句相连得轻')
+})
+
+test('两句之间隔着别的话：模型说它们一起出现过，也只记整轮 0.5', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T12:15:00+08:00')
+  const rows = [{ seq: 0, turn: 3, at, kind: 'user/message', text: '记忆管线先落盘。中间还插了一句闲话。星图再抽星。' }]
+  buildTurn({ repo, turn: makeTurn({ turn: 3, at, rows }), sessionId: 'sess-h', pairs: [['记忆管线', '星图']] })
+  const links = queriesOf(repo, at).links('记忆管线')
+  assert.equal(links.links[0].star.name, '星图')
+  assert.equal(links.links[0].weight, 0.5)
+})
+
+test('模型给的名字在原文里找不到：丢弃，不成星', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T12:18:00+08:00')
+  const rows = [{ seq: 0, turn: 4, at, kind: 'user/message', text: '记忆管线先落盘。' }]
+  const { rejects } = buildTurn({
     repo,
-    memoryStatus: () => ({ turns: 3, sessions: [], lastBuiltAt: at, lastTurn: 2 }),
+    turn: makeTurn({ turn: 4, at, rows }),
+    sessionId: 'sess-i',
+    pairs: [['记忆管线', '星图'], ['记忆管线', '记忆管线']],
   })
-
-  const links = queries.links('记忆管线')
-  const same = links.links.find((entry) => entry.star.name === '唤醒管线')
-  const near = links.links.find((entry) => entry.star.name === '星图')
-  assert.ok(same, '同句的星应当相连')
-  assert.equal(same.weight, 1)
-  assert.ok(near, '相邻句的星应当以弱边相连')
-  assert.equal(near.weight, 0.5)
-
-  const progress = queries.progress()
-  assert.equal(progress.built, 1)
-  assert.equal(progress.grey, 2)
+  assert.equal(repo.byName.has('星图'), false, '没在原文里出现的名字不成星')
+  assert.equal(repo.byName.size, 0, '整对都对不上的话，这一对什么都不点亮')
+  assert.equal(rejects.length, 2)
+  assert.equal(rejects.find((entry) => entry.why === 'one-missing').missing, '星图')
 })
 
 test('查询：星星出现在哪些轮、某一轮有哪几颗星', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const repo = openRepo({ root })
-  seed(repo, ['记忆管线'])
   const at = Date.parse('2026-11-06T12:20:00+08:00')
-  for (const turn of [3, 4]) {
-    const rows = [{ seq: turn, turn, at: at + turn, kind: 'user/message', text: '记忆管线又出现了。' }]
-    buildTurn({ repo, turn: makeTurn({ turn, at: at + turn, rows }), sessionId: 'sess-c', lex: 1, matcher })
+  for (const turn of [5, 6]) {
+    const rows = [{ seq: turn, turn, at: at + turn, kind: 'user/message', text: '记忆管线又出现了，星图也在。' }]
+    buildTurn({ repo, turn: makeTurn({ turn, at: at + turn, rows }), sessionId: 'sess-c', pairs: [['记忆管线', '星图']] })
   }
-  const queries = createQueries({ repo, memoryStatus: () => ({ turns: 4, sessions: [], lastBuiltAt: at, lastTurn: 4 }) })
+  const queries = queriesOf(repo, at)
   const star = queries.star('记忆管线')
   assert.equal(star.total, 2)
-  assert.deepEqual(star.turns.map((entry) => entry.turn), [4, 3])
+  assert.deepEqual(star.turns.map((entry) => entry.turn), [6, 5])
 
-  const turn = queries.turn({ session: 'sess-c', turn: 3 })
-  assert.equal(turn.turn, 3)
-  assert.equal(turn.stars.length, 1)
-  assert.equal(turn.stars[0].name, '记忆管线')
+  const turn = queries.turn({ session: 'sess-c', turn: 5 })
+  assert.equal(turn.turn, 5)
+  assert.equal(turn.stars.length, 2)
+  assert.equal(turn.pairs, 1)
 })
 
 test('重启后从磁盘恢复：水位、星表、星源都还在', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const at = Date.parse('2026-11-06T12:30:00+08:00')
-  const rows = [{ seq: 0, turn: 5, at, kind: 'user/message', text: '星图从磁盘回来。' }]
+  const rows = [{ seq: 0, turn: 7, at, kind: 'user/message', text: '星图从磁盘回来。' }]
   const writer = openRepo({ root })
-  seed(writer, ['星图'])
-  buildTurn({ repo: writer, turn: makeTurn({ turn: 5, at, rows }), sessionId: 'sess-d', lex: 2, matcher })
+  buildTurn({ repo: writer, turn: makeTurn({ turn: 7, at, rows }), sessionId: 'sess-d', pairs: [['星图', '磁盘']] })
 
   const repo = openRepo({ root })
-  assert.deepEqual(repo.state.built['sess-d'], { turn: 5, to: 0 })
+  assert.deepEqual(repo.state.built['sess-d'], { turn: 7, to: 0 })
   assert.ok(repo.stars.size > 0)
-  assert.ok(repo.turns.has('sess-d#5'))
-  assert.equal(repo.state.lex, 2)
-
-  saveLexicon(root, { version: 2, builtAt: at, turns: 1, words: [{ name: '星图', count: 3, df: 1 }] })
-  assert.equal(loadLexicon(root).version, 2)
+  assert.ok(repo.turns.has('sess-d#7'))
+  assert.deepEqual(repo.turns.get('sess-d#7').pairs, [[starIdOf('星图'), starIdOf('磁盘')]])
 })
 
-test('只出现一次的名字不成星：同轮两次或下一轮再见才点亮', () => {
-  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
-  const repo = openRepo({ root })
-  const at = Date.parse('2026-11-06T13:00:00+08:00')
-
-  // 第一轮：一次性提到「鲸落幻象」，同一轮里说两遍「记忆管线」。
-  const first = [
-    { seq: 0, turn: 1, at, kind: 'user/message', text: '「鲸落幻象」。记忆管线先写，记忆管线后写。' },
-  ]
-  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows: first }), sessionId: 'sess-g', lex: 1, matcher })
-  assert.equal(repo.byName.has('鲸落幻象'), false, '只出现一次的名字不成星')
-  assert.equal(repo.byName.has('记忆管线'), true, '同一轮里出现两次就算数')
-
-  // 第二轮：又提到「鲸落幻象」，这次点亮。
-  const second = [{ seq: 1, turn: 2, at: at + 1000, kind: 'user/message', text: '「鲸落幻象」又来了。' }]
-  buildTurn({ repo, turn: makeTurn({ turn: 2, at: at + 1000, rows: second }), sessionId: 'sess-g', lex: 1, matcher })
-  assert.equal(repo.byName.has('鲸落幻象'), true, '第二次出现才点亮')
-})
-
-test('starmap.rebuild 走得通，没接上也如实说', async () => {
+test('starmap.rebuild 与配置读写走得通，没接上如实说', async () => {
   const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
   const queries = { progress: () => ({ built: 3, turns: 5, grey: 2 }) }
-  const withRebuild = createStarmapRpcHandler({
-    queries,
-    rebuild: () => ({ built: 5, turns: 5, grey: 0 }),
-  })
-  const done = await withRebuild('starmap.rebuild', {})
-  assert.equal(done.ok, true)
-  assert.equal(done.value.built, 5)
+  const config = { get: () => ({ provider: 'p', model: 'm' }), set: (patch) => ({ provider: 'p', model: 'm', ...patch }) }
+  const handler = createStarmapRpcHandler({ queries, rebuild: () => ({ built: 5 }), config })
+
+  assert.equal((await handler('starmap.rebuild', {})).value.built, 5)
+  assert.equal((await handler('starmap.config', {})).value.model, 'm')
+  assert.equal((await handler('starmap.config.set', { model: 'x' })).value.model, 'x')
 
   const without = createStarmapRpcHandler({ queries })
-  const failed = await without('starmap.rebuild', {})
-  assert.equal(failed.ok, false)
-  assert.equal(failed.error.code, 'starmap/unavailable')
+  assert.equal((await without('starmap.rebuild', {})).error.code, 'starmap/unavailable')
+  assert.equal((await without('starmap.config', {})).error.code, 'starmap/unavailable')
 })
 
 test('水位丢了：星源还在就能自己长回来', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const at = Date.parse('2026-11-06T12:40:00+08:00')
-  const rows = [{ seq: 0, turn: 7, at, kind: 'user/message', text: '星图要自己长回水位。' }]
-  buildTurn({ repo: openRepo({ root }), turn: makeTurn({ turn: 7, at, rows }), sessionId: 'sess-e', lex: 1, matcher })
+  const rows = [{ seq: 0, turn: 8, at, kind: 'user/message', text: '星图要自己长回水位。' }]
+  buildTurn({ repo: openRepo({ root }), turn: makeTurn({ turn: 8, at, rows }), sessionId: 'sess-e', pairs: [['星图', '水位']] })
 
-  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, lex: 1, built: {} })}\n`, 'utf8')
+  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, built: {} })}\n`, 'utf8')
   const repo = openRepo({ root })
-  assert.deepEqual(repo.state.built['sess-e'], { turn: 7, to: 0 }, '加载时应从星源补回水位')
-  assert.deepEqual(JSON.parse(readFileSync(stateFile(root), 'utf8')).built['sess-e'], { turn: 7, to: 0 })
+  assert.deepEqual(repo.state.built['sess-e'], { turn: 8, to: 0 }, '加载时应从星源补回水位')
 })
 
 test('抬水位不冲掉别的会话', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const repo = openRepo({ root })
-  repo.raiseWatermark('sess-new', 3, 9, 1)
+  repo.raiseWatermark('sess-new', 3, 9, 0)
 
   // 另一个进程写进来的会话：本进程内存里没有它，抬水位时必须先合进来。
-  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, lex: 1, built: { 'sess-old': { turn: 40, to: 100 } } })}\n`, 'utf8')
-  repo.raiseWatermark('sess-new', 4, 12, 1)
+  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, built: { 'sess-old': { turn: 40, to: 100 } } })}\n`, 'utf8')
+  repo.raiseWatermark('sess-new', 4, 12, 0)
 
   const state = JSON.parse(readFileSync(stateFile(root), 'utf8'))
   assert.deepEqual(state.built['sess-old'], { turn: 40, to: 100 })
@@ -190,19 +166,17 @@ test('抬水位不冲掉别的会话', () => {
 test('重复的星星行，加载时收成一份', () => {
   const root = mkdtempSync(join(tmpdir(), 'starmap-'))
   const at = Date.parse('2026-11-06T12:50:00+08:00')
-  const rows = [{ seq: 0, turn: 8, at, kind: 'user/message', text: '记忆管线里重复的星星要收掉。' }]
+  const rows = [{ seq: 0, turn: 9, at, kind: 'user/message', text: '记忆管线里重复的星星要收掉。' }]
   const writer = openRepo({ root })
-  seed(writer, ['记忆管线'])
-  buildTurn({ repo: writer, turn: makeTurn({ turn: 8, at, rows }), sessionId: 'sess-f', lex: 1, matcher })
+  buildTurn({ repo: writer, turn: makeTurn({ turn: 9, at, rows }), sessionId: 'sess-f', pairs: [['记忆管线', '星星']] })
 
   const first = readFileSync(starsFile(root), 'utf8').trim().split('\n')[0]
   appendFileSync(starsFile(root), `${first}\n`, 'utf8')
-  assert.equal(readFileSync(starsFile(root), 'utf8').trim().split('\n').length, 2)
+  assert.equal(readFileSync(starsFile(root), 'utf8').trim().split('\n').length, 3)
 
   const repo = openRepo({ root })
-  const lines = readFileSync(starsFile(root), 'utf8').trim().split('\n')
-  assert.equal(lines.length, 1, '重复的那行应当在加载时被收掉')
-  assert.equal(repo.stars.size, 1)
+  assert.equal(readFileSync(starsFile(root), 'utf8').trim().split('\n').length, 2, '重复的那行应当在加载时被收掉')
+  assert.equal(repo.stars.size, 2)
 })
 
 test('星图记得自己是按哪一版抽星规则建的', () => {

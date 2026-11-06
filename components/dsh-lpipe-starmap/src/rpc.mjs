@@ -1,7 +1,15 @@
 // 星图的 RPC：只读查询，给设置页和以后的读取层用。
 export const STARMAP_RPC_ENDPOINT = 'dsh-lpipe-starmap'
 
-const METHODS = new Set(['starmap.progress', 'starmap.star', 'starmap.turn', 'starmap.links', 'starmap.rebuild'])
+const METHODS = new Set([
+  'starmap.progress',
+  'starmap.star',
+  'starmap.turn',
+  'starmap.links',
+  'starmap.rebuild',
+  'starmap.config',
+  'starmap.config.set',
+])
 
 function failure(code, message) {
   return { ok: false, error: { code, message, details: {} } }
@@ -17,11 +25,18 @@ const clamp = (value, fallback, max) => {
   return Math.min(max, Math.max(1, Math.round(number)))
 }
 
-export function createStarmapRpcHandler({ queries, rebuild }) {
+export function createStarmapRpcHandler({ queries, rebuild, config }) {
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('starmap/unknown-method', `Unknown method: ${method}`)
     try {
       if (method === 'starmap.progress') return { ok: true, value: queries.progress() }
+      if (method === 'starmap.config') {
+        return config?.get ? { ok: true, value: config.get() } : failure('starmap/unavailable', 'Config is not wired up.')
+      }
+      if (method === 'starmap.config.set') {
+        if (!config?.set) return failure('starmap/unavailable', 'Config is not wired up.')
+        return { ok: true, value: config.set(isRecord(payload) ? payload : {}) }
+      }
       if (method === 'starmap.rebuild') {
         if (typeof rebuild !== 'function') return failure('starmap/unavailable', 'Rebuild is not wired up.')
         return { ok: true, value: await rebuild({ full: payload?.full === true }) }

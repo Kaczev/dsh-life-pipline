@@ -4,6 +4,8 @@
  * The settings block of the star map. The page itself belongs to
  * dsh-life-pipline (「Lpipe 设置」); this file only renders one block inside
  * the child slot it declares there.
+ *
+ * 抽星交给模型：这里选提供者、模型名、思考强度。留空就用当前会话的模型。
  */
 const React = require('react');
 
@@ -18,6 +20,7 @@ const COLORS = {
   muted: 'var(--dsw-alias-label-secondary)',
   faint: 'var(--dsw-alias-label-tertiary)',
   border: 'var(--dsw-alias-border-l)',
+  borderStrong: 'var(--dsw-alias-border-m)',
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   accent: '#5ec9b4',
@@ -58,6 +61,42 @@ const fill = (ratio) => ({
 
 const meta = { display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 11, color: COLORS.muted };
 
+const input = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '8px 10px',
+  fontSize: 13,
+  color: COLORS.text,
+  border: `1px solid ${COLORS.borderStrong}`,
+  borderRadius: 'var(--dsw-radius-sm)',
+  background: COLORS.soft,
+  outline: 'none',
+};
+
+const label = { fontSize: 11, fontWeight: 600, color: COLORS.muted, marginBottom: 6 };
+
+const field = { display: 'flex', flexDirection: 'column', minWidth: 0 };
+
+const button = (accent) => ({
+  border: `1px solid ${accent || COLORS.borderStrong}`,
+  background: accent || 'transparent',
+  color: accent ? '#ffffff' : COLORS.text,
+  borderRadius: 'var(--dsw-radius-sm)',
+  padding: '7px 14px',
+  fontSize: 13,
+  lineHeight: '18px',
+  cursor: 'pointer',
+  flex: 'none',
+  whiteSpace: 'nowrap',
+});
+
+const EFFORTS = [
+  { value: '', label: '默认' },
+  { value: 'none', label: '不思考' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+];
 
 function clock(ms) {
   if (!Number.isFinite(ms)) return '—';
@@ -73,6 +112,8 @@ function ratioOf(built, turns) {
 
 function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
+  const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '' });
+  const [saved, setSaved] = React.useState('');
 
   React.useEffect(() => {
     let alive = true;
@@ -93,6 +134,18 @@ function StarmapPanel({ rpcCall }) {
         });
     };
     load();
+    Promise.resolve()
+      .then(() => rpcCall('starmap.config', {}))
+      .then((reply) => {
+        if (!alive || !reply?.ok) return;
+        const config = reply.value || {};
+        setForm({
+          provider: config.provider || '',
+          model: config.model || '',
+          reasoningEffort: config.reasoningEffort || '',
+        });
+      })
+      .catch(() => {});
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
@@ -103,7 +156,16 @@ function StarmapPanel({ rpcCall }) {
   const built = value?.built ?? 0;
   const turns = value?.turns ?? 0;
   const grey = value?.grey ?? 0;
+  const extract = value?.extract || {};
+  const busy = Boolean(extract.running);
 
+  const save = () => {
+    setSaved('保存中…');
+    Promise.resolve()
+      .then(() => rpcCall('starmap.config.set', form))
+      .then((reply) => setSaved(reply?.ok ? '已保存，下一轮起生效' : `保存失败：${reply?.error?.message || '未知原因'}`))
+      .catch((error) => setSaved(`保存失败：${String(error?.message || error)}`));
+  };
 
   return h(
     'section',
@@ -112,13 +174,17 @@ function StarmapPanel({ rpcCall }) {
       'div',
       { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Starmap'),
-      h('span', {
-        style: {
-          fontSize: 11, padding: '2px 8px', borderRadius: 999,
-          background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
-          border: '1px solid rgba(94, 201, 180, 0.28)',
+      h(
+        'span',
+        {
+          style: {
+            fontSize: 11, padding: '2px 8px', borderRadius: 999,
+            background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
+            border: '1px solid rgba(94, 201, 180, 0.28)',
+          },
         },
-      }, '星图管线'),
+        '星图管线',
+      ),
     ),
     h(
       'div',
@@ -126,35 +192,73 @@ function StarmapPanel({ rpcCall }) {
       h(
         'div',
         { style: head },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'baseline' } },
+          h('span', { style: big }, String(built)),
+          h('span', { style: unit, position: 'relative', top: -3 }, `轮已亮 / ${turns}`),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'baseline' } },
+          h('span', { style: mid }, String(value?.stars ?? 0)),
+          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗星'),
+        ),
+        grey > 0
+          ? h(
+              'div',
+              { style: { display: 'flex', alignItems: 'baseline' } },
+              h('span', { style: { ...mid, color: COLORS.warning } }, String(grey)),
+              h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.warning } }, '轮还是灰的'),
+            )
+          : null,
+      ),
+      h('div', { style: track }, h('div', { style: fill(ratioOf(built, turns)) })),
       h(
         'div',
-        { style: { display: 'flex', alignItems: 'baseline' } },
-        h('span', { style: big }, String(built)),
-        h('span', { style: unit, position: 'relative', top: -3 }, `轮已亮 / ${turns}`),
+        { style: meta },
+        h(
+          'span',
+          null,
+          busy
+            ? `模型正在抽星 ${extract.done ?? 0}/${extract.total ?? 0}`
+            : `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮`,
+        ),
+        h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
-      h(
-        'div',
-        { style: { display: 'flex', alignItems: 'baseline' } },
-        h('span', { style: mid }, String(value?.stars ?? 0)),
-        h('span', { style: small, position: 'relative', top: -2 }, '颗星'),
-      ),
-      grey > 0
-        ? h(
-            'div',
-            { style: { display: 'flex', alignItems: 'baseline' } },
-            h('span', { style: mid, color: COLORS.warning }, String(grey)),
-            h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.warning } }, '轮还是灰的'),
-          )
-        : null,
+      state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
     ),
-    h('div', { style: track }, h('div', { style: fill(ratioOf(built, turns)) })),
     h(
       'div',
-      { style: meta },
-      h('span', null, `词表第 ${value?.lex ?? 0} 版${turns ? ` · ${Math.round(ratioOf(built, turns) * 100)}%` : ''}`),
-      h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
-    ),
-      state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
+      { style: card },
+      h('div', { style: { ...label, marginBottom: 10 } }, '抽星模型'),
+      h(
+        'div',
+        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10, alignItems: 'end' } },
+        h('div', { style: field }, h('div', { style: label }, '提供者'), h('input', {
+          style: input,
+          value: form.provider,
+          placeholder: '留空用当前会话',
+          onChange: (event) => setForm({ ...form, provider: event.target.value }),
+        })),
+        h('div', { style: field }, h('div', { style: label }, '模型名'), h('input', {
+          style: input,
+          value: form.model,
+          placeholder: '留空用当前会话',
+          onChange: (event) => setForm({ ...form, model: event.target.value }),
+        })),
+        h('div', { style: field }, h('div', { style: label }, '思考强度'), h('select', {
+          style: input,
+          value: form.reasoningEffort,
+          onChange: (event) => setForm({ ...form, reasoningEffort: event.target.value }),
+        }, EFFORTS.map((item) => h('option', { key: item.value, value: item.value }, item.label)))),
+      ),
+      h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 } },
+        h('button', { style: button(COLORS.accent), onClick: save, disabled: busy }, '保存'),
+        h('span', { style: { fontSize: 11, color: COLORS.muted } }, saved || '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'),
+      ),
     ),
   );
 }
@@ -185,5 +289,6 @@ module.exports = {
     clock,
     ratioOf,
     POLL_MS,
+    EFFORTS,
   },
 };
