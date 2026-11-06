@@ -23,7 +23,11 @@ const TURN_END = 'turn/end'
 
 export function apply(ctx, options = {}) {
   const root = options.root ?? memoryRoot()
-  const warn = (message) => ctx.logger?.warn?.(message)
+  // 宿主没给 logger 时别把失败吞掉：迁移、落盘出了问题要能看见。
+  const warn = (message) => {
+    if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+    else console.warn(message)
+  }
   // 旧格式（行里重复存 parts）在开写之前先重建，哈希链整条重算；失败就继续用旧格式。
   if (!options.writer) migrateIfNeeded({ root, log: warn })
   const writer = options.writer ?? new MemoryWriter({ root })

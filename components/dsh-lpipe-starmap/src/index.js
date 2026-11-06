@@ -166,12 +166,17 @@ export function apply(ctx, options = {}) {
     }
   }
 
-  /** 补做一次：跟上磁盘上的星图、必要时重长词表、把剩下的灰记忆点亮。手动按钮也走这里。 */
-  const rebuild = () => {
+  /**
+   * 补做一次：跟上磁盘上的星图、必要时重长词表、把剩下的灰记忆点亮。
+   * `full` 是整库重来：抽星规则改过以后，旧轮次必须重新过一遍，
+   * 而水位只认「还没建的轮」，所以要把星表与星源一并清掉。
+   */
+  const rebuild = ({ full = false } = {}) => {
     const started = Date.now()
+    if (full) repo.reset()
     memory.reload()
     repo.reload()
-    ensureLexicon()
+    ensureLexicon({ force: full })
     const built = buildAll()
     const result = { built, ...status(), elapsedMs: Date.now() - started }
     info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
@@ -183,8 +188,19 @@ export function apply(ctx, options = {}) {
   const warm = setTimeout(() => {
     run('启动构建', () => {
       const before = repo.turns.size
+      // 记忆格式升级意味着旧行可能刚被补过字段（比如轮号）：
+      // 已经点亮的轮次不会进「灰记忆」，只能整库重来一次。
+      const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
+      const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
+      if (builtWith !== format) {
+        info(`[dsh-lpipe-starmap] 记忆格式 ${builtWith ?? '未知'} → ${format}，整库重建一次`)
+        rebuild({ full: true })
+        repo.setMemoryFormat(format)
+        return
+      }
       info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
       rebuild()
+      repo.setMemoryFormat(format)
     })
   }, warmDelay)
   warm.unref?.()

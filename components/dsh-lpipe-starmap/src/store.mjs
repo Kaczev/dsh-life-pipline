@@ -1,7 +1,7 @@
 // 星图的磁盘层：星表（星星本身）、星源（每轮每句有哪几颗星）、水位（亮到哪里）。
 // 不存星链：边是星源的视图，读取时现聚合，省掉一份 96 万行的缓存。
 import { createHash } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import {
@@ -186,6 +186,28 @@ export function openRepo({ root = starmapRoot() } = {}) {
 
   reload()
 
+  /** 整库重来：删掉星表、星源、水位，从头重建。只在 full rebuild 时用。 */
+  function reset() {
+    rmSync(starsFile(root), { force: true })
+    rmSync(sourcesDir(root), { recursive: true, force: true })
+    stars.clear()
+    byName.clear()
+    turns.clear()
+    byStar.clear()
+    state.built = {}
+    state.pending = {}
+    writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
+    return state
+  }
+
+  /** 记下这次重建依据的记忆格式版本：记忆那边一升级，旧轮次就得重来一遍。 */
+  function setMemoryFormat(version) {
+    if (state.memoryFormat === version) return false
+    state.memoryFormat = version
+    writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
+    return true
+  }
+
   function ensureStar(name, lex, born) {
     const existing = byName.get(name)
     if (existing) return existing
@@ -266,5 +288,7 @@ export function openRepo({ root = starmapRoot() } = {}) {
     removeTurn,
     lastBuilt,
     reload,
+    reset,
+    setMemoryFormat,
   }
 }

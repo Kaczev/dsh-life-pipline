@@ -24,7 +24,7 @@ export function createStarmapRpcHandler({ queries, rebuild }) {
       if (method === 'starmap.progress') return { ok: true, value: queries.progress() }
       if (method === 'starmap.rebuild') {
         if (typeof rebuild !== 'function') return failure('starmap/unavailable', 'Rebuild is not wired up.')
-        return { ok: true, value: await rebuild() }
+        return { ok: true, value: await rebuild({ full: payload?.full === true }) }
       }
       if (method === 'starmap.star') {
         const value = queries.star(payload?.id ?? payload?.name, { limit: clamp(payload?.limit, 80, 500) })

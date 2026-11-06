@@ -125,10 +125,33 @@ export function compact({ root, log = () => {}, now = () => Date.now() } = {}) {
   if (existsSync(mediaDir)) cpSync(mediaDir, join(next, 'media'), { recursive: true, force: true })
 
   const backup = `${root}.bak-${new Date(now()).toISOString().replace(/[:.]/g, '-')}`
-  renameSync(root, backup)
-  renameSync(next, root)
+  // Windows 上目录里只要有一个文件被别人打开着，改名就会被拒（EPERM/EBUSY）。
+  // 启动时星图那边可能正在读记忆，所以这里重试几次，别让整次迁移白做。
+  swapWithRetry(root, backup, log)
   log(`[dsh-lpipe-memory] 已重建 ${rows} 行（旧库备份在 ${backup}）`)
   return { rows, backup }
+}
+
+/** 把旧目录挪开、新目录就位；被占用时等一会儿再试。 */
+function swapWithRetry(root, backup, log, attempts = 8, waitMs = 400) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      renameSync(root, backup)
+      renameSync(`${root}.next`, root)
+      return true
+    } catch (error) {
+      const code = error?.code ?? ''
+      const transient = code === 'EPERM' || code === 'EBUSY' || code === 'EACCES'
+      // 第一次改名成了、第二次没成：把旧目录放回去，下次再来。
+      try {
+        if (existsSync(backup) && !existsSync(root)) renameSync(backup, root)
+      } catch {}
+      if (!transient || attempt === attempts) throw error
+      log(`[dsh-lpipe-memory] 迁移第 ${attempt} 次改名被占用（${code}），稍后重试`)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs)
+    }
+  }
+  return false
 }
 
 /** 启动时按需迁移；失败只报一句，绝不挡住写入。 */
