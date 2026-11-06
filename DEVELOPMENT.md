@@ -215,6 +215,19 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 
 格式版本记在 `state.json` 的 `version`。`src/compact.mjs` 提供 `compact({ root })`（整库重建：行照旧、`seq` 照旧，重新焊哈希链，旧目录改名成 `<root>.bak-<时间>`，并保留 `lastEventSeq` 游标与 `meta.title`）与 `migrateIfNeeded({ root })`；`index.js` 在创建 writer 之前调用它，所以旧库会在宿主启动时自动升级一次，失败只 warn、继续用旧格式。
 
+## 宿主约定：写日志的方式
+
+Cordis 的 `LoggerService` 本身是可调用对象，`info` / `warn` 内部会先执行 `this()` 拿到带名字的 logger，再把日志交给它。所以插件里只能写成员调用：
+
+```js
+if (typeof ctx.logger?.info === 'function') ctx.logger.info(message)
+else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+```
+
+把方法取出来再调用（`const sink = ctx.logger.info; sink(msg)`、`(ctx.logger?.info ?? ctx.logger?.warn)?.(msg)`）会丢掉 `this`，严格模式下抛 `TypeError: this is not a function`。宿主把插件加载期的异常当成 `dsh: fatal load failure`，整个进程退出——2026-11-06 16:08 打不开就是这么来的。日志函数本身也包一层 `try/catch`：写日志失败绝不能反过来带走宿主。
+
+异步任务同理：`setTimeout` / `Promise` 里的异常不会被同步 `try/catch` 接住，必须挂 `.catch`（星图的 `run()` 就是这样做的），否则未处理的拒绝同样会被当成致命加载失败。
+
 ## components/dsh-lpipe-starmap
 
 星图是**索引层**：读记忆层的原文，按轮抽出概念（星星），记下「哪一句同时提到了哪几颗星」。它不存正文、不写摘要、不做向量；删掉能重建。
