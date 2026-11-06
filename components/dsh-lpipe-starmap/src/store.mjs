@@ -116,6 +116,32 @@ export function openRepo({ root = starmapRoot() } = {}) {
     else byStar.delete(id)
   }
 
+  /** 星源里每个会话已经写到第几轮：水位由它推出来，state.json 只是缓存。 */
+  function derivedBuilt() {
+    const out = new Map()
+    for (const record of turns.values()) {
+      const prev = out.get(record.session)
+      if (!prev || record.turn > prev.turn) {
+        out.set(record.session, { turn: record.turn, to: Number.isInteger(record.to) ? record.to : null })
+      }
+    }
+    return out
+  }
+
+  /** 把 state.json 与星源对齐：星源里有的轮，水位不能声称没写。 */
+  function healWatermark() {
+    let changed = false
+    for (const [sessionId, info] of derivedBuilt()) {
+      const current = state.built[sessionId]
+      if (!current || (info.turn ?? 0) > (current.turn ?? 0)) {
+        state.built[sessionId] = { turn: info.turn, to: info.to ?? current?.to ?? null }
+        changed = true
+      }
+    }
+    if (changed) writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
+    return changed
+  }
+
   /** 从磁盘重读一遍。宿主里另一个进程（或上一次会话）写过，重新点亮前要跟上。 */
   function reload() {
     const next = readJson(stateFile(root), { version: 1, lex: 0, built: {} })
@@ -125,10 +151,16 @@ export function openRepo({ root = starmapRoot() } = {}) {
 
     stars.clear()
     byName.clear()
-    for (const star of readJsonl(starsFile(root))) {
+    const starLines = readJsonl(starsFile(root))
+    for (const star of starLines) {
       if (star?.id && star?.name) stars.set(star.id, star)
     }
     for (const star of stars.values()) byName.set(star.name, star)
+    if (starLines.length !== stars.size) {
+      // 两个进程各追加过同一颗星：加载时顺手把重复行收成一份，之后按唯一 id 记。
+      const kept = [...stars.values()].map((star) => JSON.stringify(star)).join('\n')
+      writeAtomic(starsFile(root), `${kept}\n`)
+    }
 
     turns.clear()
     byStar.clear()
@@ -146,6 +178,7 @@ export function openRepo({ root = starmapRoot() } = {}) {
         }
       }
     }
+    healWatermark()
     return state
   }
 
@@ -169,8 +202,21 @@ export function openRepo({ root = starmapRoot() } = {}) {
     return record
   }
 
+  /** 抬水位前先把别处写的 state 合进来：两个进程各持一份，整体覆盖会冲掉对方的会话。 */
+  function mergeWatermarkFromDisk() {
+    const disk = readJson(stateFile(root), null)
+    if (!disk || typeof disk !== 'object') return
+    if (Number.isInteger(disk.lex)) state.lex = Math.max(state.lex, disk.lex)
+    for (const [sessionId, info] of Object.entries(disk.built ?? {})) {
+      const current = state.built[sessionId]
+      if (!current || (info?.turn ?? 0) > (current?.turn ?? 0)) state.built[sessionId] = info
+    }
+  }
+
   function raiseWatermark(sessionId, turn, to, lex) {
-    state.built[sessionId] = { turn, to }
+    mergeWatermarkFromDisk()
+    const current = state.built[sessionId]
+    if (!current || turn >= (current.turn ?? 0)) state.built[sessionId] = { turn, to }
     if (Number.isInteger(lex)) state.lex = Math.max(state.lex, lex)
     writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
   }

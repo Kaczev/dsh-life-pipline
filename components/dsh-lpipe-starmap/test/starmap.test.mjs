@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -130,4 +130,46 @@ test('starmap.rebuild 走得通，没接上也如实说', async () => {
   const failed = await without('starmap.rebuild', {})
   assert.equal(failed.ok, false)
   assert.equal(failed.error.code, 'starmap/unavailable')
+})
+
+test('水位丢了：星源还在就能自己长回来', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const at = Date.parse('2026-11-06T12:40:00+08:00')
+  const rows = [{ seq: 0, turn: 7, at, kind: 'user/message', text: '星图要自己长回水位。' }]
+  buildTurn({ repo: openRepo({ root }), turn: makeTurn({ turn: 7, at, rows }), sessionId: 'sess-e', lex: 1, matcher })
+
+  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, lex: 1, built: {} })}\n`, 'utf8')
+  const repo = openRepo({ root })
+  assert.deepEqual(repo.state.built['sess-e'], { turn: 7, to: 0 }, '加载时应从星源补回水位')
+  assert.deepEqual(JSON.parse(readFileSync(stateFile(root), 'utf8')).built['sess-e'], { turn: 7, to: 0 })
+})
+
+test('抬水位不冲掉别的会话', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const repo = openRepo({ root })
+  repo.raiseWatermark('sess-new', 3, 9, 1)
+
+  // 另一个进程写进来的会话：本进程内存里没有它，抬水位时必须先合进来。
+  writeFileSync(stateFile(root), `${JSON.stringify({ version: 1, lex: 1, built: { 'sess-old': { turn: 40, to: 100 } } })}\n`, 'utf8')
+  repo.raiseWatermark('sess-new', 4, 12, 1)
+
+  const state = JSON.parse(readFileSync(stateFile(root), 'utf8'))
+  assert.deepEqual(state.built['sess-old'], { turn: 40, to: 100 })
+  assert.deepEqual(state.built['sess-new'], { turn: 4, to: 12 })
+})
+
+test('重复的星星行，加载时收成一份', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const at = Date.parse('2026-11-06T12:50:00+08:00')
+  const rows = [{ seq: 0, turn: 8, at, kind: 'user/message', text: '记忆管线里重复的星星要收掉。' }]
+  buildTurn({ repo: openRepo({ root }), turn: makeTurn({ turn: 8, at, rows }), sessionId: 'sess-f', lex: 1, matcher })
+
+  const first = readFileSync(starsFile(root), 'utf8').trim().split('\n')[0]
+  appendFileSync(starsFile(root), `${first}\n`, 'utf8')
+  assert.equal(readFileSync(starsFile(root), 'utf8').trim().split('\n').length, 2)
+
+  const repo = openRepo({ root })
+  const lines = readFileSync(starsFile(root), 'utf8').trim().split('\n')
+  assert.equal(lines.length, 1, '重复的那行应当在加载时被收掉')
+  assert.equal(repo.stars.size, 1)
 })

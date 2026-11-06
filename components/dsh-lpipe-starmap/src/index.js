@@ -130,13 +130,21 @@ export function apply(ctx, options = {}) {
         max = Number.isInteger(lastRow?.turn) ? lastRow.turn : 0
         maxTurn.set(session.sessionId, max)
       }
+      // 以「星源里实际写下去的最后一轮」为准，水位只作下限：
+      // 两个进程各持一份 state 时，水位可能落后甚至丢了，但星源不会。
       const builtInfo = repo.state?.built?.[session.sessionId] ?? null
-      const builtTurns = builtInfo?.turn ?? 0
+      let builtTurns = Number.isInteger(builtInfo?.turn) ? builtInfo.turn : 0
+      let builtTo = builtInfo?.to ?? null
+      for (const record of repo.turns.values()) {
+        if (record.session !== session.sessionId) continue
+        if (record.turn > builtTurns) {
+          builtTurns = record.turn
+          builtTo = Number.isInteger(record.to) ? record.to : builtTo
+        }
+      }
       turns += max
       lit += Math.min(builtTurns, max)
-      if (Number.isInteger(builtTurns)) {
-        list.push({ sessionId: session.sessionId, turns: max, built: Math.min(builtTurns, max), grey: Math.max(0, max - builtTurns), to: builtInfo?.to ?? null })
-      }
+      list.push({ sessionId: session.sessionId, turns: max, built: Math.min(builtTurns, max), grey: Math.max(0, max - builtTurns), to: builtTo })
     }
     for (const record of repo.turns.values()) {
       if (lastBuiltAt === null || (record.at ?? 0) > lastBuiltAt) {
