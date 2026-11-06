@@ -29,12 +29,12 @@ test('用量记账：调用次数与最近七天的 token 总量', () => {
 
     const stats = usageStats(root, { now })
     assert.equal(stats.calls, 3, '调用次数算全部历史')
-    assert.equal(stats.tokens, 1200 + 600 + 4900)
+    assert.equal(stats.tokens, 2100 + 600 + 4900)
     assert.equal(stats.input, 5500)
     assert.equal(stats.output, 1200)
     assert.equal(stats.cacheRead, 900)
     assert.equal(stats.calls7d, 2, '三十天前那次不算进七天窗口')
-    assert.equal(stats.tokens7d, 1200 + 600)
+    assert.equal(stats.tokens7d, 2100 + 600)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -169,7 +169,7 @@ function usageBars(daily) {
         'div',
         {
           key: row.day,
-          title: `${row.day} · 输入 ${formatTokens(row.input || 0)}（命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`,
+          title: `${row.day} · 输入 ${formatTokens((row.input || 0) + hit)}（未命中 ${formatTokens(row.input || 0)} + 命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`,
           style: { flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'flex-end' },
         },
         h(

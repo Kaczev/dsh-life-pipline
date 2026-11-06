@@ -28,16 +28,17 @@ const dayKey = (at) => {
 
 /**
  * `calls` / `tokens` 是历史总计，`calls7d` / `tokens7d` 是最近七天。
- * token 一律按 input + output 算，缓存的读取也算进去（它确实占了上下文）。
+ * 计费口径：宿主的计数是**互斥**的（`inputTokens` 只算未命中的输入，命中的在
+ * `cacheReadTokens`、写入缓存的在 `cacheWriteTokens`），所以总量是四项相加。
  */
 export function usageStats(root, { now = Date.now(), days = 7 } = {}) {
   const buckets = []
   for (let index = days - 1; index >= 0; index -= 1) {
     const day = dayKey(now - index * DAY)
-    buckets.push({ day, input: 0, output: 0, cacheRead: 0, calls: 0 })
+    buckets.push({ day, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 })
   }
   const byDay = new Map(buckets.map((bucket) => [bucket.day, bucket]))
-  const stats = { calls: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, calls7d: 0, tokens7d: 0, days, daily: buckets }
+  const stats = { calls: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls7d: 0, tokens7d: 0, days, daily: buckets }
   const since = now - days * DAY
   let text = ''
   try {
@@ -56,21 +57,24 @@ export function usageStats(root, { now = Date.now(), days = 7 } = {}) {
     const input = Number(row?.input) || 0
     const output = Number(row?.output) || 0
     const cacheRead = Number(row?.cacheRead) || 0
+    const cacheWrite = Number(row?.cacheWrite) || 0
     const at = Date.parse(row?.at ?? '')
     stats.calls += 1
     stats.input += input
     stats.output += output
     stats.cacheRead += cacheRead
-    stats.tokens += input + output
+    stats.cacheWrite += cacheWrite
+    stats.tokens += input + output + cacheRead + cacheWrite
     if (Number.isFinite(at) && at >= since) {
       stats.calls7d += 1
-      stats.tokens7d += input + output
+      stats.tokens7d += input + output + cacheRead + cacheWrite
       const bucket = byDay.get(dayKey(at))
       if (bucket) {
         bucket.calls += 1
         bucket.input += input
         bucket.output += output
         bucket.cacheRead += cacheRead
+        bucket.cacheWrite += cacheWrite
       }
     }
   }

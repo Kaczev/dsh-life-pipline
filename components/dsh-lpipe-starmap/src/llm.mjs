@@ -165,8 +165,9 @@ export function normalizeUsage(usage) {
   const input = pick('inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens')
   const output = pick('outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens')
   const cacheRead = pick('cacheReadTokens', 'cache_read_tokens', 'cachedTokens', 'cached_tokens')
-  if (!input && !output && !cacheRead) return null
-  return { input, output, cacheRead }
+  const cacheWrite = pick('cacheWriteTokens', 'cache_write_tokens')
+  if (!input && !output && !cacheRead && !cacheWrite) return null
+  return { input, output, cacheRead, cacheWrite }
 }
 
 /**

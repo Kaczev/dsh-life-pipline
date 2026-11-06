@@ -84,7 +84,7 @@ test('一条对话复用到底：前缀不变，只追加一问一答', async ()
 
   const first = await extractor.ask('第一轮原文')
   assert.equal(first.ok, true)
-  assert.deepEqual(first.usage, { input: 100, output: 20, cacheRead: 80 })
+  assert.deepEqual(first.usage, { input: 100, output: 20, cacheRead: 80, cacheWrite: 0 })
   assert.equal(extractor.size(), 3)
 
   await extractor.ask('第二轮原文')
@@ -127,8 +127,8 @@ test('对话太长就换新的一条', async () => {
 })
 
 test('用量字段各家叫法不同，统一成 input / output / cacheRead', () => {
-  assert.deepEqual(normalizeUsage({ input_tokens: 12, output_tokens: 3 }), { input: 12, output: 3, cacheRead: 0 })
-  assert.deepEqual(normalizeUsage({ promptTokens: 7, completionTokens: 2, cachedTokens: 5 }), { input: 7, output: 2, cacheRead: 5 })
+  assert.deepEqual(normalizeUsage({ input_tokens: 12, output_tokens: 3 }), { input: 12, output: 3, cacheRead: 0, cacheWrite: 0 })
+  assert.deepEqual(normalizeUsage({ promptTokens: 7, completionTokens: 2, cachedTokens: 5 }), { input: 7, output: 2, cacheRead: 5, cacheWrite: 0 })
   assert.equal(normalizeUsage({}), null)
   assert.equal(normalizeUsage(null), null)
 })
@@ -249,3 +249,4 @@ test('chat_send 发出去的那段话，结果再长也全文在内', () => {
   assert.match(source, /别熬太晚。$|别熬太晚。\n/)
   assert.ok(!source.includes('x'.repeat(700)), '普通工具的长结果仍然不进原文')
 })
+
