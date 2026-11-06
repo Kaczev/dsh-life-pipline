@@ -72,13 +72,20 @@ test('面板能渲染出第一屏（引用顺序错会在这里当场抛错）',
   assert.match(text, /Lpipe Starmap/)
 })
 
-test('暂停中、宿主还在动：按钮写「正在暂停」并锁住', () => {
+test('刚点下暂停、宿主还没回话：按钮写「正在暂停」', () => {
+  const { exported } = loadBundle()
+  const now = Date.now()
+  const state = exported.__test__.runState('stopping', { running: true, stopping: true, updatedAt: now - 1000 }, now)
+  assert.equal(state.buttonLabel, '正在暂停')
+  assert.equal(state.stopping, true)
+})
+
+test('宿主内部的 stopping 标志不再左右按钮：它挂着也不显示「正在暂停」', () => {
   const { exported } = loadBundle()
   const now = Date.now()
   const state = exported.__test__.runState('', { running: true, stopping: true, updatedAt: now - 1000 }, now)
-  assert.equal(state.buttonLabel, '正在暂停')
-  assert.equal(state.stopping, true)
-  assert.equal(state.alive, true)
+  assert.equal(state.buttonLabel, '暂时停止', '还能点停止，但不说「正在暂停」')
+  assert.equal(state.stopping, false)
 })
 
 test('宿主心跳断了：不再显示「正在暂停」，按钮回到「现在抽星」', () => {

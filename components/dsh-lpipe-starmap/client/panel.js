@@ -43,7 +43,7 @@ const card = {
 // 头部两层：外层只管「数字区 + 按钮」不换行，内层数字区自己折行。
 // 否则按钮会被宽出来的「N 轮还是灰的」挤到下一行，底下空一截。
 const head = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'nowrap' };
-const headNumbers = { display: 'flex', alignItems: 'baseline', gap: 36, rowGap: 8, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 };
+const headNumbers = { display: 'flex', alignItems: 'baseline', gap: 22, rowGap: 6, flexWrap: 'wrap', flex: '1 1 auto', minWidth: 0 };
 const big = { fontSize: 21, fontWeight: 600, color: COLORS.text, lineHeight: 1.2 };
 const unit = { fontSize: 11, fontWeight: 600, color: COLORS.text, marginLeft: 3 };
 const mid = { fontSize: 15, fontWeight: 600, color: COLORS.text };
@@ -280,6 +280,8 @@ function StarmapPanel({ rpcCall }) {
   const [saved, setSaved] = React.useState('');
   // 点下按钮到宿主回话之间有个空档：本地先记一笔，按钮立刻变样，别让人以为没点到。
   const [pending, setPending] = React.useState('');
+  // 我按过暂停、还没再点开始：状态行据此显示「已暂停」，哪怕宿主那边还在收尾。
+  const [held, setHeld] = React.useState(false);
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
   const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
@@ -382,6 +384,7 @@ function StarmapPanel({ rpcCall }) {
 
   const start = () => {
     setSaved('');
+    setHeld(false);
     setPending('starting');
     Promise.resolve()
       .then(() => rpcCall('starmap.rebuild', {}))
@@ -423,6 +426,7 @@ function StarmapPanel({ rpcCall }) {
   // 改坏了就退回去：草稿恢复成已保存的那一份。
   const stop = () => {
     setSaved('');
+    setHeld(true);
     setPending('stopping');
     Promise.resolve()
       .then(() => rpcCall('starmap.pause', {}))
@@ -528,7 +532,15 @@ function StarmapPanel({ rpcCall }) {
         h(
           'span',
           null,
-          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${busy ? ` · ${extract.stopping ? '暂停中' : '正在抽星'}${lanes.active > 0 ? `，${lanes.active} 路在跑` : ''}` : ''}`,
+          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${
+            held
+              ? alive
+                ? ' · 已暂停，等手上这一轮收尾'
+                : ' · 已暂停'
+              : busy
+                ? ` · 正在抽星${lanes.active > 0 ? `，${lanes.active} 路在跑` : ''}`
+                : ''
+          }`,
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
@@ -728,11 +740,11 @@ function runState(pending, extract, now = Date.now()) {
   const fresh = extract || {};
   const stale = Boolean(fresh.running && fresh.updatedAt && now - fresh.updatedAt > STALE_MS);
   const alive = Boolean(fresh.running) && !stale;
-  // 本地那个「刚点下」的标记也会过期：宿主没动静时它不能继续替宿主说话。
+  // 「正在暂停」只表示「我刚点了暂停、宿主还没回话」，只认本地这一笔。
+  // 宿主内部的 stopping 标志不可靠（旧版本会一直挂着），不能拿它决定按钮长什么样。
   const live = stale ? '' : pending;
+  const stopping = live === 'stopping';
   const busy = live !== '' || alive;
-  // 「正在暂停」只在等宿主回话的那几秒出现；宿主那边停止之后必须回到「现在抽星」。
-  const stopping = live === 'stopping' || Boolean(fresh.stopping && alive);
   const buttonLabel = stopping ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
   return { stale, alive, busy, stopping, buttonLabel };
 }
