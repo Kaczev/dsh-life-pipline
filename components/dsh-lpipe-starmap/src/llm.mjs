@@ -121,15 +121,24 @@ export function normalizeUsage(usage) {
 }
 
 /**
+ * 把 finish 里的失败摊开说。只报「stream error」看不出是钥匙不对还是模型名不对。
+ */
+export function describeFailure(reason) {
+  const failure = reason?.failure ?? {}
+  const head = failure.message || `stream ${reason?.kind ?? 'error'}`
+  if (!failure.code) return head
+  return `${head}（${failure.code}${failure.status ? ` ${failure.status}` : ''}）`
+}
+
+/**
  * 一条可复用的抽取对话。`ask(source)` 只追加一问一答，失败会把这一问撤回去，
  * 保证下次重试的前缀与失败前一模一样（缓存能接着用）。
+ *
+ * 指令并进 system，而不是单独一条 user：这样每轮都是严格的「user → assistant」交替，
+ * 不会因为末尾多一条 assistant 预填被供应商判成非法请求。
  */
 export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
-  const fresh = () => [
-    messageOf('system', SYSTEM_PROMPT),
-    messageOf('user', INSTRUCTION),
-    messageOf('assistant', '明白，请发第一轮原文。'),
-  ]
+  const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
   let chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
 
@@ -150,7 +159,7 @@ export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryC
         if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
         if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
           messages.pop()
-          return { ok: false, error: `stream ${chunk.reason.kind}`, raw, usage }
+          return { ok: false, error: describeFailure(chunk.reason), raw, usage }
         }
       }
     } catch (error) {
@@ -185,7 +194,7 @@ export async function requestPairs({ llm, route = {}, source, maxTokens = 1500, 
     for await (const chunk of llm.stream(options)) {
       if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
       if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
-        return { ok: false, error: `stream ${chunk.reason.kind}`, raw }
+        return { ok: false, error: describeFailure(chunk.reason), raw }
       }
     }
   } catch (error) {

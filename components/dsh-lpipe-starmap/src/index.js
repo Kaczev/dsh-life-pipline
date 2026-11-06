@@ -98,7 +98,9 @@ export function apply(ctx, options = {}) {
   }
 
   /** 抽星进度：设置页拿它显示「正在抽 N/M」。 */
-  const progressState = { running: false, done: 0, total: 0, failed: 0 }
+  const progressState = { running: false, done: 0, total: 0, failed: 0, error: '' }
+  /** 连着失败了几轮；模型那边出问题时用它及时刹车，不把额度烧在必然失败的调用上。 */
+  let failureStreak = 0
   const rejectsFile = join(root, 'rejects.jsonl')
 
   /** sessionId -> 记忆里这个会话最大的轮号（启动或构建时更新，设置页读它算灰） */
@@ -160,6 +162,8 @@ export function apply(ctx, options = {}) {
     if (!reply.ok) {
       progressState.failed += 1
       warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮抽星失败：${reply.error}`)
+      progressState.failed += 1
+      progressState.error = reply.error || '模型没有回出可用结果'
       noteRejects(sessionId, turn.turn, [{ pair: null, why: 'llm-failed', error: reply.error }])
       return false
     }
@@ -179,14 +183,22 @@ export function apply(ctx, options = {}) {
     progressState.total += pending.length
     let built = 0
     let cursor = 0
+    // 连着失败这么多次，基本就是模型那边的问题（钥匙、模型名、额度），继续硬跑只是烧钱。
+    const FAIL_STREAK_LIMIT = 5
     const worker = async (extractor) => {
-      while (cursor < pending.length) {
+      while (cursor < pending.length && failureStreak < FAIL_STREAK_LIMIT) {
         const turn = pending[cursor]
         cursor += 1
+        let ok = false
         try {
-          if (await buildOne(sessionId, turn, extractor)) built += 1
+          ok = await buildOne(sessionId, turn, extractor)
+          if (ok) built += 1
         } catch (error) {
           warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮跳过：${error?.message ?? error}`)
+        }
+        failureStreak = ok ? 0 : failureStreak + 1
+        if (failureStreak === FAIL_STREAK_LIMIT) {
+          info(`[dsh-lpipe-starmap] 连着 ${FAIL_STREAK_LIMIT} 轮抽星失败，先停下：${progressState.error || '看 rejects.jsonl'}`)
         }
         progressState.done += 1
         if (progressState.done % 25 === 0) {
@@ -277,6 +289,8 @@ export function apply(ctx, options = {}) {
     progressState.done = 0
     progressState.total = 0
     progressState.failed = 0
+    progressState.error = ''
+    failureStreak = 0
     try {
       const built = await buildAll()
       const result = { built, ...status(), elapsedMs: Date.now() - started }

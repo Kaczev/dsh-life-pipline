@@ -77,18 +77,19 @@ test('一条对话复用到底：前缀不变，只追加一问一答', async ()
     },
   }
   const extractor = createExtractor({ llm })
-  assert.equal(extractor.size(), 3)
+  // 开局只有一条 system：指令并进系统提示词，后面严格 user → assistant 交替。
+  assert.equal(extractor.size(), 1)
 
   const first = await extractor.ask('第一轮原文')
   assert.equal(first.ok, true)
   assert.deepEqual(first.usage, { input: 100, output: 20, cacheRead: 80 })
-  assert.equal(extractor.size(), 5)
+  assert.equal(extractor.size(), 3)
 
   await extractor.ask('第二轮原文')
-  assert.equal(seen[1].length, 6, '上一问 + 上一答 + 这一问')
+  assert.equal(seen[1].length, 4, 'system + 上一问 + 上一答 + 这一问')
   // 上一次请求的那几条在这条里原封不动地重复了一遍：缓存能接着用。
-  assert.deepEqual(seen[1].slice(0, 4), seen[0])
-  assert.equal(seen[1][5], '第二轮原文')
+  assert.deepEqual(seen[1].slice(0, seen[0].length), seen[0])
+  assert.equal(seen[1][3], '第二轮原文')
 })
 
 test('调用失败把这一问撤回：下次重试的前缀和之前一样', async () => {
@@ -106,10 +107,10 @@ test('调用失败把这一问撤回：下次重试的前缀和之前一样', as
   const extractor = createExtractor({ llm })
   const failed = await extractor.ask('第一轮')
   assert.equal(failed.ok, false)
-  assert.equal(extractor.size(), 3, '失败的那一问要撤回')
+  assert.equal(extractor.size(), 1, '失败的那一问要撤回')
   const ok = await extractor.ask('第一轮')
   assert.equal(ok.ok, true)
-  assert.equal(extractor.size(), 5)
+  assert.equal(extractor.size(), 3)
 })
 
 test('对话太长就换新的一条', async () => {
@@ -120,7 +121,7 @@ test('对话太长就换新的一条', async () => {
   }
   const extractor = createExtractor({ llm, maxHistoryChars: 20 })
   await extractor.ask('x'.repeat(50))
-  assert.equal(extractor.size(), 3, '超过上限后回到只有指令的三条')
+  assert.equal(extractor.size(), 1, '超过上限后回到只有系统提示词的一条')
 })
 
 test('用量字段各家叫法不同，统一成 input / output / cacheRead', () => {

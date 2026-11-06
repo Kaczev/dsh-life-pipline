@@ -369,6 +369,10 @@ function StarmapPanel({ rpcCall }) {
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
+      // 抽星失败时把模型的原始报错露出来：只写「失败了」没法判断是钥匙、模型名还是额度。
+      extract.error
+        ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 8, lineHeight: '17px' } }, `上次失败：${extract.error}`)
+        : null,
       h(
         'div',
         { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10, flexWrap: 'wrap' } },
