@@ -40,6 +40,14 @@ const MAX_TOOL_RESULT = 600
 export function textsOf(row) {
   // 运行期注入的上下文（短期上下文、记忆库快照）不是「说过的话」，不抽星。
   if (row?.kind === 'user/message' && row?.source?.kind === 'runtime-context') return []
+  // 发给人的那段话就是你我说的话，不是「工具输出」：全文参与抽星。
+  if (row?.kind === 'tool/call' && String(row?.name) === 'chat_send') {
+    try {
+      const args = JSON.parse(row.arguments ?? '{}')
+      if (typeof args?.text === 'string' && args.text.trim()) return [args.text]
+    } catch { /* 参数不是 JSON 就当没有 */ }
+    return []
+  }
   if (row?.kind === 'tool/result') {
     const text = typeof row.text === 'string' ? row.text.trim() : ''
     // 读文件、列目录这类工具的结果是数据，不是句子：整段抽星只会把文件名变成概念。
@@ -57,6 +65,8 @@ export function sentencesOf(turn) {
   for (const [rowIndex, row] of (turn.rows ?? []).entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
       out.push({ seq: row.seq, row: rowIndex, text: String(row.name) })
+      // chat_send 的正文要单独成句：它就是我跟人说的话。
+      for (const text of textsOf(row)) out.push({ seq: row.seq, row: rowIndex, text })
       continue
     }
     for (const text of textsOf(row)) {

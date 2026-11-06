@@ -9,29 +9,55 @@ export const MAX_PAIRS = 60
 export const MAX_OUTPUT_TOKENS = 4000
 
 export const SYSTEM_PROMPT = [
-  '你是知识图谱的抽星器。用户给你一轮对话的原文，你只回答一件事：',
-  '这一轮里哪些概念是一起出现过的，把它们配成对。',
+  'You extract concept pairs from one turn of a conversation. The turn is written mostly in Chinese; keep every name exactly as it appears in the text.',
   '',
-  '什么算概念：人、物、项目、模块、文件、工具、技术、方法、问题、事件、专有名词、有名字的状态或指标。',
-  '什么不算：虚词、代词、形容词、量词、整句、纯数字、时间点、寒暄与语气词。',
+  'A pair says: these two concepts appeared together in this turn. Nothing else is asked of you.',
   '',
-  '规则：',
-  '1. 名字必须原样摘自原文，一个字都不要改；不要翻译、不要缩写、不要换同义词。',
-  '2. 只要成对的：每一对是 [概念甲, 概念乙]，两项都在原文里出现过。',
-  '3. 同一对不要重复；顺序无所谓。',
-  '4. 最多 ' + MAX_PAIRS + ' 对。宁可只给三对，也不要拿废话凑数。',
-  '5. 只输出 JSON 数组，第一行就是 [，最后一行是 ]。不要解释、不要代码块、不要前言、不要总结。',
-  '6. 对子多的时候也要在输出上限之内写完；写不完就少给几对，绝不能半截停下。',
-  '7. 不要写思考过程、不要复述原文、不要分析。你唯一该产生的字符，就是那个数组。',
+  'Rules:',
+  `1. Copy names verbatim from the text.`,
+  '   The program looks your strings up in the original turn. A translated, shortened, renamed or re-cased name will not be found, and the pair is thrown away.',
+  '2. Only give pairs. A pair is [concept, concept], and both names must appear in the text.',
+  '   A concept that shows up alone is not a pair. Do not invent a partner just to fill the array.',
+  '3. Prefer the concepts that carry the turn: decisions, problems, causes, fixes, named things, people, projects, modules, files, tools, technologies, metrics, events.',
+  '   Skip the incidental ones — scene dressing, mood, politeness, passing mentions, words that could belong to any turn. Fewer meaningful pairs beat many empty ones.',
+  `4. At most ${MAX_PAIRS} pairs. Three sharp pairs are a better answer than thirty vague ones.`,
+  '5. Do not repeat a pair. Order inside a pair does not matter.',
+  '6. Never write reasoning, explanation, preamble or summary. The only characters you produce are the array.',
+  '7. Stay inside the output limit. If you are running out of room, return fewer pairs and close the array properly; never stop mid-pair.',
   '',
-  '输出示例：[["记忆管线", "星图管线"], ["Kas", "鲸鲸"]]',
-  '空的话就输出：[]',
+  'Example:',
+  'Text: [用户] 我把唤醒管线的定时器改成时间戳比较，避免累积误差。[助手] 记忆管线那边也要一起看。',
+  'Output: [["唤醒管线","定时器"],["唤醒管线","时间戳"],["时间戳","累积误差"],["记忆管线","唤醒管线"]]',
+  '',
+  'Output format:',
+  'One JSON array of two-string arrays, and nothing else:',
+  '[["concept A","concept B"],["concept C","concept D"]]',
+  'Return [] when nothing in the turn is worth pairing.',
 ].join('\n')
+
+/** 推理只发头尾：中间是反复权衡，对「谁和谁一起出现」几乎没有贡献。 */
+export const REASONING_HEAD = 600
+export const REASONING_TAIL = 300
+
+/** 长推理压成「开头 + 结尾」，中间标出省略了多少字。 */
+export function trimReasoning(text, head = REASONING_HEAD, tail = REASONING_TAIL) {
+  if (typeof text !== 'string') return ''
+  const body = text.trim()
+  if (!body) return ''
+  if (body.length <= head + tail + 40) return body
+  return `${body.slice(0, head)}\n…（省略 ${body.length - head - tail} 字）…\n${body.slice(-tail)}`
+}
 
 /** 把一轮的行拼成「谁说了什么」，喂给模型。 */
 export function turnSource(turn, textsOf) {
   const parts = []
   for (const row of turn.rows ?? []) {
+    if (row?.kind === 'assistant/message') {
+      if (typeof row.text === 'string' && row.text.trim()) parts.push(`[助手] ${row.text}`)
+      const thinking = trimReasoning(row.reasoning)
+      if (thinking) parts.push(`[助手·思考] ${thinking}`)
+      continue
+    }
     for (const text of textsOf(row)) {
       const speaker = row?.kind === 'user/message' ? '用户' : row?.kind === 'assistant/message' ? '助手' : '工具'
       parts.push(`[${speaker}] ${text}`)
@@ -112,9 +138,9 @@ export function dedupePairs(pairs) {
  * 前缀一直不变，模型侧的缓存才有机会命中；太长就从头再来一条。
  */
 export const INSTRUCTION = [
-  '接下来我会一轮一轮地把对话原文发给你，每条消息只处理它自己：',
-  '只回答那条消息里的概念对，不要回顾前面的轮次，也不要重复之前的答案。',
-  '输出格式照旧，只给 JSON 数组。',
+  'I will send you turns one at a time.',
+  'Each message is its own turn: answer only about that message, do not revisit or repeat earlier answers.',
+  'Output format is unchanged: the JSON array and nothing else.',
 ].join('\n')
 
 /** 一条对话攒到多长就换新的：再长下去，省下的钱抵不上多读的上下文。 */

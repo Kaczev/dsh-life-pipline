@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, salvagePairs, turnSource } from '../src/llm.mjs'
+import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, salvagePairs, trimReasoning, turnSource } from '../src/llm.mjs'
 import { textsOf } from '../src/build.mjs'
 
 test('解析模型回复：纯数组、代码块、夹着废话都能抠出来', () => {
@@ -23,9 +23,11 @@ test('对子归一：去引号、去自己配自己、同一对只留一份', ()
 })
 
 test('提示词只要成对的概念，并给出上限', () => {
-  assert.match(SYSTEM_PROMPT, /原样摘自原文/)
-  assert.match(SYSTEM_PROMPT, new RegExp(`最多 ${MAX_PAIRS} 对`))
-  assert.match(SYSTEM_PROMPT, /只输出 JSON 数组/)
+  assert.match(SYSTEM_PROMPT, /verbatim/)
+  assert.match(SYSTEM_PROMPT, new RegExp(`At most ${MAX_PAIRS} pairs`))
+  assert.match(SYSTEM_PROMPT, /Rules:/)
+  assert.match(SYSTEM_PROMPT, /Output format:/)
+  assert.match(SYSTEM_PROMPT, /One JSON array/)
 })
 
 test('一轮的原文带上说话的人；注入的上下文不算', () => {
@@ -180,3 +182,45 @@ test('失败时把模型真写回来的开头带上，而不是只说 not json',
   assert.match(reply.error, /not json/)
   assert.match(reply.error, /我先看看/)
 })
+
+
+test('推理只发头尾，中间标出省略了多少字', () => {
+  const body = 'a'.repeat(800) + 'b'.repeat(400) + 'c'.repeat(300)
+  const trimmed = trimReasoning(body)
+  assert.ok(trimmed.length < body.length)
+  assert.ok(trimmed.startsWith('a'.repeat(100)))
+  assert.ok(trimmed.endsWith('c'.repeat(100)))
+  assert.match(trimmed, /省略 600 字/)
+  // 短推理原样返回，不加省略标记
+  assert.equal(trimReasoning('短的'), '短的')
+  assert.equal(trimReasoning(undefined), '')
+})
+
+test('一轮的原文里，思考是截过的、工具名单独成句、chat_send 的话全文在内', () => {
+  const longThinking = 'x'.repeat(2000)
+  const turn = {
+    rows: [
+      { kind: 'user/message', text: '把那条消息发出去。' },
+      {
+        kind: 'tool/call',
+        name: 'chat_send',
+        arguments: JSON.stringify({ channel: 'weixin', text: '今晚早点睡，别熬了。' }),
+      },
+      { kind: 'tool/call', name: 'ops_read_files', arguments: '{}' },
+      { kind: 'assistant/message', text: '已经发了。', reasoning: longThinking },
+    ],
+  }
+  const textsOf = (row) => {
+    if (row.kind === 'tool/call' && row.name === 'chat_send') {
+      return [JSON.parse(row.arguments).text]
+    }
+    if (row.kind === 'tool/call') return []
+    if (row.kind === 'tool/result') return []
+    return [row.text, row.reasoning].filter(Boolean)
+  }
+  const source = turnSource(turn, textsOf)
+  assert.match(source, /今晚早点睡/)
+  assert.ok(!source.includes('x'.repeat(700)))
+  assert.match(source, /省略 1100 字/)
+})
+
