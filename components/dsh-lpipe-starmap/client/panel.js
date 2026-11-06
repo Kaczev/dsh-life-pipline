@@ -40,7 +40,7 @@ const card = {
   marginBottom: 12,
 };
 
-const head = { display: 'flex', alignItems: 'baseline', gap: 36, flexWrap: 'wrap' };
+const head = { display: 'flex', alignItems: 'baseline', gap: 36, rowGap: 8, flexWrap: 'wrap' };
 const big = { fontSize: 21, fontWeight: 600, color: COLORS.text, lineHeight: 1.2 };
 const unit = { fontSize: 11, fontWeight: 600, color: COLORS.text, marginLeft: 3 };
 const mid = { fontSize: 15, fontWeight: 600, color: COLORS.text };
@@ -466,6 +466,22 @@ function StarmapPanel({ rpcCall }) {
               h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.warning } }, '轮还是灰的'),
             )
           : null,
+        // 抽星按钮贴在头部右侧：它和「亮了多少轮」是同一件事的两个面，放一起最省地方。
+        h(
+          'button',
+          {
+            style: {
+              ...button(configured || busy ? COLORS.accent : null),
+              marginLeft: 'auto',
+              alignSelf: 'center',
+              padding: '7px 16px',
+              fontSize: 13,
+            },
+            onClick: busy ? stop : start,
+            disabled: !busy && !configured,
+          },
+          busy ? '暂停' : '现在抽星',
+        ),
       ),
       h('div', { style: track }, h('div', { style: fill(ratioOf(built, turns)) })),
       h(
@@ -484,22 +500,13 @@ function StarmapPanel({ rpcCall }) {
         : null,
       h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10, flexWrap: 'wrap' } },
+        { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' } },
         h(
           'span',
           { style: { fontSize: 11, color: COLORS.faint } },
           usage.calls
             ? `调用 ${usage.calls} 次 · 7 天 ${formatTokens(usage.tokens7d)} token · 累计 ${formatTokens(usage.tokens)} token`
             : '还没调用过模型',
-        ),
-        h(
-          'button',
-          {
-            style: button(configured || busy ? COLORS.accent : null),
-            onClick: busy ? stop : start,
-            disabled: !busy && !configured,
-          },
-          busy ? '暂停' : '现在抽星',
         ),
       ),
       usageBars(usage.daily),
@@ -512,8 +519,8 @@ function StarmapPanel({ rpcCall }) {
       h(
         'div',
         {
-          // 设置页宽度不固定：按字段最小宽度自动折行，别把后三格挤成一条缝。
-          style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, alignItems: 'end' },
+          // 第一行只放「用哪个模型」：提供者 + 模型各占一半。
+          style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, alignItems: 'end' },
         },
         h(
           'div',
@@ -556,6 +563,13 @@ function StarmapPanel({ rpcCall }) {
               h('option', { key: model.id, value: model.id }, model.name && model.name !== model.id ? `${model.name} · ${model.id}` : model.id)),
           ),
         ),
+      ),
+      h(
+        'div',
+        {
+          // 第二行放「怎么跑」：强度、路数、输出上限三等分。
+          style: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, alignItems: 'end', marginTop: 10 },
+        },
         h(
           'div',
           { style: field },
