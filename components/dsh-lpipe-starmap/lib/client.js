@@ -307,6 +307,14 @@ function StarmapPanel({ rpcCall }) {
       .catch((error) => setSaved(`保存失败：${String(error?.message || error)}`));
   };
 
+  // 改坏了就退回去：草稿恢复成已保存的那一份。
+  const revert = () => {
+    setForm({ ...committed });
+    setSaved('');
+    if (committed.provider && committed.model) loadEfforts(committed.provider, committed.model);
+    else setEfforts(null);
+  };
+
   return h(
     'section',
     null,
@@ -404,6 +412,7 @@ function StarmapPanel({ rpcCall }) {
               onChange: (event) => {
                 setForm({ provider: event.target.value, model: '', reasoningEffort: '' });
                 setEfforts(null);
+                setSaved('');
               },
             },
             h('option', { value: '' }, '（不选）'),
@@ -424,6 +433,7 @@ function StarmapPanel({ rpcCall }) {
                 const model = event.target.value;
                 setForm({ ...form, model, reasoningEffort: '' });
                 loadEfforts(form.provider, model);
+                setSaved('');
               },
             },
             h('option', { value: '' }, form.provider ? '（不选）' : '先选提供者'),
@@ -441,7 +451,10 @@ function StarmapPanel({ rpcCall }) {
               style: { ...input, opacity: form.model ? 1 : 0.55 },
               value: form.reasoningEffort,
               disabled: !form.model,
-              onChange: (event) => setForm({ ...form, reasoningEffort: event.target.value }),
+              onChange: (event) => {
+                setForm({ ...form, reasoningEffort: event.target.value });
+                setSaved('');
+              },
             },
             h('option', { value: '' }, form.model ? '（不选）' : '先选模型'),
             (efforts?.efforts?.length ? efforts.efforts : EFFORTS).map((item) =>
@@ -454,11 +467,16 @@ function StarmapPanel({ rpcCall }) {
         { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 } },
         h('button', { style: button(COLORS.accent), onClick: save, disabled: busy }, '保存'),
         h(
+          'button',
+          { style: { ...button(), opacity: dirty ? 1 : 0.5 }, onClick: revert, disabled: busy || !dirty },
+          '取消',
+        ),
+        h(
           'span',
           { style: { fontSize: 11, color: configured ? COLORS.muted : COLORS.warning } },
-          saved || (dirty
-            ? '改了还没保存，保存之后「现在抽星」才会亮。'
-            : configured
+          dirty
+            ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
+            : saved || (configured
               ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
               : '三元组必须都选。不选就是不抽星，不会替你挑模型，也不会产生费用。'),
         ),
