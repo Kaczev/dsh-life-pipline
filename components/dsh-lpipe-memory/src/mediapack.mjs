@@ -106,3 +106,39 @@ export function mediaPackBytes(root, sessionId, day) {
   }
   return total
 }
+
+
+/** 这一天的每张图在磁盘上摊到多少字节：帧的压缩长度按原字节比例分给帧内的图。 */
+export function mediaShares(root, sessionId, day) {
+  const shares = new Map()
+  const index = mediaIndex(root, sessionId, day)
+  if (index.size === 0) return shares
+
+  let idxBytes = 0
+  try {
+    idxBytes = statSync(mediaIdxFile(root, sessionId, day)).size
+  } catch {
+    idxBytes = 0
+  }
+
+  const byFrame = new Map()
+  let totalWeight = 0
+  for (const entry of index.values()) {
+    const weight = Number(entry.l) || 1
+    totalWeight += weight
+    const key = `${entry.a}|${entry.z}`
+    const list = byFrame.get(key) ?? { frame: Number(entry.z) || 0, rows: [] }
+    list.rows.push({ sha: entry.s, weight })
+    byFrame.set(key, list)
+  }
+
+  for (const { frame, rows } of byFrame.values()) {
+    const sum = rows.reduce((acc, item) => acc + item.weight, 0) || 1
+    for (const item of rows) {
+      const packed = (frame * item.weight) / sum
+      const meta = (idxBytes * item.weight) / (totalWeight || 1)
+      shares.set(item.sha, packed + meta)
+    }
+  }
+  return shares
+}
