@@ -659,7 +659,22 @@ function StarmapPanel({ rpcCall }) {
       ),
       h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 16 } },
+        { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, flexWrap: 'wrap' } },
+        statusText
+          ? h(
+              'span',
+              {
+                style: {
+                  flex: '1 1 220px',
+                  minWidth: 0,
+                  fontSize: 11,
+                  lineHeight: 1.6,
+                  color: configured ? COLORS.muted : COLORS.warning,
+                },
+              },
+              statusText,
+            )
+          : h('span', { style: { flex: '1 1 0' } }),
         h(
           'button',
           {
@@ -684,22 +699,7 @@ function StarmapPanel({ rpcCall }) {
           '取消',
         ),
       ),
-      statusText
-        ? h(
-            'div',
-            {
-              style: {
-                marginTop: 10,
-                paddingTop: 9,
-                borderTop: `1px solid ${COLORS.border}`,
-                fontSize: 11,
-                lineHeight: 1.6,
-                color: configured ? COLORS.muted : COLORS.warning,
-              },
-            },
-            statusText,
-          )
-        : null,
+
     ),
   );
 }
