@@ -452,7 +452,10 @@ function StarmapPanel({ rpcCall }) {
           'div',
           { style: { display: 'flex', alignItems: 'baseline' } },
           h('span', { style: mid }, String(value?.stars ?? 0)),
-          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗星'),
+          h('span', { style: { ...small, position: 'relative', top: -2 } }, value?.fuzzy ? '颗星 · ' : '颗星'),
+          value?.fuzzy
+            ? h('span', { style: { ...small, position: 'relative', top: -2 } }, `${value.fuzzy} 颗模糊`)
+            : null,
         ),
         grey > 0
           ? h(

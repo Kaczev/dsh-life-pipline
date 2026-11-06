@@ -216,10 +216,12 @@ export function openRepo({ root = starmapRoot() } = {}) {
     return true
   }
 
-  function ensureStar(name, lex, born) {
+  function ensureStar(name, lex, born, meta = null) {
     const existing = byName.get(name)
     if (existing) return existing
-    const star = { id: starIdOf(name), name, lex, born }
+    const isFuzzy = Boolean(meta && (meta.kind === 'fuzzy' || meta.form))
+    const extra = isFuzzy ? { kind: 'fuzzy', form: meta.form, value: meta.value } : { kind: 'exact' }
+    const star = { id: starIdOf(name), name, lex, born, ...extra }
     stars.set(star.id, star)
     byName.set(name, star)
     appendFileSync(starsFile(root), `${JSON.stringify(star)}\n`, 'utf8')

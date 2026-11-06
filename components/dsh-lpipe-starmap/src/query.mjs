@@ -2,6 +2,7 @@
 // 边不落盘：星源里记着「这一轮哪些名字被配成对、每句有哪几颗星」，
 // 查询时现聚合。同句 1、相邻句 0.5、对不上句子的整轮 0.5。
 import { normalizeName } from './extract.mjs'
+import { fuzzyScore, fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
@@ -131,6 +132,46 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
     return { star: found, links: list, total: weights.size }
   }
 
+  /**
+   * 模糊星：按「感觉」找。给一个时间（分钟数或 "20:44"）或一个数字，
+   * 返回最近的模糊星与相似度。这是星图对数的感知，不靠字符串匹配。
+   */
+  function near({ form, value, name, limit = 12, minScore = 0.05 } = {}) {
+    let target = null
+    if (name) target = starMeta(name)
+    else if (form === 'time') {
+      const text = typeof value === 'string' ? value : ''
+      const clock = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(text)
+      if (clock) target = { form: 'time', value: Number(clock[1]) * 60 + Number(clock[2]) }
+      else if (Number.isFinite(Number(value))) target = { form: 'time', value: Number(value) }
+      else if (Number.isFinite(Number(name))) target = { form: 'time', value: Number(name) }
+    } else if (form === 'number') {
+      const number = Number(value)
+      if (Number.isFinite(number)) target = { form: 'number', value: number }
+    }
+    if (!target || target.value === null || target.value === undefined) return { form: form ?? null, value: null, stars: [] }
+
+    const scored = []
+    for (const star of repo.stars.values()) {
+      if (star.kind !== 'fuzzy' || star.form !== target.form) continue
+      const score = fuzzyScore({ form: target.form, value: star.value }, target)
+      if (score < minScore) continue
+      scored.push({ star, score })
+    }
+    scored.sort((a, b) => b.score - a.score)
+    const top = scored.slice(0, Math.max(1, Math.min(50, Number(limit) || 12)))
+    return {
+      form: target.form,
+      value: target.value,
+      stars: top.map((entry) => ({
+        star: entry.star,
+        score: round(entry.score),
+        turns: (repo.byStar.get(entry.star.id) ?? []).length,
+      })),
+      total: scored.length,
+    }
+  }
+
   /** 灰与亮：记忆里有多少轮、星图亮了多少轮。 */
   function progress() {
     const status = memoryStatus()
@@ -146,8 +187,12 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
         lanes: progressState.lanes ?? { active: 0, total: 0 },
       }
       : { error: '', running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 } }
+    let fuzzy = 0
+    for (const star of repo.stars.values()) if (star.kind === 'fuzzy') fuzzy += 1
     return {
       stars: repo.stars.size,
+      exact: repo.stars.size - fuzzy,
+      fuzzy,
       built,
       turns: status.turns,
       grey: Math.max(0, status.turns - built),
@@ -161,5 +206,5 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
     }
   }
 
-  return { star, turn, links, progress }
+  return { star, turn, links, near, progress }
 }

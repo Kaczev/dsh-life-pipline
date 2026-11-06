@@ -6,6 +6,7 @@ const METHODS = new Set([
   'starmap.star',
   'starmap.turn',
   'starmap.links',
+  'starmap.near',
   'starmap.rebuild',
   'starmap.pause',
   'starmap.config',
@@ -70,6 +71,9 @@ export function createStarmapRpcHandler({ queries, rebuild, config, catalog, eff
           limit: clamp(payload?.limit, 24, 100),
         })
         return value ? { ok: true, value } : failure('starmap/no-such-star', 'No star with that id or name.')
+      }
+      if (method === 'starmap.near') {
+        return { ok: true, value: queries.near({ form: payload?.form, value: payload?.value, name: payload?.name, limit: clamp(payload?.limit, 12, 50) }) }
       }
       return failure('starmap/unknown-method', `Unknown method: ${method}`)
     } catch (error) {

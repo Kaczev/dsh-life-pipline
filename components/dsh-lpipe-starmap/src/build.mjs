@@ -4,6 +4,7 @@
 // 全在这里算：同一句 1（句内星多时按 1/(k-1) 分摊）、相邻句 0.5、都对不上的
 // 整轮记 0.5。这样权重永远是确定性的，模型换了也不会飘。
 import { clockOf } from './extract.mjs'
+import { fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 import { cleanStarName, findInSentences } from './llm.mjs'
 import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
@@ -13,7 +14,7 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 5
+export const RULES_VERSION = 6
 
 export function groupTurns(rows) {
   const map = new Map()
@@ -102,6 +103,7 @@ export function planTurn(turn, pairs) {
   }
 
   const names = new Map()
+  const fuzzy = new Map()
   const accepted = []
   const rejects = []
   for (const entry of pairs ?? []) {
@@ -133,12 +135,19 @@ export function planTurn(turn, pairs) {
       if (!hitsOf(name).includes(index)) continue
       ids.push(starIdOf(name))
     }
+    // 模糊星（时间、数字）是「感觉」，不靠模型配对，也不进星链：这句话里出现就挂在这句上。
+    for (const star of fuzzyStarsIn(sentence.text)) {
+      const id = starIdOf(star.name)
+      if (!ids.includes(id)) ids.push(id)
+      names.set(id, star.name)
+      fuzzy.set(id, star)
+    }
     if (ids.length === 0) continue
     const clock = clockOf(sentence.text)
     lines.push(clock === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock })
   }
 
-  return { lines, names, pairs: accepted, rejects }
+  return { lines, names, fuzzy, pairs: accepted, rejects }
 }
 
 /** 一轮落进星图：补星表、写星源、抬水位。 */
@@ -146,7 +155,7 @@ export function buildTurn({ repo, turn, sessionId, pairs }) {
   const plan = planTurn(turn, pairs)
   const born = new Date(turn.at ?? Date.now()).toISOString()
   for (const [id, name] of plan.names) {
-    if (!repo.stars.has(id)) repo.ensureStar(name, 0, born)
+    if (!repo.stars.has(id)) repo.ensureStar(name, 0, born, plan.fuzzy.get(id) ?? starMeta(name))
   }
   const record = {
     turn: turn.turn,

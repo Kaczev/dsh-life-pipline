@@ -354,3 +354,64 @@ test('进度里带着「还有几路在跑」，暂停之后能看着它一路�
   lanes.active = 1
   assert.equal(queries.progress().extract.lanes.active, 1)
 })
+
+test('模糊星：时间是时间、数字是数字，写进星表时带形态与数值', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-fuzzy-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T12:00:00+08:00')
+  const rows = [
+    { seq: 0, turn: 1, at, kind: 'user/message', text: '现在是 20:44，雪糕真好吃。' },
+    { seq: 1, turn: 1, at, kind: 'user/message', text: '温度 648.5 度。' },
+    { seq: 2, turn: 1, at, kind: 'user/message', text: '图11-47 和 q_1 不算数值。' },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-f', pairs: [] })
+
+  const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  const clock = stars.find((star) => star.name === '20:44')
+  assert.equal(clock.kind, 'fuzzy')
+  assert.equal(clock.form, 'time')
+  assert.equal(clock.value, 1244)
+
+  const number = stars.find((star) => star.name === '648.5')
+  assert.equal(number.kind, 'fuzzy')
+  assert.equal(number.form, 'number')
+  assert.equal(number.value, 648.5)
+
+  assert.ok(!stars.some((star) => star.name === '11'), '图11-47 里的 11 不是数值')
+  assert.ok(!stars.some((star) => star.name === '47'), '图11-47 里的 47 不是数值')
+
+  // 模糊星挂在出现它的那一句上，不需要模型配对。
+  const record = JSON.parse(readFileSync(sourceFile(root, 'sess-f', dayOf(at)), 'utf8').trim())
+  const first = record.lines.find((line) => line.seq === 0)
+  assert.ok(first.stars.includes(starIdOf('20:44')))
+})
+
+test('starmap.near：差两分钟、差一点点都能认出来，差一个量级就认不出', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-near-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T12:00:00+08:00')
+  const rows = [
+    { seq: 0, turn: 1, at, kind: 'user/message', text: '我在 20:44 吃雪糕，温度 648.5 度。' },
+    { seq: 1, turn: 1, at, kind: 'user/message', text: '另一天是 09:15，温度 1000 度。' },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-n', pairs: [] })
+
+  const queries = createQueries({ repo, memoryStatus: () => ({ turns: 1, sessions: [], lastBuiltAt: at, lastTurn: 1 }) })
+
+  const clock = queries.near({ form: 'time', value: '20:46' })
+  assert.equal(clock.stars[0].star.name, '20:44')
+  assert.ok(clock.stars[0].score > 0.9)
+  assert.equal(clock.stars.length, 1, '九点一刻离二十点四十四太远')
+
+  const number = queries.near({ form: 'number', value: 648 })
+  assert.equal(number.stars[0].star.name, '648.5')
+  assert.ok(number.stars[0].score > 0.99)
+  // 1000 与 648 只差 1.5 倍，还能沾一点边，但明显排在 648.5 后面。
+  const thousand = number.stars.find((entry) => entry.star.name === '1000')
+  assert.ok(thousand && thousand.score < 0.75 && thousand.score < number.stars[0].score)
+
+  const progress = queries.progress()
+  assert.equal(progress.fuzzy, 4, '20:44、09:15、648.5、1000')
+  assert.equal(progress.exact, 0)
+})
+
