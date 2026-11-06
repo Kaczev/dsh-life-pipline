@@ -83,18 +83,27 @@ test('sizes are printed human-first', () => {
   assert.equal(formatClock(NaN), '—')
 
   const plot = plotOf([
-    { total: 1000 },
-    { total: 2000 },
-    { total: 4000 },
+    { total: 1000, diskTotal: 400 },
+    { total: 2000, diskTotal: 800 },
+    { total: 4000, diskTotal: 1600 },
   ])
   const points = plot.line.split(' ')
   assert.equal(points.length, 3)
   assert.deepEqual(points[0].split(',')[0], '0.00')
   assert.deepEqual(points[2].split(',')[0], '100.00')
-  // 纵轴跟着数据走：最小的点落在下缘（留一成余量），最大的点落在上缘。
+  // 纵轴跟着两条线一起走：最小的点（落盘的起点）落在下缘，最大的点落在上缘。
   const first = Number(points[0].split(',')[1])
   const last = Number(points[2].split(',')[1])
-  assert.ok(first > 80 && first < 96, `min point sits near the floor, got ${first}`)
+  assert.ok(first > 40 && first < 80, `original starts in the middle band, got ${first}`)
   assert.ok(last > 4 && last < 20, `max point sits near the ceiling, got ${last}`)
+  // 落盘线在同一张图上，永远在原文档下面（y 更大）。
+  assert.ok(plot.disk, 'a disk line is drawn when every turn has a disk total')
+  const diskPoints = plot.disk.split(' ')
+  assert.equal(diskPoints.length, 3)
+  const diskFirst = Number(diskPoints[0].split(',')[1])
+  assert.ok(diskFirst > 80 && diskFirst < 96, `disk starts near the floor, got ${diskFirst}`)
+  assert.ok(Number(diskPoints[2].split(',')[1]) > last + 20, 'disk sits well below the original line')
+  // 没有落盘数字时只画原文一条线。
+  assert.equal(plotOf([{ total: 1000 }]).disk, null)
   assert.equal(plotOf([]), null)
 })

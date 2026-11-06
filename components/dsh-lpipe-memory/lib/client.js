@@ -26,6 +26,7 @@ const COLORS = {
   borderStrong: 'var(--dsw-alias-border-l2)',
   bg: 'var(--dsw-alias-bg-layer-1)',
   accent: '#5ec9b4',
+  disk: '#8b93f8',
 };
 
 const card = {
@@ -50,24 +51,31 @@ function formatClock(at) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-/** 把每轮的累计值折成 0–100 的折线；y 轴上下留一成余量，纵横都自适应。 */
+/** 把每条轮的值折成 0–100 的折线；原文与落盘共用一条纵轴，纵横都自适应。 */
 function plotOf(turns) {
-  const values = turns.map((turn) => Number(turn.total) || 0);
-  if (values.length === 0) return null;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const up = turns.map((turn) => Number(turn.total) || 0);
+  if (up.length === 0) return null;
+  const rawDisk = turns.map((turn) => Number(turn.diskTotal));
+  const disk = rawDisk.every((value) => Number.isFinite(value) && value > 0) ? rawDisk : null;
+  const all = disk ? [...up, ...disk] : up;
+  const min = Math.min(...all);
+  const max = Math.max(...all);
   const pad = Math.max((max - min) * 0.18, Math.max(max, 1) * 0.004);
   const low = min - pad;
   const high = max + pad;
   const span = high - low || 1;
-  const points = values.map((value, index) => {
+  const line = (values) => values.map((value, index) => {
     const x = values.length === 1 ? 100 : (index / (values.length - 1)) * 100;
     const y = 100 - ((value - low) / span) * 100;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
+  }).join(' ');
+  const upLine = line(up);
+  const diskLine = disk ? line(disk) : null;
   return {
-    line: points.join(' '),
-    area: `0,100 ${points.join(' ')} 100,100`,
+    line: upLine,
+    disk: diskLine,
+    // 面积只铺在原文这条线下面，从上到下淡出；落盘线落在它里面，两者的距离就是省下的。
+    area: `0,100 ${upLine} 100,100`,
     high,
     low,
     mid: (high + low) / 2,
@@ -119,7 +127,12 @@ function MemoryPanel({ rpcCall }) {
           background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
           border: '1px solid rgba(94, 201, 180, 0.28)',
         },
-      }, '记忆管线')),
+      }, '记忆管线'),
+      h('span', { style: { marginLeft: 'auto', display: 'flex', gap: 12, fontSize: 10, color: COLORS.faint } },
+        h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.accent } }), '原文'),
+        h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.disk } }), '落盘'))),
 
     error
       ? h('div', { style: { marginBottom: 12, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' } },
@@ -127,17 +140,19 @@ function MemoryPanel({ rpcCall }) {
       : null,
 
     h('div', { style: card },
-      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } },
+      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
         h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
           formatBytes(stats?.total ?? 0)),
-        h('span', { style: { fontSize: 12, color: COLORS.muted } },
-          `原文 · 落盘 ${formatBytes(stats?.disk ?? 0)}`),
-        lastTurn
-          ? h('span', { style: { fontSize: 12, color: COLORS.accent } },
-            `最近一轮 +${formatBytes(lastTurn.added)}`)
-          : null,
+        h('span', { style: { fontSize: 12, color: COLORS.muted } }, '原文'),
         h('span', { style: { marginLeft: 'auto', fontSize: 11, color: COLORS.faint } },
           `${Math.min(turns.length, TURNS)} 轮 · ${stats?.rows ?? 0} 行`)),
+
+      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 5, flexWrap: 'wrap' } },
+        h('span', { style: { fontSize: 12, color: COLORS.disk } }, `落盘 ${formatBytes(stats?.disk ?? 0)}`),
+        lastTurn
+          ? h('span', { style: { fontSize: 11, color: COLORS.faint } },
+            `最近一轮 +${formatBytes(lastTurn.added)} 原文 · +${formatBytes(lastTurn.diskAdded)} 落盘`)
+          : null),
 
       plot
         ? h('div', { style: { display: 'flex', gap: 8, marginTop: 12 } },
@@ -166,11 +181,21 @@ function MemoryPanel({ rpcCall }) {
               stroke: 'currentColor', strokeOpacity: 0.12, strokeDasharray: '3 4',
               vectorEffect: 'non-scaling-stroke',
             }),
-            h('polygon', { points: plot.area, fill: 'rgba(94, 201, 180, 0.18)' }),
+            h('defs', null,
+              h('linearGradient', { id: 'memUp', x1: 0, y1: 0, x2: 0, y2: 1 },
+                h('stop', { offset: '0%', stopColor: COLORS.accent, stopOpacity: 0.22 }),
+                h('stop', { offset: '100%', stopColor: COLORS.accent, stopOpacity: 0 }))),
+            h('polygon', { points: plot.area, fill: 'url(#memUp)' }),
             h('polyline', {
               points: plot.line, fill: 'none', stroke: COLORS.accent, strokeWidth: 1.6,
               strokeLinecap: 'round', strokeLinejoin: 'round', vectorEffect: 'non-scaling-stroke',
-            })))
+            }),
+            plot.disk
+              ? h('polyline', {
+                points: plot.disk, fill: 'none', stroke: COLORS.disk, strokeWidth: 1.4,
+                strokeLinecap: 'round', strokeLinejoin: 'round', vectorEffect: 'non-scaling-stroke',
+              })
+              : null))
         : h('div', { style: { marginTop: 12, fontSize: 12, color: COLORS.muted } }, '还没有落盘的轮次。'),
 
       turns.length > 1
@@ -185,7 +210,7 @@ function MemoryPanel({ rpcCall }) {
         : null,
 
       h('div', { style: { marginTop: 8, fontSize: 11, color: COLORS.faint } },
-        '纵轴是记忆原文的累积大小，横轴是最近几轮的时间；两条轴的上下限都跟着数据自己变。')));
+        '两条线共用一条纵轴：青色是原文（未压缩），蓝紫色是真实落盘，中间那段距离就是 zstd 省下的。')));
 }
 
 const name = 'dsh-lpipe-memory-settings';

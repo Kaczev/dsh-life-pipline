@@ -60,6 +60,32 @@ test('stats count every row once and accumulate per turn', () => {
   }
 })
 
+test('the disk series lands exactly on the reported disk total', () => {
+  const { root, cleanup } = tempRoot()
+  try {
+    const writer = new MemoryWriter({ root })
+    seed(writer, 'session-a', [
+      { turn: 0, at: Date.UTC(2026, 10, 5, 1) },
+      { turn: 1, at: Date.UTC(2026, 10, 5, 2) },
+      { turn: 2, at: Date.UTC(2026, 10, 5, 3), size: 4000 },
+    ])
+    writer.close()
+
+    const stats = computeStats(new MemoryReader({ root }), { turns: 30, root })
+    assert.equal(stats.turns.length, 3)
+    // 落盘也要单调不减，且末点就是卡片上那个「落盘」数。
+    for (let i = 1; i < stats.turns.length; i += 1) {
+      assert.ok(stats.turns[i].diskTotal >= stats.turns[i - 1].diskTotal, 'disk total is monotonic')
+    }
+    assert.equal(stats.turns.at(-1).diskTotal, stats.disk)
+    assert.ok(stats.turns.every((turn) => turn.diskAdded > 0), 'every turn adds some disk bytes')
+    // 落盘一定比原文小：zstd 压得动，帧表与索引只有几百字节。
+    assert.ok(stats.turns.at(-1).diskTotal < stats.turns.at(-1).total)
+  } finally {
+    cleanup()
+  }
+})
+
 test('the window keeps only the newest turns', () => {
   const { root, cleanup } = tempRoot()
   try {
