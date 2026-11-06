@@ -201,7 +201,10 @@ export function describeFailure(reason) {
  * 指令并进 system，而不是单独一条 user：这样每轮都是严格的「user → assistant」交替，
  * 不会因为末尾多一条 assistant 预填被供应商判成非法请求。
  */
-/** 模型没按格式回时的纠正话术。只追加一次，第二次还不行就让这一轮保持灰。 */
+/** 一轮最多问几次：空回复或答成散文都要重试，但同一个错试到第三次就放弃。 */
+export const MAX_ATTEMPTS = 3
+
+/** 模型没按格式回时的纠正话术。 */
 const CORRECTION = 'That was not valid JSON. Reply again with only the JSON array — no prose, no explanation, no roleplay.'
 
 /** 一次模型请求最多等多久。没有它，一旦上游不回话，这一轮会永远挂着，
@@ -291,8 +294,9 @@ export function createExtractor(options = {}) {
     if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
     if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
     messages.push(messageOf('user', `${source}${TURN_SUFFIX}`))
-    let corrected = false
+    let attempts = 0
     for (;;) {
+      attempts += 1
       const reply = await round()
       if (reply.ok) {
         messages.push(messageOf('assistant', reply.raw))
@@ -303,7 +307,6 @@ export function createExtractor(options = {}) {
       // 被暂停切断 / 超时：不重试，直接如实上报。
       if (reply.aborted || reply.timedOut) {
         messages.pop()
-        if (corrected) messages.pop()
         return {
           ok: false,
           aborted: reply.aborted === true,
@@ -313,12 +316,11 @@ export function createExtractor(options = {}) {
           usage: reply.usage,
         }
       }
-      // 模型用散文回答了（角色扮演的回合最容易这样）：提醒一次，再不行就放弃这一轮。
-      if (reply.retryable && !corrected) {
-        corrected = true
+      // 还能再试：空回复换一条干净对话，答成散文就提醒一句。同一个错不试到第三次。
+      if (reply.retryable && attempts < MAX_ATTEMPTS) {
         if (reply.empty) {
-          // 一个字都没回还是一次性的空转：可能是这条对话本身被上游拒了（太长、或者卡住了某个坏前缀）。
-          // 换一条干净的对话重问一次，比原地再问一遍有用。
+          // 一个字都没回，多半是这条对话被上游拒了（太长、或者卡住了坏前缀）。
+          // 换一条干净的对话再问，比在同一条里原地重问有用。
           reset()
           messages.push(messageOf('user', `${source}${TURN_SUFFIX}`))
         } else {
@@ -326,14 +328,19 @@ export function createExtractor(options = {}) {
         }
         continue
       }
-      messages.pop()
-      if (corrected) messages.pop()
+      // 放弃：把这一轮追加的消息撤回，别把坏前缀留给下一轮。
+      if (reply.empty) reset()
+      else {
+        messages.pop()
+        if (attempts > 1) messages.pop()
+      }
       const why = reply.truncated
         ? `输出被截断（maxTokens ${maxTokens}）`
         : reply.empty
           ? '模型一个字都没回'
           : 'not json'
       const upstream = reply.empty && reply.reason ? `（上游：${describeFailure(reply.reason)}）` : ''
+      const tried = attempts > 1 ? `试了 ${attempts} 次，` : ''
       const tail = reply.head
         ? `：${reply.head}`
         : reply.usage
@@ -344,7 +351,7 @@ export function createExtractor(options = {}) {
         ok: false,
         aborted: reply.aborted === true,
         timedOut: reply.timedOut === true,
-        error: reply.aborted ? '暂停时切断' : `${why}${tail}`,
+        error: reply.aborted ? '暂停时切断' : `${tried}${why}${tail}`,
         raw: reply.raw,
         usage: reply.usage,
       }

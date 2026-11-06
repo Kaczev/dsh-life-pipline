@@ -283,3 +283,18 @@ test('chat_send 发出去的那段话，结果再长也全文在内', () => {
   assert.ok(!source.includes('x'.repeat(700)), '普通工具的长结果仍然不进原文')
 })
 
+test('同一个错最多试三次：空回复一连三次就放弃，这一轮保持灰', async () => {
+  let calls = 0
+  const llm = {
+    async *stream() {
+      calls += 1
+      // 一个字都不给、也没有用量：上游把我们挡了的那种空转。
+      return
+    },
+  }
+  const extractor = createExtractor({ llm, route: { provider: 'p', model: 'm' } })
+  const reply = await extractor.ask('记忆管线与星图')
+  assert.equal(reply.ok, false)
+  assert.equal(calls, 3)
+  assert.match(reply.error, /试了 3 次/)
+})
