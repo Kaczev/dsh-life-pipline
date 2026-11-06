@@ -337,3 +337,20 @@ test('思考强度从宿主的 resolveModelInfo 读：只有适配器同名方�
   assert.equal(reply.value.defaultEffort, 'medium')
   assert.deepEqual(seen, ['four-router/gpt-6-luna'])
 })
+
+test('进度里带着「还有几路在跑」，暂停之后能看着它一路减少', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-'))
+  const repo = openRepo({ root })
+  const lanes = { active: 2, total: 3 }
+  const queries = createQueries({
+    repo,
+    memoryStatus: () => ({ turns: 9, sessions: [], lastBuiltAt: null, lastTurn: 9 }),
+    progressState: { running: true, stopping: true, done: 4, total: 9, failed: 0, error: '', lanes },
+  })
+  const before = queries.progress().extract
+  assert.equal(before.running, true)
+  assert.equal(before.stopping, true)
+  assert.deepEqual(before.lanes, { active: 2, total: 3 })
+  lanes.active = 1
+  assert.equal(queries.progress().extract.lanes.active, 1)
+})

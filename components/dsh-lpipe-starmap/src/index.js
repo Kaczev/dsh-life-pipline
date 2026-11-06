@@ -64,6 +64,7 @@ export function apply(ctx, options = {}) {
   const pause = () => {
     if (!progressState.running) return { paused: false, running: false }
     stopRequested = true
+    progressState.stopping = true
     info('[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
     return { paused: true, running: true }
   }
@@ -109,6 +110,10 @@ export function apply(ctx, options = {}) {
   const progressState = { running: false, done: 0, total: 0, failed: 0, error: '' }
   /** 用户点了「暂停」：跑完手上这一轮就停，不会硬跑完整个库。 */
   let stopRequested = false
+  /** 现在有几路真的还在跑：暂停之后「还剩几路」就靠它。 */
+  const lanesState = { active: 0, total: 0 }
+  progressState.lanes = lanesState
+  progressState.stopping = false
   /** 连着失败了几轮；模型那边出问题时用它及时刹车，不把额度烧在必然失败的调用上。 */
   let failureStreak = 0
   const rejectsFile = join(root, 'rejects.jsonl')
@@ -220,7 +225,22 @@ export function apply(ctx, options = {}) {
     const lanes = Array.from({ length: width }, () =>
       createExtractor({ llm, route: routeNow(), maxTokens: config.maxTokens }),
     )
-    await Promise.all(lanes.map((extractor) => worker(extractor)))
+    lanesState.total = width
+    lanesState.active = width
+    try {
+      await Promise.all(
+        lanes.map(async (extractor) => {
+          try {
+            await worker(extractor)
+          } finally {
+            // 这一路的循环退出了（跑完 / 暂停 / 刹车）：界面上的「还剩几路」随之减少。
+            lanesState.active = Math.max(0, lanesState.active - 1)
+          }
+        }),
+      )
+    } finally {
+      lanesState.active = 0
+    }
     return built
   }
 
@@ -301,6 +321,7 @@ export function apply(ctx, options = {}) {
     progressState.error = ''
     failureStreak = 0
     stopRequested = false
+    progressState.stopping = false
     try {
       const built = await buildAll()
       const result = { built, ...status(), elapsedMs: Date.now() - started }

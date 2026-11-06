@@ -194,10 +194,10 @@ function usageBars(daily) {
 
 function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
-  const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000 });
+  const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   const [saved, setSaved] = React.useState('');
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
-  const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000 });
+  const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
   const [catalog, setCatalog] = React.useState([]);
   const [efforts, setEfforts] = React.useState(null);
@@ -249,6 +249,7 @@ function StarmapPanel({ rpcCall }) {
           model: config.model || '',
           reasoningEffort: config.reasoningEffort || '',
           maxTokens: Number(config.maxTokens) || 32000,
+          concurrency: Number(config.concurrency) || 3,
         };
         setForm(loaded);
         setCommitted(loaded);
@@ -274,6 +275,7 @@ function StarmapPanel({ rpcCall }) {
   const extract = value?.extract || {};
   const usage = value?.usage || {};
   const busy = Boolean(extract.running);
+  const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
   // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
   const configured = Boolean(
@@ -283,7 +285,8 @@ function StarmapPanel({ rpcCall }) {
     form.provider !== committed.provider ||
     form.model !== committed.model ||
     form.reasoningEffort !== committed.reasoningEffort ||
-    Number(form.maxTokens) !== Number(committed.maxTokens);
+    Number(form.maxTokens) !== Number(committed.maxTokens) ||
+    Number(form.concurrency) !== Number(committed.concurrency);
 
   const start = () => {
     setSaved('开始抽星…');
@@ -385,7 +388,7 @@ function StarmapPanel({ rpcCall }) {
         h(
           'span',
           null,
-          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${busy ? ' · 正在抽星' : ''}`,
+          `${Math.round(ratioOf(built, turns) * 100)}% 的轮次已点亮${busy ? ` · ${extract.stopping ? '暂停中' : '正在抽星'}${lanes.total > 1 || extract.stopping ? `，${lanes.active} 路在跑` : ''}` : ''}`,
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
@@ -422,7 +425,7 @@ function StarmapPanel({ rpcCall }) {
       h('div', { style: { ...label, marginBottom: 10 } }, '抽星模型'),
       h(
         'div',
-        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 140px 120px', gap: 10, alignItems: 'end' } },
+        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 140px 120px 110px', gap: 10, alignItems: 'end' } },
         h(
           'div',
           { style: field },
@@ -482,6 +485,23 @@ function StarmapPanel({ rpcCall }) {
             h('option', { value: '' }, !form.model ? '先选模型' : efforts?.efforts?.length ? '（不选）' : '（这个模型没有可选强度）'),
             (efforts?.efforts ?? []).map((item) =>
               h('option', { key: item.id, value: item.id }, item.name || item.id)),
+          ),
+        ),
+        h(
+          'div',
+          { style: field },
+          h('div', { style: label }, '并发路数'),
+          h(
+            'select',
+            {
+              style: input,
+              value: form.concurrency,
+              onChange: (event) => {
+                setForm({ ...form, concurrency: Number(event.target.value) });
+                setSaved('');
+              },
+            },
+            [1, 2, 3, 4, 5, 6, 7, 8].map((count) => h('option', { key: count, value: count }, `${count} 路`)),
           ),
         ),
         h(

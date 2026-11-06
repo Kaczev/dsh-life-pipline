@@ -136,8 +136,16 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
     const status = memoryStatus()
     const built = Number.isFinite(status.lit) ? status.lit : repo.turns.size
     const extract = progressState
-      ? { error: progressState.error || '', running: Boolean(progressState.running), done: progressState.done ?? 0, total: progressState.total ?? 0, failed: progressState.failed ?? 0 }
-      : { error: '', running: false, done: 0, total: 0, failed: 0 }
+      ? {
+        error: progressState.error || '',
+        running: Boolean(progressState.running),
+        stopping: Boolean(progressState.stopping),
+        done: progressState.done ?? 0,
+        total: progressState.total ?? 0,
+        failed: progressState.failed ?? 0,
+        lanes: progressState.lanes ?? { active: 0, total: 0 },
+      }
+      : { error: '', running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 } }
     return {
       stars: repo.stars.size,
       built,
