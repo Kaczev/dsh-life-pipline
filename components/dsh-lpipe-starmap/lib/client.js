@@ -280,6 +280,8 @@ function StarmapPanel({ rpcCall }) {
   const [state, setState] = React.useState({ loading: true, value: null, error: '' });
   const [form, setForm] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   const [saved, setSaved] = React.useState('');
+  // 点下按钮到宿主回话之间有个空档：本地先记一笔，按钮立刻变样，别让人以为没点到。
+  const [pending, setPending] = React.useState('');
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
   const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
@@ -358,7 +360,9 @@ function StarmapPanel({ rpcCall }) {
   const grey = value?.grey ?? 0;
   const extract = value?.extract || {};
   const usage = value?.usage || {};
-  const busy = Boolean(extract.running);
+  const busy = pending !== '' || Boolean(extract.running);
+  const buttonLabel =
+    pending === 'starting' ? '等待响应' : pending === 'stopping' ? '正在暂停' : busy ? '暂时停止' : '现在抽星';
   const lanes = extract.lanes || { active: 0, total: 0 };
   // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
   // 强度只在模型确实提供强度时才必须选；模型没有可选强度时留空是正常的。
@@ -372,8 +376,15 @@ function StarmapPanel({ rpcCall }) {
     Number(form.maxTokens) !== Number(committed.maxTokens) ||
     Number(form.concurrency) !== Number(committed.concurrency);
 
+  // 底部只留「状态」这一行：没话说时整块不渲染，别留一条空的分隔线。
+  const statusText = dirty
+    ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
+    : saved ||
+      (configured ? '' : '提供者和模型必须选；这个模型若提供思考强度，也一并选上。不选就是不抽星，不会替你挑模型。');
+
   const start = () => {
-    setSaved('开始抽星…');
+    setSaved('');
+    setPending('starting');
     Promise.resolve()
       .then(() => rpcCall('starmap.rebuild', {}))
       .then((reply) => {
@@ -386,7 +397,8 @@ function StarmapPanel({ rpcCall }) {
             : `没启动：${reply?.error?.message || '未知原因'}`,
         )
       })
-      .catch((error) => setSaved(`没启动：${String(error?.message || error)}`));
+      .catch((error) => setSaved(`没启动：${String(error?.message || error)}`))
+      .finally(() => setPending(''));
   };
 
   const save = () => {
@@ -406,14 +418,24 @@ function StarmapPanel({ rpcCall }) {
 
   // 改坏了就退回去：草稿恢复成已保存的那一份。
   const stop = () => {
-    setSaved('正在暂停…');
+    setSaved('');
+    setPending('stopping');
     Promise.resolve()
       .then(() => rpcCall('starmap.pause', {}))
       .then((reply) => {
-        setSaved(reply?.ok ? '已暂停：手上这一轮跑完就停' : `暂停失败：${reply?.error?.message || '未知原因'}`)
-        load()
+        if (!reply?.ok) {
+          setSaved(`暂停失败：${reply?.error?.message || '未知原因'}`);
+          return;
+        }
+        // paused 为 false 只说明「这会儿其实没在跑」，不是失败。
+        const paused = reply.value?.paused !== false;
+        setSaved(paused ? '已暂停：手上这一轮跑完就停' : '已经停了：现在没有在抽星');
       })
-      .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`));
+      .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`))
+      .finally(() => {
+        load();
+        setPending('');
+      });
   };
 
   const revert = () => {
@@ -481,11 +503,12 @@ function StarmapPanel({ rpcCall }) {
               alignSelf: 'center',
               padding: '7px 16px',
               fontSize: 13,
+              opacity: pending ? 0.6 : 1,
             },
-            onClick: busy ? stop : start,
-            disabled: !busy && !configured,
+            onClick: pending ? undefined : busy ? stop : start,
+            disabled: Boolean(pending) || (!busy && !configured),
           },
-          busy ? '暂停' : '现在抽星',
+          buttonLabel,
         ),
       ),
       h('div', { style: track }, h('div', { style: fill(ratioOf(built, turns)) })),
@@ -520,7 +543,12 @@ function StarmapPanel({ rpcCall }) {
     h(
       'div',
       { style: card },
-      h('div', { style: { ...label, marginBottom: 10 } }, '抽星模型'),
+      h('div', { style: { ...label, marginBottom: 6 } }, '抽星模型'),
+      h(
+        'div',
+        { style: { fontSize: 11, lineHeight: 1.6, color: COLORS.muted, marginBottom: 12 } },
+        '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。',
+      ),
       h(
         'div',
         {
@@ -657,24 +685,22 @@ function StarmapPanel({ rpcCall }) {
           '取消',
         ),
       ),
-      h(
-        'div',
-        {
-          style: {
-            marginTop: 10,
-            paddingTop: 9,
-            borderTop: `1px solid ${COLORS.border}`,
-            fontSize: 11,
-            lineHeight: 1.6,
-            color: configured ? COLORS.muted : COLORS.warning,
-          },
-        },
-        dirty
-          ? '改了还没保存，保存之后「现在抽星」才会亮；点「取消」可以退回去。'
-          : saved || (configured
-            ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
-            : '提供者和模型必须选；这个模型若提供思考强度，也一并选上。不选就是不抽星，不会替你挑模型。'),
-      ),
+      statusText
+        ? h(
+            'div',
+            {
+              style: {
+                marginTop: 10,
+                paddingTop: 9,
+                borderTop: `1px solid ${COLORS.border}`,
+                fontSize: 11,
+                lineHeight: 1.6,
+                color: configured ? COLORS.muted : COLORS.warning,
+              },
+            },
+            statusText,
+          )
+        : null,
     ),
   );
 }
