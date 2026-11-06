@@ -60,6 +60,43 @@ export function apply(ctx, options = {}) {
     return config.reasoningEffort ? { ...route, reasoningEffort: config.reasoningEffort } : route
   }
 
+  /**
+   * 把磁盘上的索引与当前的抽星规则对齐：规则或记忆格式变了，旧星星一律作废。
+   * 这一步必须同步做完——异步补做会因为没配模型、灰记忆太多等原因提前返回，
+   * 那样旧星表就会一直留在盘上，界面显示「全亮」。
+   * 返回 true 表示这次真的清过库。
+   */
+  const reconcileFormat = () => {
+    const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
+    const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
+    const builtRules = Number.isInteger(repo.state?.rules) ? repo.state.rules : null
+    const hasIndex = repo.stars.size > 0 || repo.turns.size > 0
+
+    if (!hasIndex && builtRules === null) {
+      // 全新安装：只记版本，不喊「清空」。
+      repo.setMemoryFormat(format)
+      repo.setRules(RULES_VERSION)
+      return false
+    }
+    if (builtWith === format && builtRules === RULES_VERSION) return false
+
+    try {
+      info(
+        `[dsh-lpipe-starmap] 抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}（记忆格式 ${builtWith ?? '未知'} → ${format}）：`
+          + `作废 ${repo.stars.size} 颗旧星、${repo.turns.size} 轮旧索引，全部记忆退回灰色`,
+      )
+      repo.reset()
+      memory.reload()
+      repo.reload()
+      repo.setMemoryFormat(format)
+      repo.setRules(RULES_VERSION)
+      return true
+    } catch (error) {
+      warn(`[dsh-lpipe-starmap] 清空旧索引失败：${error?.message ?? error}`)
+      return false
+    }
+  }
+
   /** 抽星进度：设置页拿它显示「正在抽 N/M」。 */
   const progressState = { running: false, done: 0, total: 0, failed: 0 }
   const rejectsFile = join(root, 'rejects.jsonl')
@@ -255,37 +292,7 @@ export function apply(ctx, options = {}) {
   let warm = null
   const warmUp = () => {
     run('启动构建', async () => {
-      const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
-      const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
-      const builtRules = Number.isInteger(repo.state?.rules) ? repo.state.rules : null
-
-      // 从来没有建过：只是把版本记下来，别在全新安装时喊「整库清空」。
-      const fresh = builtWith === null && builtRules === null
-      if (fresh) {
-        repo.setMemoryFormat(format)
-        repo.setRules(RULES_VERSION)
-      }
-
-      // 抽星规则或记忆格式变了：旧星星是按旧规则切出来的，没有修补价值，整库清空重来。
-      // 清空之后每一条记忆都回到灰色，等用户自己决定什么时候开始抽。
-      if (!fresh && (builtWith !== format || builtRules !== RULES_VERSION)) {
-        const stale = status()
-        info(
-          `[dsh-lpipe-starmap] 抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}（记忆格式 ${builtWith ?? '未知'} → ${format}）：清掉 ${stale.stars} 颗旧星、${stale.lit} 轮已亮记忆全部退回灰色`,
-        )
-        repo.reset()
-        memory.reload()
-        repo.reload()
-        repo.setMemoryFormat(format)
-        repo.setRules(RULES_VERSION)
-        if (!ready()) {
-          info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先全部留灰')
-          return
-        }
-        info('[dsh-lpipe-starmap] 灰记忆超过 3 轮，等你在设置页按「现在抽星」')
-        return
-      }
-
+      // 规则变化已经在 apply() 里同步处理过；这里只负责补做灰记忆。
       if (!ready()) {
         info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），灰记忆先留着')
         return
@@ -296,18 +303,20 @@ export function apply(ctx, options = {}) {
         info(`[dsh-lpipe-starmap] 灰记忆 ${grey0} 轮，超过 ${MAX_AUTO_GREY} 轮，等你手动开始`)
         return
       }
-      const before = repo.turns.size
-      info(`[dsh-lpipe-starmap] 开始补做，已经有 ${before} 轮`)
+      info(`[dsh-lpipe-starmap] 开始补做，已经有 ${repo.turns.size} 轮`)
       await rebuild()
-      repo.setMemoryFormat(format)
+      repo.setMemoryFormat(Number.isInteger(memory.state?.version) ? memory.state.version : 1)
       repo.setRules(RULES_VERSION)
     })
   }
+
   const scheduleWarm = () => {
     if (!llm || options.noWarm || warm) return
     warm = setTimeout(warmUp, warmDelay)
     warm.unref?.()
   }
+  // 先对齐版本，再谈补做：清库不能等异步。
+  reconcileFormat()
   scheduleWarm()
   if (!llm) {
     // 模型是可选依赖：宿主的 llm 服务后到也能接上，没有就只报一句、什么都不点亮。

@@ -12,8 +12,8 @@ import { starIdOf } from './store.mjs'
  * 抽星规则的版本号。改了提示词、分句、成星判定就加一：
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
-// 3：抽星从「词表 + 规则」整个换成模型答对子，旧的星表全部作废。
-export const RULES_VERSION = 3
+// 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
+export const RULES_VERSION = 4
 
 export function groupTurns(rows) {
   const map = new Map()
