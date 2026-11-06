@@ -135,41 +135,35 @@ function MemoryPanel({ rpcCall }) {
       : null,
 
     h('div', { style: card },
-      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' } },
-        h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 6 } },
-          h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
-            formatBytes(stats?.total ?? 0)),
-          h('span', { style: { fontSize: 12, color: COLORS.muted } }, '原文')),
+      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' } },
+        h('span', { style: { fontSize: 12, color: COLORS.muted } }, '原文'),
+        h('span', { style: { fontSize: 22, fontWeight: 600, color: COLORS.text } },
+          formatBytes(stats?.total ?? 0)),
+        lastTurn
+          ? h('span', { style: { fontSize: 11, color: COLORS.accent } },
+            `最近 +${formatBytes(lastTurn.added)}`)
+          : null,
+
         h('span', {
-          style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 6 },
+          style: {
+            marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 7,
+          },
         },
+          h('span', { style: { fontSize: 12, color: COLORS.muted } }, '落盘'),
           h('span', { style: { fontSize: 16, fontWeight: 600, color: COLORS.disk } },
             formatBytes(stats?.disk ?? 0)),
-          h('span', { style: { fontSize: 12, color: COLORS.muted } }, '落盘'))),
-
-      h('div', {
-        style: {
-          display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 4,
-          fontSize: 11, color: COLORS.faint, flexWrap: 'wrap',
-        },
-      },
-        lastTurn
-          ? h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 4 } },
-            '最近',
-            h('span', { style: { color: COLORS.accent } }, `+${formatBytes(lastTurn.added)}`),
-            '原文 ·',
-            h('span', { style: { color: COLORS.disk } }, `+${formatBytes(lastTurn.diskAdded)}`),
-            '落盘')
-          : null,
-        h('span', { style: { marginLeft: 'auto' } },
-          `${Math.min(turns.length, TURNS)} 轮 · ${stats?.rows ?? 0} 行`)),
+          lastTurn
+            ? h('span', { style: { fontSize: 11, color: COLORS.disk } },
+              `最近 +${formatBytes(lastTurn.diskAdded)}`)
+            : null)),
 
       plot
         ? h('div', { style: { display: 'flex', gap: 8, marginTop: 12 } },
           h('div', {
             style: {
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              width: 62, padding: '2px 0 1px', fontSize: 10, color: COLORS.faint, textAlign: 'right',
+              flex: '0 0 66px', width: 66, padding: '2px 0 1px', fontSize: 10,
+              color: COLORS.faint, textAlign: 'right', whiteSpace: 'nowrap',
             },
           },
             h('span', null, formatBytes(plot.high)),
@@ -178,7 +172,7 @@ function MemoryPanel({ rpcCall }) {
           h('svg', {
             viewBox: '0 0 100 100',
             preserveAspectRatio: 'none',
-            style: { flex: 1, height: 86, display: 'block' },
+            style: { flex: 1, minWidth: 0, height: 86, display: 'block' },
             'aria-label': '记忆大小曲线',
           },
             h('line', {
