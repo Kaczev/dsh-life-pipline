@@ -7,6 +7,8 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./reader": "./src/reader.mjs",
+    "./paths": "./src/paths.mjs",
     "./client": "./lib/client.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",

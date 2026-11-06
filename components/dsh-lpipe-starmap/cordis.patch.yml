@@ -1,0 +1,7 @@
+# This component is a bundle of its own: the row below is how it shows up as a
+# plugin card. The common page (「Lpipe 设置」) is registered by
+# dsh-life-pipline, which this package depends on; it must not be inserted here
+# twice (composeEntries does not de-duplicate identical row ids).
+- insert:
+    - id: dsh-lpipe-starmap
+      name: dsh-lpipe-starmap

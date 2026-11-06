@@ -88,8 +88,9 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | --- | --- | --- |
 | 社交（微信 / QQ） | `dsh-lpipe-chat` | 已实现 |
 | 唤醒 | `dsh-lpipe-wake` | 已实现 |
-| 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验；索引与 media 转存待做） |
-| 记忆、星图、回忆、联想、想象、B站 | — | 未开始 |
+| 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验 / 按天媒体包 / 冷日打包） |
+| 星图 | `dsh-lpipe-starmap` | M1 已实现（词表 / 抽星 / 星表与星源 / 水位 / 只读查询） |
+| 回忆、联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
 
@@ -213,3 +214,17 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 一行只存一遍：正文进 `text`，思考进 `reasoning`，`parts` 只留「文本之外」的结构块（图片、文件引用、工具的结构化结果）。早期版本把文本块也复制进 `parts`，实测占过整库体积的 42%；现在 `project()` 的 `carriedParts()` 会滤掉 `text` / `reasoning` 两种块，导入脚本也不再写它们。
 
 格式版本记在 `state.json` 的 `version`。`src/compact.mjs` 提供 `compact({ root })`（整库重建：行照旧、`seq` 照旧，重新焊哈希链，旧目录改名成 `<root>.bak-<时间>`，并保留 `lastEventSeq` 游标与 `meta.title`）与 `migrateIfNeeded({ root })`；`index.js` 在创建 writer 之前调用它，所以旧库会在宿主启动时自动升级一次，失败只 warn、继续用旧格式。
+
+## components/dsh-lpipe-starmap
+
+星图是**索引层**：读记忆层的原文，按轮抽出概念（星星），记下「哪一句同时提到了哪几颗星」。它不存正文、不写摘要、不做向量；删掉能重建。
+
+- **构建单位是一轮**：每轮 `turn/end` 之后延迟 1.5 秒（等记忆层先落盘）读一次记忆，把这一轮里还没有星源的行接过来抽星。重启后补做全部灰记忆。
+- **灰与亮**：`state.json` 的 `built[sessionId] = { turn, to }`。先写星表、星源，最后才抬水位；崩在中间，重启重算那一轮。
+- **星星从哪来**：前四层不做猜测——反引号里的代码 / 路径 / 包名、工具名、书名号与引号里的专名、全大写缩写、驼峰、英文与版本号序列；第五层是词表里的中文词，词表从原文里长出来（2–4 字片段，同时过出现次数、出现轮数、非通用词、内部凝固、边界自由五关，再做最长词优先）。
+- **词表冻结**：`lexicon/<v>.json` 一版一个文件；星源上记 `lex`。灰记忆攒到 200 轮就重长一版，否则继续用冻结的那一版。
+- **边不落盘**：星源里只有「哪一句有哪几颗星」，边在查询时现聚合——同句 1、相邻句 0.5，句内星数超过 8 时每对按 `1/(k-1)` 衰减。全库物化 96 万条边要 185 MB，现算一次 0.04–0.8 ms。
+- **长的工具输出不当成「说过的话」**：`tool/result` 只有短于 600 字才参与抽星；读文件、列目录的结果是数据，不是句子。
+- **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links`，全部只读。
+- **设置块**：`lpipe.settings.panel` 的 `id: 'starmap'`、`order: 40`，显示亮了多少轮、灰了多少轮、多少颗星、词表第几版。
+- **依赖**：`dsh-lpipe-memory`（读记忆，走它的 `./reader` 与 `./paths` 导出）与 `dsh-life-pipline`（设置页）。
