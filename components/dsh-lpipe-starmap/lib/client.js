@@ -543,11 +543,15 @@ function StarmapPanel({ rpcCall }) {
     h(
       'div',
       { style: card },
-      h('div', { style: { ...label, marginBottom: 6 } }, '抽星模型'),
       h(
         'div',
-        { style: { fontSize: 11, lineHeight: 1.6, color: COLORS.muted, marginBottom: 12 } },
-        '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。',
+        { style: { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 12 } },
+        h('span', { style: label }, '抽星模型'),
+        h(
+          'span',
+          { style: { fontSize: 11, lineHeight: 1.6, color: COLORS.muted } },
+          '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。',
+        ),
       ),
       h(
         'div',
@@ -660,7 +664,7 @@ function StarmapPanel({ rpcCall }) {
       ),
       h(
         'div',
-        { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 } },
+        { style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 16 } },
         h(
           'button',
           {
