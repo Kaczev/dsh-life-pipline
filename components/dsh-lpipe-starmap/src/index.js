@@ -264,13 +264,12 @@ export function apply(ctx, options = {}) {
         max = Number.isInteger(lastRow?.turn) ? lastRow.turn : 0
         maxTurn.set(session.sessionId, max)
       }
-      // 以「星源里实际写下去的最后一轮」为准，水位只作下限：
-      // 两个进程各持一份 state 时，水位可能落后甚至丢了，但星源不会。
-      const builtInfo = repo.state?.built?.[session.sessionId] ?? null
-      let builtTurns = Number.isInteger(builtInfo?.turn) ? builtInfo.turn : 0
+      // 数「星源里真的有几轮」而不是水位上那个最大轮号：三路并发时轮号是跳着完成的，
+      // 只看最大值会从 1 直接跳到 4，面板看起来就像卡住了。
+      let builtTurns = 0
       for (const record of repo.turns.values()) {
         if (record.session !== session.sessionId) continue
-        if (record.turn > builtTurns) builtTurns = record.turn
+        builtTurns += 1
       }
       turns += max
       lit += Math.min(builtTurns, max)

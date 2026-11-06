@@ -187,6 +187,9 @@ export function describeFailure(reason) {
  * 指令并进 system，而不是单独一条 user：这样每轮都是严格的「user → assistant」交替，
  * 不会因为末尾多一条 assistant 预填被供应商判成非法请求。
  */
+/** 模型没按格式回时的纠正话术。只追加一次，第二次还不行就让这一轮保持灰。 */
+const CORRECTION = 'That was not valid JSON. Reply again with only the JSON array — no prose, no explanation, no roleplay.'
+
 export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
   const fresh = () => [messageOf('system', `${SYSTEM_PROMPT}\n\n${INSTRUCTION}`)]
   let messages = fresh()
@@ -197,10 +200,8 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
   }
 
-  async function ask(source) {
-    if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
-    if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
-    messages.push(messageOf('user', source))
+  /** 一次请求：把消息发出去，收集正文与思考。失败时把刚追加的 user 消息撤回。 */
+  async function round() {
     let raw = ''
     // 有的模型把内容全写在思考通道里，正文一个字都不给。那就读思考，总比整轮作废强。
     let thinking = ''
@@ -212,29 +213,54 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
         if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string') thinking += chunk.text
         if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
         if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
-          messages.pop()
           return { ok: false, error: describeFailure(chunk.reason), raw, usage }
         }
         if (chunk?.type === 'finish' && chunk.reason?.kind === 'max-tokens') truncated = true
       }
     } catch (error) {
-      messages.pop()
       return { ok: false, error: String(error?.message ?? error), raw, usage }
     }
     const text = raw.trim() ? raw : thinking
     const parsed = parsePairs(text)
     if (!parsed) {
-      messages.pop()
-      // 把模型真正写回来的开头带上：只说一句「not json」根本看不出它到底写了什么。
-      const head = text.replace(/\s+/g, ' ').trim().slice(0, 160)
-      const why = truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json'
-      const tail = head ? `：${head}` : '：模型一个字都没回'
-      return { ok: false, error: `${why}${tail}`, raw: text, usage }
+      return {
+        ok: false,
+        retryable: true,
+        // 把模型真正写回来的开头带上：只说一句「not json」根本看不出它到底写了什么。
+        head: text.replace(/\s+/g, ' ').trim().slice(0, 60),
+        truncated,
+        raw: text,
+        usage,
+      }
     }
-    messages.push(messageOf('assistant', text))
-    chars += source.length + text.length
-    if (chars > maxHistoryChars) reset()
     return { ok: true, pairs: dedupePairs(parsed), raw: text, usage }
+  }
+
+  async function ask(source) {
+    if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
+    if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
+    messages.push(messageOf('user', source))
+    let corrected = false
+    for (;;) {
+      const reply = await round()
+      if (reply.ok) {
+        messages.push(messageOf('assistant', reply.raw))
+        chars += source.length + reply.raw.length
+        if (chars > maxHistoryChars) reset()
+        return reply
+      }
+      // 模型用散文回答了（角色扮演的回合最容易这样）：提醒一次，再不行就放弃这一轮。
+      if (reply.retryable && !corrected) {
+        corrected = true
+        messages.push(messageOf('user', CORRECTION))
+        continue
+      }
+      messages.pop()
+      if (corrected) messages.pop()
+      const why = reply.truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json'
+      const tail = reply.head ? `：${reply.head}` : '：模型一个字都没回'
+      return { ok: false, error: `${why}${tail}`, raw: reply.raw, usage: reply.usage }
+    }
   }
 
   return { ask, reset, size: () => messages.length, chars: () => chars }

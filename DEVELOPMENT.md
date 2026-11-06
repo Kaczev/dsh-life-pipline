@@ -89,7 +89,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | 社交（微信 / QQ） | `dsh-lpipe-chat` | 已实现 |
 | 唤醒 | `dsh-lpipe-wake` | 已实现 |
 | 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验 / 按天媒体包 / 冷日打包） |
-| 星图 | `dsh-lpipe-starmap` | M1 已实现（词表 / 抽星 / 星表与星源 / 水位 / 只读查询） |
+| 星图 | `dsh-lpipe-starmap` | 已实现（模型抽星 / 星表与星源 / 水位 / 准确星与模糊星 / 只读查询 / 设置块） |
 | 回忆、联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
@@ -239,6 +239,8 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 - **匹配得到的三种星线**（`src/build.mjs` + `src/query.mjs`）：模型说的一对是一根**语星线**，星源是这一整轮，权重 0.5；两端落在同一句时是**自星线**，星源就是那句，权重 1（句内星数超过 8 时每对按 `1/(k-1)` 分摊）；落在相邻两句时是**邻星线**，星源是相邻的那两句，权重 0.5。定位越具体越重，同一轮里只按最具体的那一种记一次。
 - **边不落盘**：星源里只写「这一轮哪几对名字被配成对、每句有哪几颗星」，边在查询时现聚合。
 - **长的工具输出不当成「说过的话」**：`tool/result` 只有短于 600 字才进模型；读文件、列目录的结果是数据，不是句子。
+- **模型用散文回答时纠正一次**：角色扮演的回合最容易让它顺着说下去。第一次解析不出 JSON 就追加一句「That was not valid JSON. Reply again with only the JSON array…」再问一次；第二次还不行，这一轮保持灰色，`rejects.jsonl` 记下模型真写出来的开头（截到 60 字），面板上显示「上次失败：not json：…」。
+- **已亮按真的写下去的轮数算**：三路并发时轮号是跳着完成的，只看水位那个最大值会让面板从 1 直接跳到 4。`status()` 数的是星源里有几轮，水位只负责「从哪继续」。
 - **抽星规则带版本号**：`src/build.mjs` 的 `RULES_VERSION` 记在 `state.json` 的 `rules` 里。改了提示词、分句、成星判定就把这个数加一，启动时一比对不上就整库重抽——名字是算出来的索引，按旧规则建出来的星表没有修补价值。
 - **两类星星**：准确星（名字，必须原样匹配）与模糊星（时间、数字，按数值感觉匹配）。`src/fuzzy.mjs` 负责识别与打分：时间折成一天里的第几分钟，差一小时之外算无关；数字按二进位的对数距离，相差 4 倍算无关。模糊星由程序从原文里扫出来（不靠模型配对），只抽交流记忆（用户的话、我的正文与思考、`chat_send` 发出去的话），工具输出里的数字是数据不算；它们挂在出现它的那一句上；`starmap.near` 按数值找星，这就是星图对时间与数量的「感觉」。`图11-47`、`q_1`、`12 个` 里的数字不算数值。
 - **提示词用英文三段式**：`SYSTEM_PROMPT`（`Rules:` 每条带一句解释 / `Example:` / `Output format:`）与 `INSTRUCTION`（每条消息只管它自己）。都写在 `components/dsh-lpipe-starmap/src/llm.mjs`。模型输出中文概念名没关系——规则第 1 条要的是原样照抄，语言不变。
@@ -252,5 +254,5 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 - **抽星中可以暂停**：设置页的「现在抽星」在抽星时变成「暂停」，走 `starmap.pause`；宿主只置一个 `stopRequested` 标志，手上的那一轮跑完就收手，不做中断式取消（模型流没有可靠的取消点）。抽星期间客户端 1.2 秒轮询一次，进度条直接画抽星进度；空闲时 20 秒一次，画已点亮比例。
 - **用量记账**：每次调用追加一行 `~/.dsh/life-starmap/usage.jsonl`（`input` / `output` / `cacheRead`），设置页显示「调用 N 次 · 7 天 X token · 累计 Y token」。
 - **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links` / `starmap.config` / `starmap.config.set` 与 `starmap.rebuild`（`{ full: true }` 时整库重抽），只有最后两个与配置写会改盘。
-- **设置块**：`lpipe.settings.panel` 的 `id: 'starmap'`、`order: 40`，显示亮了多少轮、灰了多少轮、多少颗星、模型抽星进度，并可以选提供者 / 模型名 / 思考强度。
+- **设置块**：`lpipe.settings.panel` 的 `id: 'starmap'`、`order: 40`，显示亮了多少轮、灰了多少轮、多少颗准确星与多少颗模糊星、模型抽星进度，并可以选提供者 / 模型名 / 思考强度。
 - **依赖**：`dsh-lpipe-memory`（读记忆，走它的 `./reader` 与 `./paths` 导出）与 `dsh-life-pipline`（设置页）。

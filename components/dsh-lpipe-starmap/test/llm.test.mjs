@@ -184,6 +184,30 @@ test('失败时把模型真写回来的开头带上，而不是只说 not json',
 })
 
 
+test('模型先用散文回答时，纠正一次就能拿到 JSON', async () => {
+  const calls = []
+  let round = 0
+  const llm = {
+    async *stream(request) {
+      calls.push(request.messages.map((message) => message.content?.[0]?.text ?? ''))
+      round += 1
+      if (round === 1) {
+        yield { type: 'text-delta', index: 0, text: '（轻轻拉住你的袖子）这段对话里提到了记忆管线和星图管线。' }
+      } else {
+        yield { type: 'text-delta', index: 0, text: '[["记忆管线","星图管线"]]' }
+      }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const extractor = createExtractor({ llm })
+  const reply = await extractor.ask('记忆管线和星图管线是一回事吗')
+  assert.equal(reply.ok, true)
+  assert.deepEqual(reply.pairs, [['记忆管线', '星图管线']])
+  // 第二次请求里带着纠正话术，而且没有把散文那条当成 assistant 记进历史
+  assert.equal(calls.length, 2)
+  assert.match(calls[1].at(-1), /only the JSON array/)
+})
+
 test('推理只发头尾，中间标出省略了多少字', () => {
   const body = 'a'.repeat(800) + 'b'.repeat(400) + 'c'.repeat(300)
   const trimmed = trimReasoning(body)

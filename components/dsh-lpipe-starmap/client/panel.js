@@ -67,6 +67,8 @@ const meta = { display: 'flex', justifyContent: 'space-between', gap: 12, flexWr
 
 const input = {
   width: '100%',
+  minWidth: 0,
+  maxWidth: '100%',
   boxSizing: 'border-box',
   padding: '8px 10px',
   fontSize: 13,
@@ -79,7 +81,7 @@ const input = {
 
 const label = { fontSize: 11, fontWeight: 600, color: COLORS.muted, marginBottom: 6 };
 
-const field = { display: 'flex', flexDirection: 'column', minWidth: 0 };
+const field = { display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: '100%' };
 
 const button = (accent) => ({
   border: `1px solid ${accent || COLORS.borderStrong}`,
@@ -369,15 +371,16 @@ function StarmapPanel({ rpcCall }) {
     setSaved('开始抽星…');
     Promise.resolve()
       .then(() => rpcCall('starmap.rebuild', {}))
-      .then((reply) =>
+      .then((reply) => {
+        load()
         setSaved(
           reply?.ok
             ? reply.value?.skipped === 'unconfigured'
               ? '三项没填全，先不动'
               : `已交给模型，点亮了 ${reply.value?.built ?? 0} 轮`
             : `没启动：${reply?.error?.message || '未知原因'}`,
-        ),
-      )
+        )
+      })
       .catch((error) => setSaved(`没启动：${String(error?.message || error)}`));
   };
 
@@ -401,7 +404,10 @@ function StarmapPanel({ rpcCall }) {
     setSaved('正在暂停…');
     Promise.resolve()
       .then(() => rpcCall('starmap.pause', {}))
-      .then((reply) => setSaved(reply?.ok ? '已暂停：手上这一轮跑完就停' : `暂停失败：${reply?.error?.message || '未知原因'}`))
+      .then((reply) => {
+        setSaved(reply?.ok ? '已暂停：手上这一轮跑完就停' : `暂停失败：${reply?.error?.message || '未知原因'}`)
+        load()
+      })
       .catch((error) => setSaved(`暂停失败：${String(error?.message || error)}`));
   };
 
@@ -446,11 +452,11 @@ function StarmapPanel({ rpcCall }) {
         h(
           'div',
           { style: { display: 'flex', alignItems: 'baseline' } },
-          h('span', { style: mid }, String(value?.stars ?? 0)),
-          h('span', { style: { ...small, position: 'relative', top: -2 } }, value?.fuzzy ? '颗星 · ' : '颗星'),
-          value?.fuzzy
-            ? h('span', { style: { ...small, position: 'relative', top: -2 } }, `${value.fuzzy} 颗模糊`)
-            : null,
+          h('span', { style: mid }, String(Math.max(0, (value?.stars ?? 0) - (value?.fuzzy ?? 0)))),
+          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗准确星'),
+          h('span', { style: { ...small, position: 'relative', top: -2, marginLeft: 6 } }, '·'),
+          h('span', { style: { ...mid, position: 'relative', top: -2, marginLeft: 6 } }, String(value?.fuzzy ?? 0)),
+          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗模糊星'),
         ),
         grey > 0
           ? h(
@@ -505,7 +511,10 @@ function StarmapPanel({ rpcCall }) {
       h('div', { style: { ...label, marginBottom: 10 } }, '抽星模型'),
       h(
         'div',
-        { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 140px 120px 110px', gap: 10, alignItems: 'end' } },
+        {
+          // 设置页宽度不固定：按字段最小宽度自动折行，别把后三格挤成一条缝。
+          style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, alignItems: 'end' },
+        },
         h(
           'div',
           { style: field },
@@ -680,4 +689,5 @@ module.exports = {
     POLL_MS,
   },
 };
+
 
