@@ -109,6 +109,28 @@ test('compacting keeps the event cursor, so a live session may keep appending', 
   writer.close()
 })
 
+test('compacting fills in the turn number that old rows were missing', () => {
+  const root = store()
+  const writer = new MemoryWriter({ root })
+  const at = new Date('2026-11-05T12:00:00+08:00').getTime()
+  // 第一行是没有轮号的 user/message（旧版就是这样写进来的），后面是同一轮的助手行。
+  writer.append({ sessionId: 'session-a', at, kind: 'user/message', turn: null, payload: { text: '\u4f60\u597d' } })
+  writer.append({ sessionId: 'session-a', at: at + 1, kind: 'assistant/message', turn: 42, payload: { text: '\u5728' } })
+  writer.close()
+
+  const stateFile = join(root, 'state.json')
+  const state = JSON.parse(readFileSync(stateFile, 'utf8'))
+  state.version = 2
+  writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8')
+  assert.ok(needsMigration(root))
+
+  compact({ root })
+  const reader = new MemoryReader({ root })
+  assert.equal(reader.read(0).turn, 42, 'the empty turn is taken from the row that follows it')
+  assert.equal(reader.read(1).turn, 42)
+  assert.deepEqual(reader.verify(), [])
+})
+
 test('a fresh store is already current, so nothing is migrated', () => {
   const root = store()
   const writer = new MemoryWriter({ root })

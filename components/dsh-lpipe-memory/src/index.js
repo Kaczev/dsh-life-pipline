@@ -34,12 +34,20 @@ export function apply(ctx, options = {}) {
   const buffered = new Map()
 
   /** 把某个会话正在攒的轮次落盘；没有就什么也不做。 */
-  const commit = (sessionId) => {
+  const commit = (sessionId, turn = null) => {
     const rows = buffered.get(sessionId)
     buffered.delete(sessionId)
     if (!rows || rows.length === 0) return 0
+    // user/message 事件本身不带轮号：用 turn/end 递过来的那个补上，
+    // 否则这一行在星图里会被当成「没有轮次」整条跳过。
+    const known = Number.isInteger(turn)
+      ? turn
+      : (rows.find((row) => Number.isInteger(row.turn))?.turn ?? null)
+    const filled = known === null
+      ? rows
+      : rows.map((row) => (Number.isInteger(row.turn) ? row : { ...row, turn: known }))
     try {
-      for (const row of rows) writer.append(row)
+      for (const row of filled) writer.append(row)
       writer.flush()
       refresh()
       return rows.length
@@ -116,7 +124,7 @@ export function apply(ctx, options = {}) {
       try {
         // 轮次结束本身不入档，但它是这一轮完成的信号。
         if (event?.type === TURN_END) {
-          commit(sessionId)
+          commit(sessionId, event?.data?.turn ?? event?.turn ?? null)
           return
         }
         const projected = project(event)
@@ -135,7 +143,7 @@ export function apply(ctx, options = {}) {
           rows[0].turn !== null &&
           projected.turn !== rows[0].turn
         ) {
-          commit(sessionId)
+          commit(sessionId, projected.turn)
         }
         const target = buffered.get(sessionId) ?? []
         target.push({

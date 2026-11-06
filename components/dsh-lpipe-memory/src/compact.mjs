@@ -9,8 +9,12 @@ import { metaFile, stateFile } from './paths.mjs'
 import { carriedParts } from './project.mjs'
 import { MemoryWriter } from './writer.mjs'
 
-/** 2 = 行里不再存 text/reasoning 的副本。 */
-export const FORMAT_VERSION = 2
+/**
+ * 2 = 行里不再存 text/reasoning 的副本。
+ * 3 = 每条行都带轮号：早先 `user/message` 事件本身不带 turn，那些行是 null，
+ *     星图按轮分组时会把它们整条跳过，于是你自己的话从来没有参与抽星。
+ */
+export const FORMAT_VERSION = 3
 
 const STRUCTURAL = new Set(['seq', 'day', 'at', 'session', 'turn', 'step', 'kind', 'prev', 'hash'])
 
@@ -72,15 +76,27 @@ export function compact({ root, log = () => {}, now = () => Date.now() } = {}) {
 
   let maxSeq = -1
   for (const session of reader.sessions()) maxSeq = Math.max(maxSeq, session.lastSeq)
-  let rows = 0
+  const all = []
   for (let seq = 0; seq <= maxSeq; seq += 1) {
     const row = reader.read(seq)
-    if (!row) continue
+    if (row) all.push(row)
+  }
+  // 缺轮号的行向后取最近一个有轮号的行：一是这段行为只追加，
+  // 二是「一轮的第一条 user/message」后面紧跟的正是同一轮的行。
+  const ahead = new Map()
+  const turns = new Array(all.length).fill(null)
+  for (let index = all.length - 1; index >= 0; index -= 1) {
+    const row = all[index]
+    if (Number.isInteger(row.turn)) ahead.set(row.session, row.turn)
+    turns[index] = Number.isInteger(row.turn) ? row.turn : (ahead.get(row.session) ?? null)
+  }
+  let rows = 0
+  for (const [index, row] of all.entries()) {
     writer.append({
       sessionId: row.session,
       at: row.at,
       kind: row.kind,
-      turn: row.turn ?? null,
+      turn: turns[index],
       step: row.step ?? null,
       payload: payloadOf(row),
     })

@@ -72,6 +72,31 @@ test('a turn lands on disk only when it ends', () => {
   assert.deepEqual(reader.verify({}), [])
 })
 
+test('a user message without a turn number still lands on its turn', () => {
+  const root = mkdtempSync(join(tmpdir(), 'life-turn-'))
+  const { ctx, fire } = makeCtx()
+  apply(ctx, { root })
+
+  // 真实的 user/message 事件里没有 data.turn：只有助手那几条带轮号。
+  fire({
+    type: 'user/message',
+    seq: 0,
+    time: 1_700_000_000_000,
+    data: { content: [{ type: 'text', text: '\u4f60\u597d' }], source: { kind: 'user' } },
+  })
+  fire({
+    type: 'assistant/message',
+    seq: 1,
+    time: 1_700_000_001_000,
+    data: { turn: 7, message: { content: [{ type: 'text', text: '\u5728' }] } },
+  })
+  fire({ type: 'turn/end', seq: 2, time: 1_700_000_002_000, data: { turn: 7 } })
+
+  const reader = new MemoryReader({ root })
+  assert.equal(reader.read(0).turn, 7, 'the turn/end number fills the user row')
+  assert.equal(reader.read(1).turn, 7)
+})
+
 test('events that are not part of a turn never invent rows', () => {
   const root = mkdtempSync(join(tmpdir(), 'life-turn-'))
   const { ctx, fire } = makeCtx()

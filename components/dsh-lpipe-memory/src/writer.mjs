@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFil
 import { dirname } from 'node:path'
 
 import { GENESIS, seal } from './chain.mjs'
+import { FORMAT_VERSION } from './compact.mjs'
 import { dayOf } from './day.mjs'
 import { compressFrame, FRAME_BYTES } from './frames.mjs'
 import { dayFile, framesFile, idxFile, memoryRoot, metaFile, sessionDir, stateFile } from './paths.mjs'
@@ -68,7 +69,7 @@ export class MemoryWriter {
     this.now = now
     this.sinks = new Map()
     this.meta = new Map()
-    this.state = readJson(stateFile(root), { version: 2, seq: -1, hash: GENESIS, day: null, sessions: {} })
+    this.state = readJson(stateFile(root), { version: FORMAT_VERSION, seq: -1, hash: GENESIS, day: null, sessions: {} })
   }
 
   /** 该会话已经写到的事件序号，用来做幂等去重。 */
