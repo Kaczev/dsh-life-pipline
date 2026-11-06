@@ -227,7 +227,10 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 - **边不落盘**：星源里只写「这一轮哪几对名字被配成对、每句有哪几颗星」，边在查询时现聚合。
 - **长的工具输出不当成「说过的话」**：`tool/result` 只有短于 600 字才进模型；读文件、列目录的结果是数据，不是句子。
 - **抽星规则带版本号**：`src/build.mjs` 的 `RULES_VERSION` 记在 `state.json` 的 `rules` 里。改了提示词、分句、成星判定就把这个数加一，启动时一比对不上就整库重抽——名字是算出来的索引，按旧规则建出来的星表没有修补价值。
-- **模型可选配**：`~/.dsh/life-starmap/config.json` 里存 `provider` / `model` / `reasoningEffort` / `concurrency`，留空就用宿主当前会话的模型。模型不可用时什么都不点亮，灰记忆保持灰色——不猜、不用规则兜底。
+- **模型必须配全才抽星**：`~/.dsh/life-starmap/config.json` 里存 `provider` / `model` / `reasoningEffort` / `concurrency`，三个设置项**任一为空就完全不抽**（默认全空）。留空不表示「用会话默认模型」，而是「现在不抽」——宁可不点亮，也不拿猜的星污染这张图。
+- **一条对话复用到底**：第一句用户消息固定是指令，之后每轮原文接在后面，模型逐条回答。前缀一直不变，模型侧的缓存才有机会命中；攒到 24 000 字符就换新的一条，并发的每一路各持一条，互不干扰。调用失败会把这一问撤回，保证重试的前缀与失败前一致。
+- **自动补做只收拾近处**：灰记忆超过 3 轮就停手，等用户在设置页点「现在抽星」。中途停掉的轮次保持灰色，重新抽即可——重发的是同一段原文，有没有缓存命中都不影响正确性。
+- **用量记账**：每次调用追加一行 `~/.dsh/life-starmap/usage.jsonl`（`input` / `output` / `cacheRead`），设置页显示「调用 N 次 · 7 天 X token · 累计 Y token」。
 - **RPC**：`/api/dsh-lpipe-starmap` 上的 `starmap.progress` / `starmap.star` / `starmap.turn` / `starmap.links` / `starmap.config` / `starmap.config.set` 与 `starmap.rebuild`（`{ full: true }` 时整库重抽），只有最后两个与配置写会改盘。
 - **设置块**：`lpipe.settings.panel` 的 `id: 'starmap'`、`order: 40`，显示亮了多少轮、灰了多少轮、多少颗星、模型抽星进度，并可以选提供者 / 模型名 / 思考强度。
 - **依赖**：`dsh-lpipe-memory`（读记忆，走它的 `./reader` 与 `./paths` 导出）与 `dsh-life-pipline`（设置页）。

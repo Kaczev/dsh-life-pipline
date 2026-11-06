@@ -5,7 +5,7 @@ import { normalizeName } from './extract.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
-export function createQueries({ repo, memoryStatus, progressState }) {
+export function createQueries({ repo, memoryStatus, progressState, usageStats }) {
   const find = (key) => {
     if (!key) return null
     const direct = repo.stars.get(key)
@@ -147,6 +147,9 @@ export function createQueries({ repo, memoryStatus, progressState }) {
       lastBuiltAt: status.lastBuiltAt,
       lastTurn: status.lastTurn,
       extract,
+      usage: typeof usageStats === 'function'
+        ? usageStats()
+        : { calls: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, calls7d: 0, tokens7d: 0, days: 7 },
     }
   }
 

@@ -53,3 +53,12 @@ export function routeOf(config = {}) {
   if (!config.provider || !config.model) return {}
   return { provider: config.provider, model: config.model }
 }
+
+/**
+ * 三个都填了才抽星：供应商、模型、思考强度。
+ * 任何一个留空就完全不抽——宁可不点亮，也不拿猜的星污染这张图。
+ */
+export function canExtract(config = {}) {
+  return Boolean(clean(config.provider) && clean(config.model) && clean(config.reasoningEffort))
+}
+

@@ -105,6 +105,14 @@ function clock(ms) {
   return `${day} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+/** 用量显示：小数目原样，上了万就折成 K / M。 */
+function formatTokens(value) {
+  const n = Number(value) || 0;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e4) return `${(n / 1e3).toFixed(1)}K`;
+  return String(n);
+}
+
 function ratioOf(built, turns) {
   if (!Number.isFinite(built) || !Number.isFinite(turns) || turns <= 0) return 0;
   return Math.min(1, Math.max(0, built / turns));
@@ -157,7 +165,26 @@ function StarmapPanel({ rpcCall }) {
   const turns = value?.turns ?? 0;
   const grey = value?.grey ?? 0;
   const extract = value?.extract || {};
+  const usage = value?.usage || {};
   const busy = Boolean(extract.running);
+  // 供应商、模型、思考强度三个都填了才抽星；留空就是不抽。
+  const configured = Boolean(form.provider.trim() && form.model.trim() && form.reasoningEffort);
+
+  const start = () => {
+    setSaved('开始抽星…');
+    Promise.resolve()
+      .then(() => rpcCall('starmap.rebuild', {}))
+      .then((reply) =>
+        setSaved(
+          reply?.ok
+            ? reply.value?.skipped === 'unconfigured'
+              ? '三项没填全，先不动'
+              : `已交给模型，点亮了 ${reply.value?.built ?? 0} 轮`
+            : `没启动：${reply?.error?.message || '未知原因'}`,
+        ),
+      )
+      .catch((error) => setSaved(`没启动：${String(error?.message || error)}`));
+  };
 
   const save = () => {
     setSaved('保存中…');
@@ -226,6 +253,22 @@ function StarmapPanel({ rpcCall }) {
         ),
         h('span', null, value?.lastBuiltAt ? `上次点亮 ${clock(value.lastBuiltAt)}` : '还没点亮过'),
       ),
+      h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 10, flexWrap: 'wrap' } },
+        h(
+          'span',
+          { style: { fontSize: 11, color: COLORS.faint } },
+          usage.calls
+            ? `调用 ${usage.calls} 次 · 7 天 ${formatTokens(usage.tokens7d)} token · 累计 ${formatTokens(usage.tokens)} token`
+            : '还没调用过模型',
+        ),
+        h(
+          'button',
+          { style: button(configured && !busy ? COLORS.accent : null), onClick: start, disabled: busy || !configured },
+          busy ? '正在抽星' : '现在抽星',
+        ),
+      ),
       state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
     ),
     h(
@@ -257,7 +300,13 @@ function StarmapPanel({ rpcCall }) {
         'div',
         { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 } },
         h('button', { style: button(COLORS.accent), onClick: save, disabled: busy }, '保存'),
-        h('span', { style: { fontSize: 11, color: COLORS.muted } }, saved || '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'),
+        h(
+          'span',
+          { style: { fontSize: 11, color: configured ? COLORS.muted : COLORS.warning } },
+          saved || (configured
+            ? '抽星只问模型「哪两个概念一起出现过」，连边与权重由星图自己算。'
+            : '供应商、模型、思考强度都填了才会抽星；留空就是不抽。'),
+        ),
       ),
     ),
   );
@@ -288,6 +337,7 @@ module.exports = {
     PANEL_SLOT,
     clock,
     ratioOf,
+    formatTokens,
     POLL_MS,
     EFFORTS,
   },

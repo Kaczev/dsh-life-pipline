@@ -9,18 +9,21 @@ import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { memoryRoot } from 'dsh-lpipe-memory/paths'
 
 import { RULES_VERSION, buildTurn, groupTurns, textsOf } from './build.mjs'
-import { loadConfig, routeOf, saveConfig } from './config.mjs'
-import { requestPairs, turnSource } from './llm.mjs'
+import { canExtract, loadConfig, routeOf, saveConfig } from './config.mjs'
+import { createExtractor, turnSource } from './llm.mjs'
 import { starmapRoot } from './paths.mjs'
 import { createQueries } from './query.mjs'
 import { createStarmapRpcHandler, registerStarmapRpc } from './rpc.mjs'
 import { openRepo, turnKey } from './store.mjs'
+import { noteUsage, usageStats } from './usage.mjs'
 
 export const name = 'dsh-lpipe-starmap'
 
 export const inject = []
 
 const TURN_END = 'turn/end'
+/** 灰记忆超过这么多轮就停手：自动补做只收拾刚过去的那几轮，积压的等用户自己开。 */
+export const MAX_AUTO_GREY = 3
 
 export function apply(ctx, options = {}) {
   const root = options.root ?? starmapRoot()
@@ -39,6 +42,13 @@ export function apply(ctx, options = {}) {
 
   let config = loadConfig(root)
   let llm = options.llm ?? null
+
+  /** 三个设置项都填了、也有模型服务，才算能抽星。 */
+  const ready = () => Boolean(llm) && canExtract(config)
+  const routeNow = () => {
+    const route = routeOf(config)
+    return config.reasoningEffort ? { ...route, reasoningEffort: config.reasoningEffort } : route
+  }
 
   /** 抽星进度：设置页拿它显示「正在抽 N/M」。 */
   const progressState = { running: false, done: 0, total: 0, failed: 0 }
@@ -80,19 +90,26 @@ export function apply(ctx, options = {}) {
   }
 
   /** 一轮：问模型 → 落星源。模型挂了就记一笔，这一轮保持灰。 */
-  const buildOne = async (sessionId, turn) => {
+  const buildOne = async (sessionId, turn, extractor) => {
     if (!llm) return false
     const source = turnSource(turn, textsOf)
     if (!source.trim()) {
       buildTurn({ repo, turn, sessionId, pairs: [] })
       return true
     }
-    const route = routeOf(config)
-    const reply = await requestPairs({
-      llm,
-      route: config.reasoningEffort ? { ...route, reasoningEffort: config.reasoningEffort } : route,
-      source,
-    })
+    const reply = await extractor.ask(source)
+    if (reply.usage) {
+      noteUsage(root, {
+        at: new Date().toISOString(),
+        session: sessionId,
+        turn: turn.turn,
+        input: reply.usage.input,
+        output: reply.usage.output,
+        cacheRead: reply.usage.cacheRead,
+        ok: reply.ok,
+        model: config.model,
+      })
+    }
     if (!reply.ok) {
       progressState.failed += 1
       warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮抽星失败：${reply.error}`)
@@ -115,12 +132,12 @@ export function apply(ctx, options = {}) {
     progressState.total += pending.length
     let built = 0
     let cursor = 0
-    const worker = async () => {
+    const worker = async (extractor) => {
       while (cursor < pending.length) {
         const turn = pending[cursor]
         cursor += 1
         try {
-          if (await buildOne(sessionId, turn)) built += 1
+          if (await buildOne(sessionId, turn, extractor)) built += 1
         } catch (error) {
           warn(`[dsh-lpipe-starmap] 第 ${turn.turn} 轮跳过：${error?.message ?? error}`)
         }
@@ -131,7 +148,11 @@ export function apply(ctx, options = {}) {
       }
     }
     const width = Math.max(1, Math.min(8, config.concurrency || 3))
-    await Promise.all(Array.from({ length: width }, () => worker()))
+    // 每个并发各自一条对话：前缀互不干扰，模型侧的缓存才稳。
+    const lanes = Array.from({ length: width }, () =>
+      createExtractor({ llm, route: routeNow(), maxTokens: 1500 }),
+    )
+    await Promise.all(lanes.map((extractor) => worker(extractor)))
     return built
   }
 
@@ -176,7 +197,7 @@ export function apply(ctx, options = {}) {
     return { turns, lit, sessions: list, lastBuiltAt, lastTurn }
   }
 
-  const queries = createQueries({ repo, memoryStatus: status, progressState })
+  const queries = createQueries({ repo, memoryStatus: status, progressState, usageStats: () => usageStats(root) })
 
   const run = (label, work) => {
     try {
@@ -191,7 +212,11 @@ export function apply(ctx, options = {}) {
    * 补做一次：跟上磁盘上的星图，把剩下的灰记忆交给模型抽星。
    * `full` 是整库重来：提示词或规则改过以后，旧轮次必须重新过一遍。
    */
-  const rebuild = async ({ full = false } = {}) => {
+  const rebuild = async ({ full = false, manual = false } = {}) => {
+    if (!ready()) {
+      info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），先不动')
+      return { built: 0, skipped: 'unconfigured', ...status() }
+    }
     const started = Date.now()
     if (full) repo.reset()
     memory.reload()
@@ -215,6 +240,16 @@ export function apply(ctx, options = {}) {
   let warm = null
   const warmUp = () => {
     run('启动构建', async () => {
+      if (!ready()) {
+        info('[dsh-lpipe-starmap] 抽星模型没配全（供应商 / 模型 / 思考强度都要填），灰记忆先留着')
+        return
+      }
+      const before0 = status()
+      const grey0 = Math.max(0, before0.turns - before0.lit)
+      if (grey0 > MAX_AUTO_GREY) {
+        info(`[dsh-lpipe-starmap] 灰记忆 ${grey0} 轮，超过 ${MAX_AUTO_GREY} 轮，等你手动开始`)
+        return
+      }
       const before = repo.turns.size
       // 记忆格式或抽星规则变了：已经点亮的轮次不会进「灰记忆」，只能整库重来。
       const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
@@ -284,6 +319,13 @@ export function apply(ctx, options = {}) {
       const timer = setTimeout(() => {
         run('构建这一轮', async () => {
           memory.reload()
+          const snapshot = status()
+          const mine = snapshot.sessions.find((entry) => entry.sessionId === sessionId)
+          // 积压太久就交给用户手动开：自动补做只收拾刚过去的那几轮。
+          if ((mine?.grey ?? 0) > MAX_AUTO_GREY) {
+            info(`[dsh-lpipe-starmap] 灰记忆 ${mine?.grey ?? 0} 轮，超过 ${MAX_AUTO_GREY} 轮，等你手动开始`)
+            return
+          }
           await buildSession(sessionId)
         })
       }, delay)

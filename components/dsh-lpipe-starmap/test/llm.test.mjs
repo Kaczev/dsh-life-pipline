@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, dedupePairs, parsePairs, requestPairs, turnSource } from '../src/llm.mjs'
+import { MAX_PAIRS, SYSTEM_PROMPT, cleanStarName, createExtractor, dedupePairs, normalizeUsage, parsePairs, requestPairs, turnSource } from '../src/llm.mjs'
 import { textsOf } from '../src/build.mjs'
 
 test('解析模型回复：纯数组、代码块、夹着废话都能抠出来', () => {
@@ -65,4 +65,67 @@ test('模型调用：流里的文本拼起来再解析；失败不抛', async ()
   const empty = await requestPairs({ llm, source: '' })
   assert.equal(empty.ok, true)
   assert.deepEqual(empty.pairs, [])
+})
+
+test('一条对话复用到底：前缀不变，只追加一问一答', async () => {
+  const seen = []
+  const llm = {
+    async *stream(options) {
+      seen.push(options.messages.map((entry) => entry.content[0].text))
+      yield { type: 'text-delta', text: '[["记忆管线","星图"]]' }
+      yield { type: 'usage', usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 } }
+    },
+  }
+  const extractor = createExtractor({ llm })
+  assert.equal(extractor.size(), 3)
+
+  const first = await extractor.ask('第一轮原文')
+  assert.equal(first.ok, true)
+  assert.deepEqual(first.usage, { input: 100, output: 20, cacheRead: 80 })
+  assert.equal(extractor.size(), 5)
+
+  await extractor.ask('第二轮原文')
+  assert.equal(seen[1].length, 6, '上一问 + 上一答 + 这一问')
+  // 上一次请求的那几条在这条里原封不动地重复了一遍：缓存能接着用。
+  assert.deepEqual(seen[1].slice(0, 4), seen[0])
+  assert.equal(seen[1][5], '第二轮原文')
+})
+
+test('调用失败把这一问撤回：下次重试的前缀和之前一样', async () => {
+  let calls = 0
+  const llm = {
+    async *stream() {
+      calls += 1
+      if (calls === 1) {
+        yield { type: 'finish', reason: { kind: 'error' } }
+        return
+      }
+      yield { type: 'text-delta', text: '[["a","b"]]' }
+    },
+  }
+  const extractor = createExtractor({ llm })
+  const failed = await extractor.ask('第一轮')
+  assert.equal(failed.ok, false)
+  assert.equal(extractor.size(), 3, '失败的那一问要撤回')
+  const ok = await extractor.ask('第一轮')
+  assert.equal(ok.ok, true)
+  assert.equal(extractor.size(), 5)
+})
+
+test('对话太长就换新的一条', async () => {
+  const llm = {
+    async *stream() {
+      yield { type: 'text-delta', text: '[["a","b"]]' }
+    },
+  }
+  const extractor = createExtractor({ llm, maxHistoryChars: 20 })
+  await extractor.ask('x'.repeat(50))
+  assert.equal(extractor.size(), 3, '超过上限后回到只有指令的三条')
+})
+
+test('用量字段各家叫法不同，统一成 input / output / cacheRead', () => {
+  assert.deepEqual(normalizeUsage({ input_tokens: 12, output_tokens: 3 }), { input: 12, output: 3, cacheRead: 0 })
+  assert.deepEqual(normalizeUsage({ promptTokens: 7, completionTokens: 2, cachedTokens: 5 }), { input: 7, output: 2, cacheRead: 5 })
+  assert.equal(normalizeUsage({}), null)
+  assert.equal(normalizeUsage(null), null)
 })

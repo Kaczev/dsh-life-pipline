@@ -87,8 +87,90 @@ export function dedupePairs(pairs) {
 }
 
 /**
- * 问一次模型。返回 { ok, pairs, raw, error }——调用失败不抛，交给上层记日志。
+ * 一条长对话复用到底：第一句用户消息固定是这条指令，之后每轮原文接在后面。
+ * 前缀一直不变，模型侧的缓存才有机会命中；太长就从头再来一条。
  */
+export const INSTRUCTION = [
+  '接下来我会一轮一轮地把对话原文发给你，每条消息只处理它自己：',
+  '只回答那条消息里的概念对，不要回顾前面的轮次，也不要重复之前的答案。',
+  '输出格式照旧，只给 JSON 数组。',
+].join('\n')
+
+/** 一条对话攒到多长就换新的：再长下去，省下的钱抵不上多读的上下文。 */
+export const MAX_HISTORY_CHARS = 24000
+
+const MESSAGE_SOURCE = { kind: 'plugin:dsh-lpipe-starmap', plugin: 'dsh-lpipe-starmap' }
+
+const messageOf = (role, text) => ({ role, content: [{ type: 'text', text }], source: MESSAGE_SOURCE })
+
+/** 用量的字段名各家不一样，统一成 { input, output, cacheRead }。 */
+export function normalizeUsage(usage) {
+  if (!usage || typeof usage !== 'object') return null
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = Number(usage[key])
+      if (Number.isFinite(value)) return value
+    }
+    return 0
+  }
+  const input = pick('inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens')
+  const output = pick('outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens')
+  const cacheRead = pick('cacheReadTokens', 'cache_read_tokens', 'cachedTokens', 'cached_tokens')
+  if (!input && !output && !cacheRead) return null
+  return { input, output, cacheRead }
+}
+
+/**
+ * 一条可复用的抽取对话。`ask(source)` 只追加一问一答，失败会把这一问撤回去，
+ * 保证下次重试的前缀与失败前一模一样（缓存能接着用）。
+ */
+export function createExtractor({ llm, route = {}, maxTokens = 1500, maxHistoryChars = MAX_HISTORY_CHARS } = {}) {
+  const fresh = () => [
+    messageOf('system', SYSTEM_PROMPT),
+    messageOf('user', INSTRUCTION),
+    messageOf('assistant', '明白，请发第一轮原文。'),
+  ]
+  let messages = fresh()
+  let chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
+
+  const reset = () => {
+    messages = fresh()
+    chars = messages.reduce((sum, entry) => sum + entry.content[0].text.length, 0)
+  }
+
+  async function ask(source) {
+    if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
+    if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
+    messages.push(messageOf('user', source))
+    let raw = ''
+    let usage = null
+    try {
+      for await (const chunk of llm.stream({ ...route, maxTokens, messages })) {
+        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
+        if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
+        if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
+          messages.pop()
+          return { ok: false, error: `stream ${chunk.reason.kind}`, raw, usage }
+        }
+      }
+    } catch (error) {
+      messages.pop()
+      return { ok: false, error: String(error?.message ?? error), raw, usage }
+    }
+    const parsed = parsePairs(raw)
+    if (!parsed) {
+      messages.pop()
+      return { ok: false, error: 'not json', raw, usage }
+    }
+    messages.push(messageOf('assistant', raw))
+    chars += source.length + raw.length
+    if (chars > maxHistoryChars) reset()
+    return { ok: true, pairs: dedupePairs(parsed), raw, usage }
+  }
+
+  return { ask, reset, size: () => messages.length, chars: () => chars }
+}
+
 export async function requestPairs({ llm, route = {}, source, maxTokens = 1500, signal }) {
   if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
   if (!source || !source.trim()) return { ok: true, pairs: [], raw: '' }
