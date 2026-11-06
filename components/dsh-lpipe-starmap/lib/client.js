@@ -391,8 +391,8 @@ function StarmapPanel({ rpcCall }) {
     form.provider !== committed.provider ||
     form.model !== committed.model ||
     form.reasoningEffort !== committed.reasoningEffort ||
-    Number(form.maxTokens) !== Number(committed.maxTokens) ||
-    Number(form.concurrency) !== Number(committed.concurrency);
+    (Number(form.maxTokens) || 0) !== (Number(committed.maxTokens) || 0) ||
+    (Number(form.concurrency) || 0) !== (Number(committed.concurrency) || 0);
 
   // 底部只留「状态」这一行：没话说时整块不渲染，别留一条空的分隔线。
   const statusText = dirty
@@ -621,7 +621,7 @@ function StarmapPanel({ rpcCall }) {
               style: input,
               value: form.provider,
               onChange: (event) => {
-                setForm({ provider: event.target.value, model: '', reasoningEffort: '' });
+                setForm({ ...form, provider: event.target.value, model: '', reasoningEffort: '' });
                 setEfforts(null);
                 setSaved('');
               },
