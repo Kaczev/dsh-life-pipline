@@ -14,7 +14,7 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 9
+export const RULES_VERSION = 10
 
 const SYMBOL_ONLY = /^[^\p{L}\p{N}]+$/u
 const CJK_MAX = 10

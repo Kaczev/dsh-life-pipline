@@ -128,11 +128,14 @@ export function apply(ctx, options = {}) {
       )
       repo.reset()
       // 旧星表作废，用量账本也一起换新：不然面板上还挂着上一套规则花掉的 token，看着像新规则烧的。
-      try {
-        const usage = join(root, 'usage.jsonl')
-        if (statSync(usage).size > 0) renameSync(usage, `${usage}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`)
-      } catch {
-        // 没有账本就没什么好换的。
+      // 用量账本与拒绝清单都跟着规则一起换新：上一套规则的账不该算到这一套头上。
+      for (const name of ['usage.jsonl', 'rejects.jsonl']) {
+        try {
+          const file = join(root, name)
+          if (statSync(file).size > 0) renameSync(file, `${file}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+        } catch {
+          // 没有这个文件就跳过。
+        }
       }
       memory.reload()
       repo.reload()

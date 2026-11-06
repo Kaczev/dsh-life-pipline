@@ -422,7 +422,11 @@ function StarmapPanel({ rpcCall }) {
       });
   };
 
+  const [saving, setSaving] = React.useState(false);
+
   const save = () => {
+    if (saving) return;
+    setSaving(true);
     setSaved('保存中…');
     Promise.resolve()
       .then(() => rpcCall('starmap.config.set', { ...form, effortFree: !(efforts?.efforts?.length) }))
@@ -434,7 +438,8 @@ function StarmapPanel({ rpcCall }) {
           setSaved(`保存失败：${reply?.error?.message || '未知原因'}`);
         }
       })
-      .catch((error) => setSaved(`保存失败：${String(error?.message || error)}`));
+      .catch((error) => setSaved(`保存失败：${String(error?.message || error)}`))
+      .finally(() => setSaving(false));
   };
 
   // 改坏了就退回去：草稿恢复成已保存的那一份。
@@ -725,11 +730,11 @@ function StarmapPanel({ rpcCall }) {
         h(
           'button',
           {
-            style: { ...button(dirty && !busy ? COLORS.accent : null), opacity: dirty && !busy ? 1 : 0.45 },
+            style: { ...button(dirty && !busy && !saving ? COLORS.accent : null), opacity: dirty && !busy && !saving ? 1 : 0.45 },
             onClick: save,
-            disabled: busy || !dirty,
+            disabled: busy || !dirty || saving,
           },
-          '保存',
+          saving ? '保存中…' : '保存',
         ),
         h(
           'button',
