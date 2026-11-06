@@ -116,6 +116,16 @@ function MemoryPanel({ rpcCall }) {
 
   const turns = stats?.turns ?? [];
   const plot = plotOf(turns);
+  const xLabels = turns.length > 1
+    ? h('div', {
+      style: {
+        display: 'flex', justifyContent: 'space-between', marginTop: 5,
+        fontSize: 10, color: COLORS.faint,
+      },
+    },
+      h('span', null, formatClock(turns[0].at)),
+      h('span', null, formatClock(turns[turns.length - 1].at)))
+    : null;
   const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
 
   return h('section', null,
@@ -166,11 +176,15 @@ function MemoryPanel({ rpcCall }) {
             : null)),
 
       plot
-        ? h('div', { style: { display: 'flex', marginTop: 12 } },
+        ? h('div', {
+          style: {
+            display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, marginTop: 12,
+          },
+        },
           h('div', {
             style: {
               display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              flex: '0 0 auto', padding: '2px 8px 1px 0', fontSize: 9.5,
+              gridColumn: 1, padding: '2px 0 1px', fontSize: 9.5,
               color: COLORS.faint, textAlign: 'left', whiteSpace: 'nowrap',
             },
           },
@@ -180,7 +194,7 @@ function MemoryPanel({ rpcCall }) {
           h('svg', {
             viewBox: '0 0 100 100',
             preserveAspectRatio: 'none',
-            style: { flex: 1, minWidth: 0, height: 86, display: 'block' },
+            style: { width: '100%', minWidth: 0, height: 86, display: 'block' },
             'aria-label': '记忆大小曲线',
           },
             h('line', {
@@ -212,19 +226,10 @@ function MemoryPanel({ rpcCall }) {
                 points: plot.disk, fill: 'none', stroke: COLORS.disk, strokeWidth: 1.4,
                 strokeLinecap: 'round', strokeLinejoin: 'round', vectorEffect: 'non-scaling-stroke',
               })
-              : null))
+              : null),
+          h('div', null),
+          xLabels)
         : h('div', { style: { marginTop: 12, fontSize: 12, color: COLORS.muted } }, '还没有落盘的轮次。'),
-
-      turns.length > 1
-        ? h('div', {
-          style: {
-            display: 'flex', justifyContent: 'space-between', margin: '4px 0 0 70px',
-            fontSize: 10, color: COLORS.faint,
-          },
-        },
-          h('span', null, formatClock(turns[0].at)),
-          h('span', null, formatClock(turns[turns.length - 1].at)))
-        : null,
 
       h('div', { style: { marginTop: 8, fontSize: 11, color: COLORS.faint } },
         '两条线共用一条纵轴：青色是原文（未压缩），蓝紫色是真实落盘，中间那段距离就是 zstd 省下的。')));
