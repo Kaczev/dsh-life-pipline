@@ -224,3 +224,28 @@ test('一轮的原文里，思考是截过的、工具名单独成句、chat_sen
   assert.match(source, /省略 1100 字/)
 })
 
+
+test('chat_send 发出去的那段话，结果再长也全文在内', () => {
+  const longText = '今晚早点睡。' + '别熬太晚。'.repeat(120)
+  const turn = {
+    rows: [
+      { kind: 'tool/call', name: 'chat_send', arguments: JSON.stringify({ channel: 'weixin', text: longText }) },
+      { kind: 'tool/result', text: `已通过微信发出 ${longText.length} 字` },
+      { kind: 'tool/call', name: 'ops_read_files', arguments: '{}' },
+      { kind: 'tool/result', text: '文件内容：' + 'x'.repeat(2000) },
+    ],
+  }
+  const textsOf = (row, toolName) => {
+    if (row.kind === 'tool/call' && row.name === 'chat_send') return [JSON.parse(row.arguments).text]
+    if (row.kind === 'tool/call') return []
+    if (row.kind === 'tool/result') {
+      const text = typeof row.text === 'string' ? row.text : ''
+      if (toolName === 'chat_send') return text ? [text] : []
+      return text.length <= 600 ? [text] : []
+    }
+    return []
+  }
+  const source = turnSource(turn, textsOf)
+  assert.match(source, /别熬太晚。$|别熬太晚。\n/)
+  assert.ok(!source.includes('x'.repeat(700)), '普通工具的长结果仍然不进原文')
+})

@@ -13,7 +13,7 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 4
+export const RULES_VERSION = 5
 
 export function groupTurns(rows) {
   const map = new Map()
@@ -37,7 +37,7 @@ export function groupTurns(rows) {
 /** 一行里拿来抽星的文字：正文、思考；工具调用只取工具名，长工具输出不当成「说过的话」。 */
 const MAX_TOOL_RESULT = 600
 
-export function textsOf(row) {
+export function textsOf(row, toolName = null) {
   // 运行期注入的上下文（短期上下文、记忆库快照）不是「说过的话」，不抽星。
   if (row?.kind === 'user/message' && row?.source?.kind === 'runtime-context') return []
   // 发给人的那段话就是你我说的话，不是「工具输出」：全文参与抽星。
@@ -50,6 +50,8 @@ export function textsOf(row) {
   }
   if (row?.kind === 'tool/result') {
     const text = typeof row.text === 'string' ? row.text.trim() : ''
+    // chat_send 的结果是「发出去的那段话」，跟我说的正文同类，不设上限。
+    if (toolName === 'chat_send') return text ? [text] : []
     // 读文件、列目录这类工具的结果是数据，不是句子：整段抽星只会把文件名变成概念。
     return text && text.length <= MAX_TOOL_RESULT ? [text] : []
   }
@@ -62,14 +64,17 @@ export function textsOf(row) {
 /** 这一轮的「句子」：每句带 seq 与行号，供匹配与连边用。工具调用自成一句。 */
 export function sentencesOf(turn) {
   const out = []
+  // 工具结果是哪一次调用的？记忆行里没有名字，只能顺着前面的 tool/call 认。
+  let calledWith = null
   for (const [rowIndex, row] of (turn.rows ?? []).entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
-      out.push({ seq: row.seq, row: rowIndex, text: String(row.name) })
+      calledWith = String(row.name)
+      out.push({ seq: row.seq, row: rowIndex, text: calledWith })
       // chat_send 的正文要单独成句：它就是我跟人说的话。
       for (const text of textsOf(row)) out.push({ seq: row.seq, row: rowIndex, text })
       continue
     }
-    for (const text of textsOf(row)) {
+    for (const text of textsOf(row, calledWith)) {
       for (const sentence of splitSentences(text)) {
         if (!sentence.trim()) continue
         out.push({ seq: row.seq, row: rowIndex, text: sentence })

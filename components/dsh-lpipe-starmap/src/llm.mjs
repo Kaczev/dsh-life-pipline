@@ -9,7 +9,7 @@ export const MAX_PAIRS = 60
 export const MAX_OUTPUT_TOKENS = 4000
 
 export const SYSTEM_PROMPT = [
-  'You extract concept pairs from one turn of a conversation. The turn is written mostly in Chinese; keep every name exactly as it appears in the text.',
+  'You extract concept pairs from one turn of a conversation. Keep every name exactly as it appears in the text.',
   '',
   'A pair says: these two concepts appeared together in this turn. Nothing else is asked of you.',
   '',
@@ -51,14 +51,16 @@ export function trimReasoning(text, head = REASONING_HEAD, tail = REASONING_TAIL
 /** 把一轮的行拼成「谁说了什么」，喂给模型。 */
 export function turnSource(turn, textsOf) {
   const parts = []
+  let calledWith = null
   for (const row of turn.rows ?? []) {
+    if (row?.kind === 'tool/call' && row?.name) calledWith = String(row.name)
     if (row?.kind === 'assistant/message') {
       if (typeof row.text === 'string' && row.text.trim()) parts.push(`[助手] ${row.text}`)
       const thinking = trimReasoning(row.reasoning)
       if (thinking) parts.push(`[助手·思考] ${thinking}`)
       continue
     }
-    for (const text of textsOf(row)) {
+    for (const text of textsOf(row, calledWith)) {
       const speaker = row?.kind === 'user/message' ? '用户' : row?.kind === 'assistant/message' ? '助手' : '工具'
       parts.push(`[${speaker}] ${text}`)
     }
