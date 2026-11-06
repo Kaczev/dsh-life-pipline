@@ -267,7 +267,9 @@ export function apply(ctx, options = {}) {
         if (cut) break
         failureStreak = ok ? 0 : failureStreak + 1
         if (failureStreak === FAIL_STREAK_LIMIT) {
-          info(`[dsh-lpipe-starmap] 连着 ${FAIL_STREAK_LIMIT} 轮抽星失败，先停下：${progressState.error || '看 rejects.jsonl'}`)
+          progressState.error = `连续 ${FAIL_STREAK_LIMIT} 轮都没有回音（最后一条：${progressState.error || '见 rejects.jsonl'}）——先停下来了，可能是上游限流或额度用完了`
+          progressState.errorAt = Date.now()
+          info(`[dsh-lpipe-starmap] 连着 ${FAIL_STREAK_LIMIT} 轮抽星失败，先停下：${progressState.error}`)
         }
         progressState.done += 1
         progressState.updatedAt = Date.now()

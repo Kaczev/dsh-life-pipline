@@ -332,6 +332,10 @@ export function createExtractor(options = {}) {
       }
       // 还能再试：空回复换一条干净对话，答成散文就提醒一句。同一个错不试到第三次。
       if (reply.retryable && attempts < MAX_ATTEMPTS) {
+        // 上游一个字都不回，多半是限流或者额度：等一等再撞，别在同一秒里连撞三次。
+        if (reply.empty && typeof isStopping === 'function' && !isStopping()) {
+          await new Promise((resolve) => setTimeout(resolve, 400 * attempts))
+        }
         if (reply.empty) {
           // 一个字都没回，多半是这条对话被上游拒了（太长、或者卡住了坏前缀）。
           // 换一条干净的对话再问，比在同一条里原地重问有用。
