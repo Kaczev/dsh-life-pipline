@@ -122,17 +122,72 @@ const CHART_HEIGHT = 56;
  * 最近七天的 token 柱状图：每根柱子从下往上依次是
  * 命中缓存的输入（浅青）、未命中的输入（青）、输出（蓝紫），共用一条纵轴。
  */
+function nicePeak(value) {
+  const n = Number(value) || 0;
+  if (n <= 0) return 1;
+  const base = 10 ** Math.floor(Math.log10(n));
+  const scaled = n / base;
+  const step = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
+  return step * base;
+}
+
+/**
+ * 最近七天的 token 柱状图：每根柱子从下往上依次是
+ * 命中缓存的输入（浅青）、未命中的输入（青）、输出（蓝紫），共用一条纵轴。
+ * 纵轴顶端按当周峰值自适应用到 1/2/5×10^n，刻度跟着变，不会永远顶着一个死数字。
+ */
 function usageBars(daily) {
   const rows = Array.isArray(daily) ? daily : [];
   if (!rows.length) return null;
   const totals = rows.map((row) => (Number(row.input) || 0) + (Number(row.output) || 0));
-  const peak = Math.max(1, ...totals);
+  const peak = nicePeak(Math.max(0, ...totals));
   const empty = totals.every((total) => total === 0);
   const kinds = [
     { key: 'hit', color: COLORS.cacheHit, label: '命中输入' },
     { key: 'miss', color: COLORS.accent, label: '未命中输入' },
     { key: 'out', color: COLORS.output, label: '输出' },
   ];
+  const bars = h(
+    'div',
+    { style: { display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%', position: 'relative' } },
+    rows.map((row) => {
+      const hit = Number(row.cacheRead) || 0;
+      const miss = Math.max(0, (Number(row.input) || 0) - hit);
+      const out = Number(row.output) || 0;
+      const total = hit + miss + out;
+      const parts = [
+        { key: 'hit', value: hit, color: COLORS.cacheHit },
+        { key: 'miss', value: miss, color: COLORS.accent },
+        { key: 'out', value: out, color: COLORS.output },
+      ].filter((part) => part.value > 0);
+      return h(
+        'div',
+        {
+          key: row.day,
+          title: `${row.day} · 输入 ${formatTokens(row.input || 0)}（命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`,
+          style: { flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'flex-end' },
+        },
+        h(
+          'div',
+          {
+            style: {
+              width: '100%',
+              height: `${Math.min(100, Math.round((total / peak) * 100))}%`,
+              minHeight: total > 0 ? 2 : 0,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-end',
+              borderRadius: 3,
+              overflow: 'hidden',
+              background: total > 0 ? 'transparent' : COLORS.soft,
+            },
+          },
+          parts.map((part) => h('div', { key: part.key, style: { height: `${(part.value / total) * 100}%`, background: part.color } })),
+        ),
+      );
+    }),
+  );
+
   return h(
     'div',
     { style: { marginTop: 14 } },
@@ -152,35 +207,59 @@ function usageBars(daily) {
           )),
       ),
     ),
+    // 纵轴 + 绘图区 + 日期：用三层 flex 摆，不依赖 grid 的自动放置。
     h(
       'div',
-      { style: { display: 'flex', alignItems: 'flex-end', gap: 8, height: CHART_HEIGHT } },
-      rows.map((row) => {
-        const hit = Number(row.cacheRead) || 0;
-        const miss = Math.max(0, (Number(row.input) || 0) - hit);
-        const out = Number(row.output) || 0;
-        const total = hit + miss + out;
-        const parts = [
-          { key: 'hit', value: hit, color: COLORS.cacheHit },
-          { key: 'miss', value: miss, color: COLORS.accent },
-          { key: 'out', value: out, color: COLORS.output },
-        ].filter((part) => part.value > 0);
-        return h(
+      { style: { display: 'flex', alignItems: 'stretch', gap: 6 } },
+      h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            width: 42,
+            flex: 'none',
+            height: CHART_HEIGHT,
+            fontSize: 9,
+            color: COLORS.faint,
+            lineHeight: '9px',
+            whiteSpace: 'nowrap',
+          },
+        },
+        h('span', null, formatTokens(peak)),
+        h('span', null, formatTokens(Math.round(peak / 2))),
+        h('span', null, '0'),
+      ),
+      h(
+        'div',
+        { style: { flex: 1, minWidth: 0 } },
+        h(
           'div',
-          { key: row.day, title: `${row.day} · 输入 ${formatTokens(row.input || 0)}（命中 ${formatTokens(hit)}）· 输出 ${formatTokens(out)}`, style: { flex: 1, minWidth: 0, height: '100%', display: 'flex', alignItems: 'flex-end' } },
-          h(
-            'div',
-            { style: { width: '100%', height: `${Math.round((total / peak) * 100)}%`, minHeight: total > 0 ? 2 : 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', borderRadius: 3, overflow: 'hidden', background: total > 0 ? 'transparent' : COLORS.soft } },
-            parts.map((part) => h('div', { key: part.key, style: { height: `${(part.value / total) * 100}%`, background: part.color } })),
+          { style: { position: 'relative', height: CHART_HEIGHT } },
+          [0, 50, 100].map((offset) =>
+            h('div', {
+              key: `grid-${offset}`,
+              style: {
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: `${offset}%`,
+                height: 1,
+                background: COLORS.border,
+                opacity: offset === 100 ? 0.4 : 0.18,
+              },
+            })),
+          bars,
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 8, marginTop: 5 } },
+          rows.map((row) =>
+            h('span', { key: row.day, style: { flex: 1, minWidth: 0, textAlign: 'center', fontSize: 9, color: COLORS.faint, whiteSpace: 'nowrap' } }, String(row.day || '').slice(5)),
           ),
-        );
-      }),
-    ),
-    h(
-      'div',
-      { style: { display: 'flex', gap: 8, marginTop: 5 } },
-      rows.map((row) =>
-        h('span', { key: row.day, style: { flex: 1, minWidth: 0, textAlign: 'center', fontSize: 9, color: COLORS.faint, whiteSpace: 'nowrap' } }, String(row.day || '').slice(5)),
+        ),
       ),
     ),
     empty ? h('div', { style: { fontSize: 10, color: COLORS.faint, marginTop: 4 } }, '这七天还一次都没调用过模型') : null,
@@ -520,10 +599,27 @@ function StarmapPanel({ rpcCall }) {
       h(
         'div',
         { style: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 } },
-        h('button', { style: button(COLORS.accent), onClick: save, disabled: busy }, '保存'),
         h(
           'button',
-          { style: { ...button(), opacity: dirty ? 1 : 0.5 }, onClick: revert, disabled: busy || !dirty },
+          {
+            style: { ...button(dirty && !busy ? COLORS.accent : null), opacity: dirty && !busy ? 1 : 0.45 },
+            onClick: save,
+            disabled: busy || !dirty,
+          },
+          '保存',
+        ),
+        h(
+          'button',
+          {
+            style: {
+              ...button(),
+              background: COLORS.soft,
+              border: `1px solid ${COLORS.borderStrong}`,
+              opacity: dirty ? 1 : 0.5,
+            },
+            onClick: revert,
+            disabled: busy || !dirty,
+          },
           '取消',
         ),
         h(
@@ -569,3 +665,4 @@ module.exports = {
     POLL_MS,
   },
 };
+
