@@ -2,7 +2,7 @@
 //
 // 抽星只问模型一次（哪两个概念一起出现过），落到哪一句、连多粗由我们自己算。
 // 模型不可用时什么都不点亮，灰记忆就一直是灰的——不猜、不用规则兜底。
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -53,6 +53,21 @@ export function apply(ctx, options = {}) {
   let config = loadConfig(root)
   let llm = options.llm ?? null
 
+  /**
+   * 抽星的运行日志：轮询只看得到「现在什么样」，看不出「为什么变成这样」。
+   * 暂停这类事必须能事后复盘，所以把关键节点写进 <root>/run.jsonl（超过 2 MB 就重开）。
+   */
+  const logFile = join(root, 'run.jsonl')
+  const runLog = (event, extra = {}) => {
+    try {
+      mkdirSync(root, { recursive: true })
+      try {
+        if (statSync(logFile).size > 2 * 1024 * 1024) rmSync(logFile, { force: true })
+      } catch {}
+      appendFileSync(logFile, `${JSON.stringify({ at: new Date().toISOString(), event, ...extra })}\n`)
+    } catch {}
+  }
+
   /** 三个设置项都填了、也有模型服务，才算能抽星。 */
   const ready = () => Boolean(llm) && canExtract(config)
   const routeNow = () => {
@@ -64,7 +79,9 @@ export function apply(ctx, options = {}) {
    *  重点是「停下」而不是「停一会儿」——之后 turn/end 触发的自动补做也一并停住，
    *  直到用户自己再点一次「现在抽星」。 */
   const pause = () => {
+    const before = { running: progressState.running, stopping: progressState.stopping, lanes: lanesState.active, jobActive }
     pausedByUser = true
+    progressState.paused = true
     stopRequested = true
     const inflight = Boolean(runSignal && !runSignal.signal.aborted)
     try {
@@ -78,6 +95,7 @@ export function apply(ctx, options = {}) {
     info(inflight
       ? '[dsh-lpipe-starmap] 收到暂停：等模型的那一下已切断，其余的跑完这一轮就停'
       : '[dsh-lpipe-starmap] 收到暂停：手上这一轮跑完就停')
+    runLog('pause', { ...before, aborted: inflight })
     return { paused: true, running: false, aborted: inflight }
   }
 
@@ -241,6 +259,13 @@ export function apply(ctx, options = {}) {
         }
         progressState.done += 1
         progressState.updatedAt = Date.now()
+        runLog('turn-done', {
+          turn: turn.turn,
+          ok,
+          done: progressState.done,
+          failed: progressState.failed,
+          lanes: lanesState.active,
+        })
         if (progressState.done % 25 === 0) {
           info(`[dsh-lpipe-starmap] 抽星 ${progressState.done}/${progressState.total}（${repo.stars.size} 颗星）`)
         }
@@ -310,7 +335,39 @@ export function apply(ctx, options = {}) {
     return { turns, lit, sessions: list, lastBuiltAt, lastTurn }
   }
 
-  const queries = createQueries({ repo, memoryStatus: status, progressState, usageStats: () => usageStats(root) })
+  /** 出问题时用的一次性快照：界面看到的标志、真正的活儿、最近几行运行日志。 */
+  const debug = () => {
+    let tail = []
+    try {
+      tail = readFileSync(logFile, 'utf8')
+        .trim()
+        .split('\n')
+        .slice(-20)
+        .map((line) => {
+          try {
+            return JSON.parse(line)
+          } catch {
+            return { raw: line }
+          }
+        })
+    } catch {}
+    return {
+      running: Boolean(progressState.running),
+      stopping: Boolean(progressState.stopping),
+      jobActive,
+      pausedByUser,
+      stopRequested,
+      lanes: { ...lanesState },
+      updatedAt: progressState.updatedAt ?? null,
+      done: progressState.done ?? 0,
+      total: progressState.total ?? 0,
+      failed: progressState.failed ?? 0,
+      error: progressState.error || '',
+      tail,
+    }
+  }
+
+  const queries = createQueries({ repo, memoryStatus: status, progressState, usageStats: () => usageStats(root), debug })
 
   const run = (label, work) => {
     const fail = (error) => {
@@ -331,7 +388,9 @@ export function apply(ctx, options = {}) {
    * `full` 是整库重来：提示词或规则改过以后，旧轮次必须重新过一遍。
    */
   const rebuild = async ({ full = false, manual = false, background = false } = {}) => {
+    runLog('rebuild', { full, manual, background, running: progressState.running, jobActive, pausedByUser })
     if (manual) pausedByUser = false
+    progressState.paused = pausedByUser
     if (pausedByUser && !manual) {
       info('[dsh-lpipe-starmap] 用户按了暂停，自动补做先不动')
       return { started: false, paused: true, built: 0, ...status() }
@@ -346,6 +405,7 @@ export function apply(ctx, options = {}) {
     memory.reload()
     repo.reload()
     jobActive = true
+    progressState.job = true
     progressState.running = true
     progressState.updatedAt = Date.now()
     progressState.done = 0
@@ -364,6 +424,8 @@ export function apply(ctx, options = {}) {
         return result
       } finally {
         jobActive = false
+        progressState.job = false
+        runLog('job-end', { built, ms: Date.now() - started, pausedByUser, stopRequested })
         progressState.running = false
         progressState.stopping = false
         progressState.updatedAt = Date.now()
@@ -479,6 +541,7 @@ export function apply(ctx, options = {}) {
         connectionCtx,
         createStarmapRpcHandler({
           queries,
+          debug,
           rebuild,
           catalog,
           efforts,
@@ -507,7 +570,10 @@ export function apply(ctx, options = {}) {
       const delay = Number.isFinite(options.turnDelay) ? options.turnDelay : 1500
       const timer = setTimeout(() => {
         // 用户按过暂停：新的轮次也不要偷偷接着抽，等他点「现在抽星」。
-        if (pausedByUser) return
+        if (pausedByUser) {
+          runLog('turn-skip-paused')
+          return
+        }
         run('构建这一轮', async () => {
           memory.reload()
           const snapshot = status()

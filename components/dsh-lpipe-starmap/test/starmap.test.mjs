@@ -141,6 +141,21 @@ test('starmap.rebuild 与配置读写走得通，没接上如实说', async () =
   assert.equal((await without('starmap.config', {})).error.code, 'starmap/unavailable')
 })
 
+test('starmap.debug 把内部标志和运行日志尾巴一起交出来', async () => {
+  const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
+  const queries = { progress: () => ({ built: 1, turns: 2, grey: 1 }) }
+  const handler = createStarmapRpcHandler({
+    queries,
+    debug: () => ({ running: false, stopping: false, jobActive: false, pausedByUser: true, lanes: { active: 0, total: 5 }, tail: [{ event: 'pause' }] }),
+  })
+  const reply = await handler('starmap.debug', {})
+  assert.equal(reply.ok, true)
+  assert.equal(reply.value.pausedByUser, true)
+  assert.equal(reply.value.lanes.total, 5)
+  assert.equal(reply.value.tail.at(-1).event, 'pause')
+  assert.equal(reply.value.progress.grey, 1)
+})
+
 test('界面上点「现在抽星」走的是手动开始，能解除暂停', async () => {
   const { createStarmapRpcHandler } = await import('../src/rpc.mjs')
   const queries = { progress: () => ({ built: 0, turns: 0, grey: 0 }) }

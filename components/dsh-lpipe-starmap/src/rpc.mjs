@@ -9,6 +9,7 @@ const METHODS = new Set([
   'starmap.near',
   'starmap.rebuild',
   'starmap.pause',
+  'starmap.debug',
   'starmap.config',
   'starmap.config.set',
   'starmap.catalog',
@@ -29,7 +30,7 @@ const clamp = (value, fallback, max) => {
   return Math.min(max, Math.max(1, Math.round(number)))
 }
 
-export function createStarmapRpcHandler({ queries, rebuild, config, catalog, efforts, pause }) {
+export function createStarmapRpcHandler({ queries, debug, rebuild, config, catalog, efforts, pause }) {
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('starmap/unknown-method', `Unknown method: ${method}`)
     try {
@@ -40,6 +41,10 @@ export function createStarmapRpcHandler({ queries, rebuild, config, catalog, eff
       if (method === 'starmap.config.set') {
         if (!config?.set) return failure('starmap/unavailable', 'Config is not wired up.')
         return { ok: true, value: config.set(isRecord(payload) ? payload : {}) }
+      }
+      if (method === 'starmap.debug') {
+        if (typeof debug !== 'function') return failure('starmap/unavailable', 'Debug is not wired up.')
+        return { ok: true, value: { ...debug(), progress: queries.progress() } }
       }
       if (method === 'starmap.pause') {
         if (typeof pause !== 'function') return failure('starmap/unavailable', 'Pause is not wired up.')
