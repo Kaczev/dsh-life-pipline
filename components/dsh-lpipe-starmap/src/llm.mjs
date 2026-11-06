@@ -316,7 +316,14 @@ export function createExtractor(options = {}) {
       // 模型用散文回答了（角色扮演的回合最容易这样）：提醒一次，再不行就放弃这一轮。
       if (reply.retryable && !corrected) {
         corrected = true
-        messages.push(messageOf('user', CORRECTION))
+        if (reply.empty) {
+          // 一个字都没回还是一次性的空转：可能是这条对话本身被上游拒了（太长、或者卡住了某个坏前缀）。
+          // 换一条干净的对话重问一次，比原地再问一遍有用。
+          reset()
+          messages.push(messageOf('user', `${source}${TURN_SUFFIX}`))
+        } else {
+          messages.push(messageOf('user', CORRECTION))
+        }
         continue
       }
       messages.pop()
