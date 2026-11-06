@@ -298,3 +298,10 @@ test('同一个错最多试三次：空回复一连三次就放弃，这一轮�
   assert.equal(calls, 3)
   assert.match(reply.error, /试了 3 次/)
 })
+
+test('提示词说清楚什么才算星星：句子、公式、数字都不算', () => {
+  assert.match(SYSTEM_PROMPT, /What counts as a star/)
+  assert.match(SYSTEM_PROMPT, /reusable noun/)
+  assert.match(SYSTEM_PROMPT, /Never pair them/)
+  assert.match(SYSTEM_PROMPT, /at most 10 characters/)
+})
