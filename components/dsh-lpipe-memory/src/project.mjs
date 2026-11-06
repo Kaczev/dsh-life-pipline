@@ -8,6 +8,9 @@ const KIND = {
 
 export const STORED_KINDS = new Set(Object.values(KIND))
 
+/** 注入进来的上下文（运行期快照）：不是说过的话，不写入。 */
+const INJECTED_SOURCES = new Set(['runtime-context'])
+
 /** 把消息里的内容块拆成「给人看的文本」与「结构化块」。 */
 function splitContent(content) {
   if (typeof content === 'string') return { text: content, parts: [{ type: 'text', text: content }] }
@@ -51,8 +54,11 @@ export function project(event) {
   const step = Number.isFinite(data.step) ? data.step : null
 
   if (kind === 'user/message') {
+    // 运行期注入的上下文不是「说过的话」，不进记忆层。
+    const source = data.source ?? null
+    if (INJECTED_SOURCES.has(source?.kind)) return null
     const { text, parts } = splitContent(data.content)
-    return { kind, turn, step, payload: payloadWith(parts, { source: data.source ?? null, text }) }
+    return { kind, turn, step, payload: payloadWith(parts, { source, text }) }
   }
 
   if (kind === 'assistant/message') {

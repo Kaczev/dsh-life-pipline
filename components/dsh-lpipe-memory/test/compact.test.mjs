@@ -47,6 +47,26 @@ test('a text part is not copied into the payload', () => {
   assert.equal(projected.payload.parts, undefined, 'text and reasoning must not be copied')
 })
 
+test('injected runtime context is not stored at all', () => {
+  const injected = project({
+    type: 'user/message',
+    data: { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current runtime context.' }] },
+  })
+  assert.equal(injected, null, '注入的运行期上下文不该进记忆层')
+
+  const time = project({
+    type: 'user/message',
+    data: { source: { kind: 'time-context' }, content: [{ type: 'text', text: 'Time sampled while preparing turn 1.' }] },
+  })
+  assert.ok(time, '时间戳仍然存')
+
+  const said = project({
+    type: 'user/message',
+    data: { source: { kind: 'user' }, content: [{ type: 'text', text: '真的说了一句' }] },
+  })
+  assert.equal(said.payload.text, '真的说了一句')
+})
+
 test('a part that carries something the text cannot (an attachment) is kept', () => {
   const attachment = { type: 'image', attachment: { attachmentId: 'a1' } }
   const projected = project({ type: 'user/message', data: { content: [{ type: 'text', text: '看图' }, attachment] } })

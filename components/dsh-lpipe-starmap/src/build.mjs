@@ -1,5 +1,5 @@
 // 把一轮的行变成「每句有哪几颗星」，再写进星表与星源。
-import { extractStars, normalizeName } from './extract.mjs'
+import { clockOf, extractStars, normalizeName } from './extract.mjs'
 import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
 
@@ -27,6 +27,8 @@ export function groupTurns(rows) {
 const MAX_TOOL_RESULT = 600
 
 function textsOf(row) {
+  // 运行期注入的上下文（短期上下文、记忆库快照）不是「说过的话」，不抽星。
+  if (row?.kind === 'user/message' && row?.source?.kind === 'runtime-context') return []
   if (row?.kind === 'tool/result') {
     const text = typeof row.text === 'string' ? row.text.trim() : ''
     // 读文件、列目录这类工具的结果是数据，不是句子：整段抽星只会把文件名变成概念。
@@ -45,14 +47,16 @@ function textsOf(row) {
 export function planTurn(turn, matcher) {
   const lines = []
   const names = new Map()
-  const add = (seq, rowIndex, names_) => {
+  const add = (seq, rowIndex, names_, clock = null) => {
     const ids = []
     for (const name of names_) {
       const id = starIdOf(name)
       names.set(id, name)
       ids.push(id)
     }
-    if (ids.length > 0) lines.push({ seq, row: rowIndex, stars: ids })
+    if (ids.length === 0) return
+    // 时刻不单独成星，只作为这句的模糊时间标签（16:01 → 16:00）。
+    lines.push(clock === null ? { seq, row: rowIndex, stars: ids } : { seq, row: rowIndex, stars: ids, clock })
   }
   for (const [rowIndex, row] of turn.rows.entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
@@ -62,7 +66,7 @@ export function planTurn(turn, matcher) {
     }
     for (const text of textsOf(row)) {
       for (const sentence of splitSentences(text)) {
-        add(row.seq, rowIndex, extractStars(sentence, matcher))
+        add(row.seq, rowIndex, extractStars(sentence, matcher), clockOf(sentence))
       }
     }
   }
