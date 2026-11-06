@@ -417,19 +417,23 @@ export function apply(ctx, options = {}) {
     progressState.stopping = false
     runSignal = new AbortController()
     const job = (async () => {
+      // built 必须声明在 try 外面：finally 里要用，块作用域的变量在 finally 里是 ReferenceError，
+      // 那样整块「收尾」中途抛错，running 就永远停在 true（面板一直「正在抽星」）。
+      let built = 0
       try {
-        const built = await buildAll()
+        built = await buildAll()
         const result = { built, ...status(), elapsedMs: Date.now() - started }
         info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
         return result
       } finally {
+        // 先把状态收拾干净，再写日志：日志出问题也不能把界面卡住。
         jobActive = false
         progressState.job = false
-        runLog('job-end', { built, ms: Date.now() - started, pausedByUser, stopRequested })
         progressState.running = false
         progressState.stopping = false
         progressState.updatedAt = Date.now()
         runSignal = null
+        runLog('job-end', { built, ms: Date.now() - started, pausedByUser, stopRequested })
         if (stopTimer) {
           clearTimeout(stopTimer)
           stopTimer = null

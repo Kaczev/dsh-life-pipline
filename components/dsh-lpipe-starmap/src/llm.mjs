@@ -294,6 +294,19 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
         if (chars > maxHistoryChars) reset()
         return reply
       }
+      // 被暂停切断 / 超时：不重试，直接如实上报。
+      if (reply.aborted || reply.timedOut) {
+        messages.pop()
+        if (corrected) messages.pop()
+        return {
+          ok: false,
+          aborted: reply.aborted === true,
+          timedOut: reply.timedOut === true,
+          error: reply.aborted ? '暂停时切断' : '请求超时',
+          raw: reply.raw,
+          usage: reply.usage,
+        }
+      }
       // 模型用散文回答了（角色扮演的回合最容易这样）：提醒一次，再不行就放弃这一轮。
       if (reply.retryable && !corrected) {
         corrected = true
@@ -308,7 +321,15 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
         : reply.usage
           ? '：模型一个字都没回（有用量，说明连上了，是它拒答或只回了空串）'
           : '：模型一个字都没回，也没有用量（这一发可能没连上就被断了）'
-      return { ok: false, error: `${why}${tail}`, raw: reply.raw, usage: reply.usage }
+      // aborted / timedOut 必须原样传出去：上层靠它判断「这是暂停切断，不是失败」。
+      return {
+        ok: false,
+        aborted: reply.aborted === true,
+        timedOut: reply.timedOut === true,
+        error: reply.aborted ? '暂停时切断' : `${why}${tail}`,
+        raw: reply.raw,
+        usage: reply.usage,
+      }
     }
   }
 
