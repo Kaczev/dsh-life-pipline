@@ -22,6 +22,7 @@ export const SYSTEM_PROMPT = [
   '4. 最多 ' + MAX_PAIRS + ' 对。宁可只给三对，也不要拿废话凑数。',
   '5. 只输出 JSON 数组，第一行就是 [，最后一行是 ]。不要解释、不要代码块、不要前言、不要总结。',
   '6. 对子多的时候也要在输出上限之内写完；写不完就少给几对，绝不能半截停下。',
+  '7. 不要写思考过程、不要复述原文、不要分析。你唯一该产生的字符，就是那个数组。',
   '',
   '输出示例：[["记忆管线", "星图管线"], ["Kas", "鲸鲸"]]',
   '空的话就输出：[]',
@@ -172,11 +173,14 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
     if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
     messages.push(messageOf('user', source))
     let raw = ''
+    // 有的模型把内容全写在思考通道里，正文一个字都不给。那就读思考，总比整轮作废强。
+    let thinking = ''
     let usage = null
     let truncated = false
     try {
       for await (const chunk of llm.stream({ ...route, maxTokens, messages })) {
         if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') raw += chunk.text
+        if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string') thinking += chunk.text
         if (chunk?.type === 'usage') usage = normalizeUsage(chunk.usage ?? chunk)
         if (chunk?.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
           messages.pop()
@@ -188,15 +192,20 @@ export function createExtractor({ llm, route = {}, maxTokens = MAX_OUTPUT_TOKENS
       messages.pop()
       return { ok: false, error: String(error?.message ?? error), raw, usage }
     }
-    const parsed = parsePairs(raw)
+    const text = raw.trim() ? raw : thinking
+    const parsed = parsePairs(text)
     if (!parsed) {
       messages.pop()
-      return { ok: false, error: truncated ? `输出被截断（maxTokens ${maxTokens}），没凑出完整的 JSON` : 'not json', raw, usage }
+      // 把模型真正写回来的开头带上：只说一句「not json」根本看不出它到底写了什么。
+      const head = text.replace(/\s+/g, ' ').trim().slice(0, 160)
+      const why = truncated ? `输出被截断（maxTokens ${maxTokens}）` : 'not json'
+      const tail = head ? `：${head}` : '：模型一个字都没回'
+      return { ok: false, error: `${why}${tail}`, raw: text, usage }
     }
-    messages.push(messageOf('assistant', raw))
-    chars += source.length + raw.length
+    messages.push(messageOf('assistant', text))
+    chars += source.length + text.length
     if (chars > maxHistoryChars) reset()
-    return { ok: true, pairs: dedupePairs(parsed), raw, usage }
+    return { ok: true, pairs: dedupePairs(parsed), raw: text, usage }
   }
 
   return { ask, reset, size: () => messages.length, chars: () => chars }

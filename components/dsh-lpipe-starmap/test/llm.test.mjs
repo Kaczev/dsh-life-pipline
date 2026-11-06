@@ -152,3 +152,31 @@ test('一句话都写不出来时，报错要说清是截断而不是 not json',
   assert.match(reply.error, /4000/)
 })
 
+
+test('模型把结果写在思考通道里，也要认', async () => {
+  const llm = {
+    async *stream() {
+      yield { type: 'reasoning-delta', index: 0, text: '[["记忆管线","星图管线"]' }
+      yield { type: 'reasoning-delta', index: 0, text: ']' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const extractor = createExtractor({ llm })
+  const reply = await extractor.ask('原文')
+  assert.equal(reply.ok, true)
+  assert.deepEqual(reply.pairs, [['记忆管线', '星图管线']])
+})
+
+test('失败时把模型真写回来的开头带上，而不是只说 not json', async () => {
+  const llm = {
+    async *stream() {
+      yield { type: 'text-delta', index: 0, text: '好的，我先看看这段话讲了什么。' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    },
+  }
+  const extractor = createExtractor({ llm })
+  const reply = await extractor.ask('原文')
+  assert.equal(reply.ok, false)
+  assert.match(reply.error, /not json/)
+  assert.match(reply.error, /我先看看/)
+})
