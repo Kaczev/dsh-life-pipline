@@ -420,14 +420,19 @@ const LATEX_SYMBOLS = [
 ]
 
 export function foldText(value) {
-  let text = String(value ?? '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
+  let text = String(value ?? '').normalize('NFKC').toLowerCase()
   for (const [pattern, symbol] of LATEX_SYMBOLS) text = text.replace(pattern, symbol)
-  // 公式两侧的 $ 和 \( \) 只是排版记号，不参与「这个名字在不在原文里」。
-  return text.replace(/\$|\\\(|\\\)/g, '')
+  return (
+    text
+      // 公式两侧的 $ 和 \( \) 只是排版记号，不参与「这个名字在不在原文里」。
+      .replace(/\$|\\\(|\\\)/g, '')
+      // 空白、引号、括号都不算名字的一部分：「\(+x\) 轴」与「x轴」、「“摊薄”效应」与「摊薄效应」是同一件事。
+      .replace(/[\s"'“”‘’「」『』《》()（）\[\]]/g, '')
+      // 中文的「的 / 地 / 得」只是连接词：「外部的场强」与「外部场强」说的是同一个东西。
+      .replace(/[的地得]/g, '')
+      // 正负号属于式子，不属于名字主体：「+x 轴」与「x轴」。
+      .replace(/^[+\-−=]+/, '')
+  )
 }
 
 /** 模型给的名字在原文里出现的位置（句子下标），找不到就是空数组。 */
