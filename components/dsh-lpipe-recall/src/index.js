@@ -207,6 +207,8 @@ export function activityTextOf(event) {
   return ''
 }
 
+export const QUIET_MS = 10 * 60 * 1000
+
 export function createTriggerHandler({
   compose,
   deliver,
@@ -217,6 +219,10 @@ export function createTriggerHandler({
 }) {
   const seen = new Set()
   const secondCount = new Map()
+  // 同一块回忆刚摆过就不再摆：账本按「会话字符钟」判冷却，同一轮里连跑两步时
+  // 字符钟还没往前走，账本会放行，于是同一段话被摆两次。这里按内容再兜一层。
+  let lastBlock = ''
+  let lastAt = 0
 
   const evaluate = (sessionId, text) => {
     let block = ''
@@ -228,6 +234,13 @@ export function createTriggerHandler({
       return
     }
     if (!block) return
+    const at = Date.now()
+    if (block === lastBlock && at - lastAt < QUIET_MS) {
+      note({ session: sessionId, skip: 'duplicate-block', chars: block.length })
+      return
+    }
+    lastBlock = block
+    lastAt = at
     // 能同步投就同步投：这个回调是在消息落盘时触发的，越早塞进去，
     // 越可能在第一次模型请求装配之前被看见。
     try {

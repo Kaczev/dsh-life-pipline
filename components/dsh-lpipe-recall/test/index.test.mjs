@@ -203,3 +203,24 @@ test('触发源从这一次请求的 messages 里认：step 1 时它还没进 se
   assert.equal(triggerFromMessages([user('随便说点', 'runtime-context')]), null)
   assert.equal(triggerFromMessages([]), null)
 })
+
+
+test('同一块回忆连着来两次，只摆一次', async () => {
+  const delivered = []
+  let block = '〔回忆 · 模糊〕同一段旧事'
+  const handler = createTriggerHandler({
+    compose: () => block,
+    deliver: (sessionId, text) => delivered.push(text),
+  })
+  const said = (seq, text = '嗯') => ({ seq, type: 'user/message', data: { text, source: { kind: 'user' } } })
+
+  handler({ id: 's1' }, said(1))
+  handler({ id: 's1' }, said(2))
+  await Promise.resolve()
+  assert.equal(delivered.length, 1, '内容一模一样，第二次不投')
+
+  block = '〔回忆 · 模糊〕换了一段'
+  handler({ id: 's1' }, said(3))
+  await Promise.resolve()
+  assert.equal(delivered.length, 2, '换了一段就照常投')
+})
