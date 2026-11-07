@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, recentText } from '../src/index.js'
+import { COMMON_SHARE, commonStars, recentText, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -39,4 +39,30 @@ test('片段太少的时候不判通用星，免得把全都算成通用', () =>
     byStar: new Map([['s_a', [{ key: 's#1' }]]]),
   }
   assert.equal(commonStars(repo).size, 0)
+})
+
+
+test('触发源：只看谁在说话，自然唤醒不触发回忆', () => {
+  const row = (kind, source, text = '说了句话') => ({ kind, source, text })
+  const rows = [
+    row('user/message', { kind: 'user' }, '很早的一句'),
+    row('user/message', { kind: 'time-context' }, 'Time sampled ...'),
+    row('assistant/message', { kind: 'assistant' }),
+    row('user/message', { kind: 'dsh-lpipe-chat' }, '微信来的消息'),
+    row('user/message', { kind: 'runtime-context' }, '运行时快照'),
+  ]
+  const found = triggerOf(rows)
+  assert.equal(found.row.text, '微信来的消息')
+  assert.equal(found.skip, null)
+
+  const natural = triggerOf([
+    row('user/message', { kind: 'user' }, '我手动开的头'),
+    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }, '（自己醒来）已经过了两小时'),
+  ])
+  assert.equal(natural.skip, 'natural-wake', '自然唤醒醒来时不回忆')
+
+  const active = triggerOf([row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }, '（主动醒来）')])
+  assert.equal(active.skip, null)
+
+  assert.equal(triggerOf([row('assistant/message', { kind: 'assistant' })]), null)
 })

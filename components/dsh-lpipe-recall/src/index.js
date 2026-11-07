@@ -10,6 +10,29 @@ import { isSpokenRow, renderRecall } from './render.mjs'
 
 export const name = 'dsh-lpipe-recall'
 
+/** 能开启一轮、值得回忆的来源。自然唤醒不在其中（见规划文档 §3）。 */
+export const TRIGGER_KINDS = new Set(['user', 'dsh-lpipe-chat', 'dsh-lpipe-wake'])
+
+/**
+ * 触发源：这一轮是谁在说话、说了什么。
+ *
+ * 回忆只对触发源的内容反应——不是把会话末尾几十万字全拿去撞星。自然唤醒不触发，
+ * 因为醒来时的动作本来就是「自己想想」，不该再由回忆牵着走。
+ */
+export function triggerOf(rows) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]
+    if (row?.kind !== 'user/message') continue
+    const kind = row?.source?.kind
+    if (!TRIGGER_KINDS.has(kind)) continue
+    if (kind === 'dsh-lpipe-wake' && String(row?.source?.summary ?? '').includes('自主')) {
+      return { row, skip: 'natural-wake' }
+    }
+    return { row, skip: null }
+  }
+  return null
+}
+
 /** 通用星判据：出现在超过三成的片段里。 */
 export const COMMON_SHARE = 0.3
 
@@ -103,7 +126,11 @@ export function apply(ctx, options = {}) {
       return ''
     }
     if (rows.length === 0) return ''
-    const text = recentText(rows, settings.matchChars)
+    const trigger = triggerOf(rows)
+    if (!trigger || trigger.skip) return ''
+    const raw = typeof trigger.row?.text === 'string' ? trigger.row.text : ''
+    // 长消息（聊天批量合并、粘贴的日志）只取末尾 `matchChars`：越近越算数。
+    const text = raw.length > settings.matchChars ? raw.slice(-settings.matchChars) : raw
     if (!text.trim()) return ''
 
     const store = repoNow()

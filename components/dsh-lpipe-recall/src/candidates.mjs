@@ -80,6 +80,7 @@ export function candidatesOf({
     out.push({
       key: bucket.key,
       stars: bucket.stars,
+      exact: bucket.exact,
       strength: bucket.strength,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
@@ -90,6 +91,7 @@ export function candidatesOf({
       to: record?.to ?? null,
     })
   }
-  out.sort((a, b) => b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0))
+  // 排序：先看有几颗**准确**星（真的说到了几个共同概念），再比亮度，最后比时间。
+  out.sort((a, b) => b.exact - a.exact || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0))
   return out.slice(0, Math.max(1, limit))
 }
