@@ -543,7 +543,7 @@ export function apply(ctx, options = {}) {
    * 补做一次：跟上磁盘上的星图，把剩下的灰记忆交给模型抽星。
    * `full` 是整库重来：提示词或规则改过以后，旧轮次必须重新过一遍。
    */
-  const rebuild = async ({ full = false, manual = false, background = false } = {}) => {
+  const rebuild = async ({ full = false, manual = false, background = false, scope = null } = {}) => {
     runLog('rebuild', { full, manual, background, running: progressState.running, jobActive, pausedByUser })
     if (manual) pausedByUser = false
     progressState.paused = pausedByUser
@@ -578,7 +578,7 @@ export function apply(ctx, options = {}) {
       // 那样整块「收尾」中途抛错，running 就永远停在 true（面板一直「正在抽星」）。
       let built = 0
       try {
-        built = await buildAll()
+        built = scope ? await buildSession(scope) : await buildAll()
         const result = { built, ...status(), elapsedMs: Date.now() - started }
         info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
         return result
@@ -744,23 +744,8 @@ export function apply(ctx, options = {}) {
             info(`[dsh-lpipe-starmap] 灰记忆 ${mine?.grey ?? 0} 轮，超过 ${MAX_AUTO_GREY} 轮，等你手动开始`)
             return
           }
-          // 自然构建也要在面板上露面：占一路、进度条动一下，四点几秒的轮询才看得出来。
-          const own = !jobActive
-          if (own) {
-            progressState.running = true
-            progressState.done = 0
-            progressState.total = 1
-            progressState.updatedAt = Date.now()
-          }
-          try {
-            await buildSession(sessionId)
-          } finally {
-            if (own) {
-              progressState.running = false
-              progressState.done = 1
-              progressState.updatedAt = Date.now()
-            }
-          }
+          // 和手动「现在抽星」走同一条路：面板上同样占一路、进度条同源、按钮同样变「暂时停止」。
+          await rebuild({ background: true, scope: sessionId })
         })
       }, delay)
       timer.unref?.()
