@@ -1,0 +1,40 @@
+{
+  "name": "dsh-lpipe-recall",
+  "version": "0.1.0",
+  "description": "回忆管线（Lpipe Recall）：把与眼前这段话相关的旧记忆，模糊地摆到模型面前。",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "locale",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^22.19 || >=24",
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "recall"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dsh-life-pipline": "^0.7.0",
+    "dsh-lpipe-memory": "^0.1.0",
+    "dsh-lpipe-starmap": "^0.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

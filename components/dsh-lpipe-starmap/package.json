@@ -12,7 +12,14 @@
     "./icon": "./assets/icon.png",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./build": "./src/build.mjs",
+    "./fuzzy": "./src/fuzzy.mjs",
+    "./llm": "./src/llm.mjs",
+    "./paths": "./src/paths.mjs",
+    "./query": "./src/query.mjs",
+    "./store": "./src/store.mjs",
+    "./segment": "./src/segment.mjs"
   },
   "files": [
     "src",

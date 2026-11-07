@@ -52,7 +52,7 @@ export function timesIn(text) {
   let match
   while ((match = clock.exec(source))) {
     const value = Number(match[1]) * 60 + Number(match[2])
-    found.push({ name: clockName(value), form: 'time', value })
+    found.push({ name: clockName(value), form: 'time', value, at: match.index + match[0].indexOf(match[1]) })
   }
   while ((match = TIME_SPOKEN.exec(source))) {
     const period = match[1] ? PERIOD[match[1]] ?? 0 : 0
@@ -65,7 +65,7 @@ export function timesIn(text) {
       if (value !== null) minutes = value
     }
     const total = ((hour % 24) + period) * 60 + minutes
-    found.push({ name: clockName(total), form: 'time', value: total % MINUTES_PER_DAY })
+    found.push({ name: clockName(total), form: 'time', value: total % MINUTES_PER_DAY, at: match.index })
   }
   return found
 }
@@ -98,7 +98,7 @@ export function numbersIn(text) {
     if (digits < 2 && !raw.includes('.')) continue
     const value = Number(raw)
     if (!Number.isFinite(value)) continue
-    found.push({ name: String(value), form: 'number', value })
+    found.push({ name: String(value), form: 'number', value, at: match.index })
   }
   return found
 }

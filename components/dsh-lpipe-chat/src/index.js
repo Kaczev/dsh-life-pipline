@@ -178,7 +178,7 @@ export function apply(ctx, config) {
           'In a notice turn, answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
           'Pictures the user sends arrive as image attachments on the notice message; look at them before answering, and do not ask the user to describe them.',
           'After replying with chat_send, do not repeat the same words in the Harness reply; different information is fine.',
-          'Pass completed: true to chat_send when the message is the whole answer, so the turn ends there instead of spending another request.',
+          'Pass completed: true to chat_send only when this notice turn is the whole answer AND nothing else is still running or promised in the session, so the turn can end there instead of spending another request. If the owner wrote while you were in the middle of a task, or you told them you would keep working, send the reply WITHOUT completed and then carry on with that work; marking it complete ends the activity and strands whatever was in progress.',
           'A turn started by a dsh-lpipe-chat notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',
         ].join(' '),
       });
