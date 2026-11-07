@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -151,4 +151,33 @@ test('摆过一次的片段还在冷却期里就不再重复摆', () => {
   assert.deepEqual(pickFresh(candidates, ledger, 1500, 1000).map((entry) => entry.key), ['s#2'], '1000 字前摆过，还在冷却')
   assert.deepEqual(pickFresh(candidates, ledger, 2500, 1000).map((entry) => entry.key), ['s#1', 's#2'], '冷却期过了可以再摆')
   assert.equal(charsOf([{ text: 'abc' }, { kind: 'tool/call', arguments: '{}' }]), 5)
+})
+
+
+test('二类触发源：每 16 次思考/回复/工具结果才评估一次回忆', async () => {
+  const delivered = []
+  const seenActivity = []
+  const handler = createTriggerHandler({
+    compose: () => '〔回忆 · 模糊〕找到一段',
+    deliver: (sessionId, block) => delivered.push({ sessionId, block }),
+    activity: (sessionId, text) => seenActivity.push(text),
+    secondEvery: 16,
+  })
+  const thought = (seq) => ({
+    seq,
+    type: 'assistant/message',
+    data: { message: { content: [{ type: 'reasoning', text: '想一想' }, { type: 'text', text: '说一句' }] } },
+  })
+  for (let index = 1; index <= 15; index += 1) handler({ id: 's1' }, thought(index))
+  await Promise.resolve()
+  assert.equal(delivered.length, 0, '15 次还不该触发')
+  handler({ id: 's1' }, thought(16))
+  await Promise.resolve()
+  assert.equal(delivered.length, 1, '第 16 次触发一次')
+  assert.equal(seenActivity[0], '想一想\n说一句', '思考与正文都进匹配窗口')
+})
+
+test('工具结果也算二类触发源', () => {
+  const text = activityTextOf({ type: 'tool/result', data: { text: '命令输出' } })
+  assert.equal(text, '命令输出')
 })

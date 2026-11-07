@@ -163,6 +163,14 @@ export function pickFresh(candidates, ledger, now, coolChars) {
   })
 }
 
+export function splitWindows(text, { backgroundChars, foregroundChars }) {
+  if (!text) return { background: '', foreground: '' }
+  if (text.length <= foregroundChars) return { background: '', foreground: text }
+  const foreground = text.slice(-foregroundChars)
+  const background = text.slice(0, text.length - foregroundChars).slice(-backgroundChars)
+  return { background, foreground }
+}
+
 export function windowsOf(rows, current, { backgroundChars, foregroundChars }) {
   const text = matchTextOf(rows, current, backgroundChars + foregroundChars)
   if (text.length <= foregroundChars) return { background: '', foreground: text }
@@ -171,25 +179,44 @@ export function windowsOf(rows, current, { backgroundChars, foregroundChars }) {
   return { background, foreground }
 }
 
-export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {} }) {
+/**
+ * 二类触发源（我的思考、中途回复、工具结果）的正文。
+ *
+ * 这些活动不会自己开一轮，但会让「刚才在说什么」往前挪——所以它们既进匹配窗口，
+ * 也按冷却计数，攒够 `secondEvery` 次才评估一次回忆。
+ */
+export function activityTextOf(event) {
+  const data = event?.data
+  if (!data) return ''
+  if (event.type === 'assistant/message') {
+    const parts = data?.message?.content
+    if (!Array.isArray(parts)) return typeof data.text === 'string' ? data.text : ''
+    return parts
+      .filter((part) => part && (part.type === 'text' || part.type === 'reasoning') && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join('\n')
+  }
+  if (event.type === 'tool/result') {
+    if (typeof data.text === 'string') return data.text
+    const parts = data?.content
+    if (Array.isArray(parts)) return parts.filter((part) => typeof part?.text === 'string').map((part) => part.text).join('\n')
+    return ''
+  }
+  return ''
+}
+
+export function createTriggerHandler({
+  compose,
+  deliver,
+  warn = () => {},
+  note = () => {},
+  activity = () => {},
+  secondEvery = 16,
+}) {
   const seen = new Set()
-  return (session, event) => {
-    if (!event || event.type !== 'user/message') return
-    const source = event?.data?.source ?? {}
-    if (!TRIGGER_KINDS.has(source.kind)) return
-    // 自然唤醒不触发回忆：醒来的那一下本来就是自己想想。
-    if (isNaturalWake(source)) return
-    const sessionId = session?.id ?? ''
-    if (!sessionId) return
-    const key = `${sessionId}#${event.seq ?? event.id ?? ''}`
-    if (seen.has(key)) return
-    seen.add(key)
-    if (seen.size > 200) seen.clear()
-    const text = textOfEvent(event?.data)
-    if (!text.trim()) {
-      note({ session: sessionId, skip: 'empty-text' })
-      return
-    }
+  const secondCount = new Map()
+
+  const evaluate = (sessionId, text) => {
     let block = ''
     try {
       block = compose(sessionId, text, (diag) => note({ session: sessionId, ...diag, delivered: false }))
@@ -199,7 +226,7 @@ export function createTriggerHandler({ compose, deliver, warn = () => {}, note =
       return
     }
     if (!block) return
-    // 能同步投就同步投：这个回调是在用户消息落盘时触发的，越早塞进去，
+    // 能同步投就同步投：这个回调是在消息落盘时触发的，越早塞进去，
     // 越可能在第一次模型请求装配之前被看见。
     try {
       const sent = deliver(sessionId, block)
@@ -213,6 +240,46 @@ export function createTriggerHandler({ compose, deliver, warn = () => {}, note =
     } catch (error) {
       warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`)
     }
+  }
+
+  return (session, event) => {
+    const sessionId = session?.id ?? ''
+    if (!sessionId || !event) return
+    const key = `${sessionId}#${event.seq ?? event.id ?? ''}`
+    if (seen.has(key)) return
+    seen.add(key)
+    if (seen.size > 400) seen.clear()
+
+    // 二类触发源：我的思考、中途回复、工具结果。攒够 `secondEvery` 次才评估一次，
+    // 免得每一步都往对话里塞回忆。
+    if (event.type === 'assistant/message' || event.type === 'tool/result') {
+      const text = activityTextOf(event)
+      if (!text.trim()) return
+      activity(sessionId, text)
+      const every = typeof secondEvery === 'function' ? Number(secondEvery()) || 16 : secondEvery
+      const count = (secondCount.get(sessionId) ?? 0) + 1
+      if (count < Math.max(1, every)) {
+        secondCount.set(sessionId, count)
+        return
+      }
+      secondCount.set(sessionId, 0)
+      evaluate(sessionId, '')
+      return
+    }
+
+    if (event.type !== 'user/message') return
+    const source = event?.data?.source ?? {}
+    if (!TRIGGER_KINDS.has(source.kind)) return
+    // 自然唤醒不触发回忆：醒来的那一下本来就是自己想想。
+    if (isNaturalWake(source)) return
+    const text = textOfEvent(event?.data)
+    if (!text.trim()) {
+      note({ session: sessionId, skip: 'empty-text' })
+      return
+    }
+    // 一类触发源：出现就触发，没有冷却。
+    activity(sessionId, text)
+    evaluate(sessionId, text)
   }
 }
 
@@ -311,6 +378,31 @@ export function apply(ctx, options = {}) {
     }
   }
 
+  /** 最近的「说话流水」：你说的话、我的思考与回复、工具结果。匹配窗口就切它。 */
+  const HISTORY_CHARS = 64000
+  const buffers = new Map()
+
+  const bufferOf = (sessionId) => {
+    if (buffers.has(sessionId)) return buffers.get(sessionId)
+    let text = ''
+    try {
+      for (const row of rowsNow(sessionId)) {
+        if (!isSpokenRow(row) && row?.kind !== 'tool/result') continue
+        if (typeof row?.text === 'string') text += `${row.text}\n`
+      }
+    } catch {
+      /* 读不到就从空开始 */
+    }
+    const seeded = text.length > HISTORY_CHARS ? text.slice(-HISTORY_CHARS) : text
+    buffers.set(sessionId, seeded)
+    return seeded
+  }
+
+  const appendActivity = (sessionId, text) => {
+    const next = `${bufferOf(sessionId)}\n${text}`
+    buffers.set(sessionId, next.length > HISTORY_CHARS ? next.slice(-HISTORY_CHARS) : next)
+  }
+
   const compose = (sessionId, raw, report = () => {}) => {
     const settings = config()
     if (!settings.enabled) {
@@ -327,7 +419,7 @@ export function apply(ctx, options = {}) {
 
     // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
     // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
-    const { background, foreground } = windowsOf(rows, raw, settings)
+    const { background, foreground } = splitWindows(text, settings)
     if (!(background + foreground).trim()) return ''
 
     const store = repoNow()
@@ -347,7 +439,7 @@ export function apply(ctx, options = {}) {
       [...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
     )
     // 当前这一句单独点一遍：排序要看「你此刻问的是什么」，而不是整段窗口的热度。
-    const question = flickerStars({ text: raw.slice(-settings.foregroundChars), stars, common, offset: 0, total: Math.max(1, raw.length) })
+    const question = flickerStars({ text: foreground, stars, common, offset: 0, total: Math.max(1, foreground.length) })
     const currentExact = new Set([...question.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const flicker = new Map(behind)
     for (const [id, hit] of ahead) {
@@ -432,7 +524,14 @@ export function apply(ctx, options = {}) {
     return injectNow(agent, text)
   }
 
-  const onEvent = createTriggerHandler({ compose, deliver, warn, note: noteRun })
+  const onEvent = createTriggerHandler({
+    compose,
+    deliver,
+    warn,
+    note: noteRun,
+    activity: appendActivity,
+    secondEvery: () => config().secondEvery,
+  })
 
   ctx.inject(['sessionController'], (serviceCtx) => {
     sessionController = serviceCtx.sessionController ?? null

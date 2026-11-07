@@ -19,6 +19,8 @@ export const DEFAULT_CONFIG = {
   minStars: 2,
   minStrength: 1,
   sentencesPerFragment: 4,
+  // 二类触发源（我的思考、中途回复、工具结果）每攒够这么多次才评估一次回忆。
+  secondEvery: 16,
 }
 
 const clamp = (value, low, high, fallback) => {
