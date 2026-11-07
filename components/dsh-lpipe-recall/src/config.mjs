@@ -16,9 +16,6 @@ export const DEFAULT_CONFIG = {
   backgroundChars: 24000,
   foregroundChars: 8000,
   coolChars: 1000000,
-  // 摆过一次的片段，隔多远才可以再摆。不跟冷却窗口共用：冷却窗口说的是「模型还看得见」，
-  // 这里说的是「别每轮重复同一段」——两者不是一回事。
-  repeatChars: 200000,
   minStars: 2,
   minStrength: 1,
   sentencesPerFragment: 4,
