@@ -164,10 +164,20 @@ export function createTriggerHandler({ compose, deliver, warn = () => {}, note =
       return
     }
     if (!block) return
-    Promise.resolve()
-      .then(() => deliver(sessionId, block))
-      .then((sent) => note({ session: sessionId, delivered: Boolean(sent), chars: block.length }))
-      .catch((error) => warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`))
+    // 能同步投就同步投：这个回调是在用户消息落盘时触发的，越早塞进去，
+    // 越可能在第一次模型请求装配之前被看见。
+    try {
+      const sent = deliver(sessionId, block)
+      if (sent && typeof sent.then === 'function') {
+        sent
+          .then((ok) => note({ session: sessionId, delivered: Boolean(ok), chars: block.length }))
+          .catch((error) => warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`))
+      } else {
+        note({ session: sessionId, delivered: Boolean(sent), chars: block.length })
+      }
+    } catch (error) {
+      warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`)
+    }
   }
 }
 
@@ -263,7 +273,8 @@ export function apply(ctx, options = {}) {
     // 通用星：在超过 30% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
-    const flicker = flickerStars({ text, stars: [...store.stars.values()], common })
+    const dfOf = (id) => (store.byStar.get(id) ?? []).length
+    const flicker = flickerStars({ text, stars: [...store.stars.values()], common, df: dfOf, total: store.turns.size })
     if (flicker.size === 0) {
       report({ skip: 'no-flicker', chars: text.length, stars: store.stars.size, rows: rows.length })
       return ''
@@ -300,12 +311,11 @@ export function apply(ctx, options = {}) {
    * 注入一条 source.kind = 'dsh-lpipe-recall' 的用户消息——它是独立的一块，
    * 来源写在消息上；记忆层与星图都会把这类来源整体丢掉，不会自我消化。
    */
-  const deliver = async (sessionId, text) => {
-    if (!sessionController || typeof sessionController.resolveAgent !== 'function') return false
-    const result = await sessionController.resolveAgent(sessionId)
-    const agent = result?.agent
+  /** 记住解析过的 agent：events 是同步送进来的，缓存之后这一轮就能在第一次请求装配前塞进去。 */
+  const agentCache = new Map()
+
+  const injectNow = (agent, text) => {
     if (!agent || typeof agent.inject !== 'function') return false
-    // 只注入，绝不 followup：回忆不该自己开一轮。
     agent.inject({
       id: randomUUID(),
       role: 'user',
@@ -313,6 +323,17 @@ export function apply(ctx, options = {}) {
       source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
     })
     return true
+  }
+
+  const deliver = async (sessionId, text) => {
+    const known = agentCache.get(sessionId)
+    if (known && injectNow(known, text)) return true
+    if (!sessionController || typeof sessionController.resolveAgent !== 'function') return false
+    const result = await sessionController.resolveAgent(sessionId)
+    const agent = result?.agent
+    if (!agent || typeof agent.inject !== 'function') return false
+    agentCache.set(sessionId, agent)
+    return injectNow(agent, text)
   }
 
   const onEvent = createTriggerHandler({ compose, deliver, warn, note: noteRun })
