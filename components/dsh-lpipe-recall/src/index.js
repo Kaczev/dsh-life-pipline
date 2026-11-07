@@ -379,7 +379,7 @@ export function apply(ctx, options = {}) {
     }
 
     const now = charsOf(rows)
-    const fresh = pickFresh(candidates, loadRecalled(), now, settings.coolChars)
+    const fresh = pickFresh(candidates, loadRecalled(), now, settings.repeatChars)
     if (fresh.length === 0) {
       report({ skip: 'all-recalled', flicker: flicker.size, candidates: candidates.length })
       return ''
