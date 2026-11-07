@@ -17,12 +17,17 @@
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
   - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
 - [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
-  - [README.md](components/dsh-lpipe-recall/README.md)：两个主动工具的参数与分页规则。
+  - [README.md](components/dsh-lpipe-recall/README.md)：配置、设置块与两个主动工具的参数和分页规则。
+  - [src/config.mjs](components/dsh-lpipe-recall/src/config.mjs)：默认值与归一化；设置页只读写五项，保存时保留其他键。
   - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：单星五项系数、准确真文准入、亮度排序与原文选句。
   - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` 定义与执行。
   - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
-  - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、注册及可见回忆结果去重。
+  - [src/rpc.mjs](components/dsh-lpipe-recall/src/rpc.mjs)：`/api/dsh-lpipe-recall` 的 `recall.config` / `recall.config.save`。
+  - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、预注入、RPC 注册及可见回忆结果去重。
+  - [client/panel.js](components/dsh-lpipe-recall/client/panel.js)：设置页里的「回忆管线」块（五项，一行排完，支持 K/M 简写）；构建到 [lib/client.js](components/dsh-lpipe-recall/lib/client.js)。
+  - [scripts/build-client.mjs](components/dsh-lpipe-recall/scripts/build-client.mjs)：把面板包成宿主的客户端模块壳。
   - [test/open.test.mjs](components/dsh-lpipe-recall/test/open.test.mjs) / [test/index.test.mjs](components/dsh-lpipe-recall/test/index.test.mjs)：区间、限额、事件去重与真实存储查询回归。
+  - [test/config.test.mjs](components/dsh-lpipe-recall/test/config.test.mjs) / [test/rpc.test.mjs](components/dsh-lpipe-recall/test/rpc.test.mjs) / [test/client.test.mjs](components/dsh-lpipe-recall/test/client.test.mjs)：五项读写保留、RPC 信封与客户端渲染回归。
 
 ## components/dsh-lpipe-chat
 

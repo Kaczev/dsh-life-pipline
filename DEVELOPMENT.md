@@ -90,7 +90,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | 唤醒 | `dsh-lpipe-wake` | 已实现 |
 | 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验 / 按天媒体包 / 冷日打包） |
 | 星图 | `dsh-lpipe-starmap` | 已实现（模型抽星 / 星表与星源 / 水位 / 准确星与模糊星 / 只读查询 / 设置块） |
-| 回忆 | dsh-lpipe-recall | M1 已实现（触发源匹配 → 点亮星星 → 挑片段 → 注入一条自己的消息） |
+| 回忆 | dsh-lpipe-recall | M1 已实现（触发源匹配 → 点亮星星 → 挑片段 → 注入一条自己的消息；设置块只改五项） |
 | 联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
@@ -212,10 +212,12 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 
 ### 回忆管线怎么把内容递进去
 
-`dsh-lpipe-recall` 不碰 system prompt。它监听 `sessions` 的 `session/event`，遇到 `user/message` 且来源是
-`user` / `dsh-lpipe-chat` / 主动唤醒（自然唤醒不算）时，拿这条消息的原文去点亮星星，挑出该想起的旧片段，
-组装成一条 `role: 'user'` 的消息，用 `agent.inject(...)` 投进去——`source.kind = 'dsh-lpipe-recall'`，
-`form: 'notice'`。只 inject、绝不 followup：回忆不该自己开一轮。
+`dsh-lpipe-recall` 不碰 system prompt。它挂 `agent/pre-step`，先从这一次请求自己的 `messages` 里找触发源
+（step 1 的用户消息这时还没进 session 事件），只认 `user` / `dsh-lpipe-chat` / 主动 `dsh-lpipe-wake`；
+自然唤醒不算。找到后拿触发源原文去点亮星星，挑出该想起的旧片段，在 `agent/pre-step` 返回的 `messages`
+末尾追加一条 `role: 'user'` 的消息——`source.kind = 'dsh-lpipe-recall'`、`form: 'notice'`。这不是
+`agent.inject`：`inject` 要等下一次 step，回忆会落在第一轮回答之后；`pre-step` 的返回值直接进这一次请求。
+只追加消息、绝不 followup：回忆不该自己开一轮。
 
 记忆层（`project.mjs` 的 `INJECTED_SOURCES`）与星图（`build.mjs` 的 `PIPELINE_SOURCES`）都把这一来源整体丢掉，
 所以回忆不会被喂回给自己，也不会变成下一轮的星星。
@@ -241,18 +243,28 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 
 ## components/dsh-lpipe-recall
 
-M1 只做被动注入：每轮组装请求时，取会话末尾 `matchChars`（默认 32K）字符的原文，
-去点亮星表里的星星，把落在 `coolChars`（默认 1M）之外、至少两颗星点亮且强度 ≥ 1
-的片段挑出来（默认 2 段），每段挑最能点亮的那几句原句，用 `……` 连起来，作为一段
-上下文注入（`systemPrompt.context`，order 95）。不调模型、不写任何东西。
+被动注入 + 两个主动工具。被动路径：每轮 `agent/pre-step` 认到触发源后，取触发源原文
+（最多 `inputChars`，默认 32K）当「真文」，再取它之前 `backgroundChars`（默认 16K）的
+流水当背景。真文星权重 3；背景星按位置 0..2，再按真文/背景总亮度做一次全局归一。
+只有真文里的准确星能建立候选；真文背景里的模糊星、通用星和准确背景星只加分。排除
+`coolChars`（默认 1M）内和当前上下文里已经出现的片段，按总亮度、准确真文星数量、时间
+排序，取 `fragments`（默认 2）段，每段取 `sentencesPerFragment`（默认 4）句原句，用
+`……` 连起来，追加成一条 `dsh-lpipe-recall` 的用户消息。不调模型、不写任何东西。
 
 模块：`src/match.mjs`（位置权重 1..2、通用星 0.2、模糊星 ≥0.5、数字 ≥0.8、挡掉两位整数与
-单字母）、`src/candidates.mjs`（冷却窗口、准入、强度排序）、`src/render.mjs`（原句 +
-`……` + 范围信息）、`src/config.mjs`（`~/.dsh/life-recall/config.json`）、`src/index.js`
-（注入钩子，按会话末尾与星表 mtime 缓存）。
+单字母）、`src/candidates.mjs`（冷却窗口、准确真文准入、亮度排序）、`src/render.mjs`
+（原句 + `……` + 范围信息）、`src/config.mjs`（`~/.dsh/life-recall/config.json` 与设置页
+五项的范围/保留写入）、`src/rpc.mjs`（`/api/dsh-lpipe-recall` 的 `recall.config` /
+`recall.config.save`）、`src/index.js`（预注入钩子、RPC 注册、可见结果去重）。
 
-M1 的已知粗糙处：32K 窗口横跨多个话题时闪起来的星太多，候选偏长轮；数字型模糊星仍
-偏松。下一步要靠稀有度加权与更紧的星表来压。
+设置块在 `client/panel.js`，注册进 `lpipe.settings.panel`（id `recall`、order 50），
+只显示 `fragments` / `sentencesPerFragment` / `inputChars` / `backgroundChars` /
+`coolChars` 五项，一行排完，支持 `32K` / `1M` 简写；保存走 `savePanelConfig`，只替换
+这五项，`enabled` / `minStrength` / `secondEvery` 及未知键原样保留。加载失败可重试，
+校验失败不落盘，成功提示「已保存，下一轮起生效」。
+
+已知粗糙处：32K 窗口横跨多个话题时闪起来的星太多，候选偏长轮；数字型模糊星仍偏松。
+下一步要靠稀有度加权与更紧的星表来压。
 
 ## components/dsh-lpipe-starmap
 

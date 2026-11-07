@@ -59,3 +59,65 @@ export function saveConfig(root, patch = {}) {
   renameSync(temp, file)
   return next
 }
+
+/**
+ * 设置页只开放这五项。范围与默认值必须和 `normalizeConfig` 保持一致：
+ * 面板负责挡住手滑，宿主这里再挡一次，坏值永远不落盘。
+ */
+export const PANEL_FIELDS = Object.freeze([
+  { key: 'fragments', label: '每轮片段', min: 1, max: 5, fallback: DEFAULT_CONFIG.fragments },
+  { key: 'sentencesPerFragment', label: '每段句数', min: 1, max: 12, fallback: DEFAULT_CONFIG.sentencesPerFragment },
+  { key: 'inputChars', label: '真文上限', min: 2000, max: 32000, fallback: DEFAULT_CONFIG.inputChars },
+  { key: 'backgroundChars', label: '背景窗口', min: 8000, max: 96000, fallback: DEFAULT_CONFIG.backgroundChars },
+  { key: 'coolChars', label: '冷却窗口', min: 32000, max: 4000000, fallback: DEFAULT_CONFIG.coolChars },
+])
+
+export class RecallConfigError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'RecallConfigError'
+    this.code = 'recall/bad-request'
+  }
+}
+
+/** 只把设置页需要的五项交给客户端，别把别的旋钮带出去。 */
+export function panelConfigOf(config = {}) {
+  const normalized = normalizeConfig(config)
+  return Object.fromEntries(PANEL_FIELDS.map((field) => [field.key, normalized[field.key]]))
+}
+
+/**
+ * 设置页保存走这条路，而不是 `saveConfig`：后者会把配置重新归一化成固定键，
+ * 顺手丢掉 `secondEvery` 之类它不认识的字段。这里只换这五项，其余原样保留。
+ */
+export function savePanelConfig(root, patch = {}) {
+  const raw = readRawConfig(root)
+  const next = { ...raw }
+  for (const field of PANEL_FIELDS) {
+    if (!Object.hasOwn(patch, field.key)) continue
+    const value = patch[field.key]
+    if (!Number.isInteger(value)) {
+      throw new RecallConfigError(`${field.label}必须是整数。`)
+    }
+    if (value < field.min || value > field.max) {
+      throw new RecallConfigError(`${field.label}需在 ${field.min}–${field.max} 之间。`)
+    }
+    next[field.key] = value
+  }
+  const file = configFile(root)
+  mkdirSync(dirname(file), { recursive: true })
+  const temp = `${file}.${process.pid}.tmp`
+  writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  renameSync(temp, file)
+  return panelConfigOf(next)
+}
+
+/** 原始配置对象：读不懂就当空文件，至少别让设置页打不开。 */
+export function readRawConfig(root = recallRoot()) {
+  try {
+    const parsed = JSON.parse(readFileSync(configFile(root), 'utf8'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}

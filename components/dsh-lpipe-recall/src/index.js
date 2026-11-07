@@ -5,7 +5,8 @@ import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { openRepo } from 'dsh-lpipe-starmap/store'
 import { candidatesOf, coolTurns } from './candidates.mjs'
 import { backgroundWeight, foregroundWeight, rarityWeights, balanceFlicker } from './match.mjs'
-import { loadConfig } from './config.mjs'
+import { loadConfig, panelConfigOf, savePanelConfig } from './config.mjs'
+import { createRecallRpcHandler, registerRecallRpc } from './rpc.mjs'
 import { flickerStars } from './match.mjs'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
 import { isSpokenRow, renderRecall } from './render.mjs'
@@ -416,6 +417,23 @@ export function apply(ctx, options = {}) {
       /* 日志失败就算了，不能让回忆把一轮弄坏 */
     }
   }
+
+  // 设置页只读五项、只写五项；保存不经过 `saveConfig`，免得把别的键洗掉。
+  ctx.inject(['connection'], (connectionCtx) => {
+    try {
+      registerRecallRpc(
+        connectionCtx,
+        createRecallRpcHandler({
+          config: {
+            get: () => panelConfigOf(loadConfig(recallDir)),
+            set: (patch) => savePanelConfig(recallDir, patch),
+          },
+        }),
+      )
+    } catch (error) {
+      warn(`[dsh-lpipe-recall] 注册设置 RPC 失败：${error?.message ?? error}`)
+    }
+  })
 
   const rowsNow = (sessionId) => {
     reader.reload()
