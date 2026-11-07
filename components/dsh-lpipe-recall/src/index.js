@@ -88,9 +88,16 @@ export function recentText(rows, matchChars) {
  * 一行一行往前收：只认来源在白名单里、又不是自然唤醒的 `user/message`，
  * 收够 `matchChars` 就停；最后把当前这条（记忆层还没写进去的）接在末尾。
  */
-/** 唤醒分两种：自然醒来不该触发回忆，主动安排的要。宿主给的措辞可能写作「自主」或「自然」。 */
+/**
+ * 唤醒分两种：自然醒来不该触发回忆，主动安排的要。
+ *
+ * 认 `source.wake` 这个结构化字段（唤醒管线写的 'planned' / 'natural'）。
+ * 老记忆里没有这个字段——那时候只能从 summary 的措辞推，所以留一个兜底。
+ */
 export function isNaturalWake(source) {
   if (source?.kind !== 'dsh-lpipe-wake') return false
+  if (source.wake === 'natural') return true
+  if (source.wake === 'planned') return false
   return /自主|自然/.test(String(source?.summary ?? ''))
 }
 

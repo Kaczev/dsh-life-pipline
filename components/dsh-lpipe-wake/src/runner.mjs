@@ -231,6 +231,8 @@ export function createWakeDelivery(controller) {
         source: Object.freeze({
           kind: 'dsh-lpipe-wake',
           form: 'notice',
+          // 结构化标明是哪一种醒来：下游（回忆管线）不该靠 summary 里的字去猜。
+          wake: kind === 'manual' ? 'planned' : 'natural',
           summary: kind === 'manual' ? '唤醒管线 · 主动醒来' : '唤醒管线 · 自主醒来',
         }),
       }));

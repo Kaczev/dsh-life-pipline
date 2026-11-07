@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, createTriggerHandler, matchTextOf, recentText, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, recentText, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -116,4 +116,16 @@ test('点亮星星用的是 32K 里所有触发源，不只是最新一条', () 
   const short = matchTextOf(rows, '现在这一句', 5)
   assert.equal(short, '现在这一句', '收够字数就从最早的那头截掉，当前这句永远在末尾')
   assert.equal(matchTextOf([], '', 100), '')
+})
+
+
+test('自然唤醒看结构化字段，不靠 summary 里的措辞', () => {
+  const plan = { kind: 'dsh-lpipe-wake', wake: 'planned', summary: '唤醒管线 · 自主醒来' }
+  const natural = { kind: 'dsh-lpipe-wake', wake: 'natural', summary: '唤醒管线 · 主动醒来' }
+  assert.equal(isNaturalWake(plan), false, '字段说主动，就算措辞写着自主也算主动')
+  assert.equal(isNaturalWake(natural), true)
+  // 老记忆没这个字段，退回看措辞
+  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }), true)
+  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }), false)
+  assert.equal(isNaturalWake({ kind: 'user' }), false)
 })
