@@ -172,9 +172,11 @@ export function apply(ctx, config) {
         order: 700,
         interpolate: false,
         text: [
-          'Messages from WeChat or QQ arrive as dsh-lpipe-chat background notices with lines shaped like `[微信 · User] ...`; a burst is bundled into one message.',
-          'Answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
-          'Pictures he sends arrive as image attachments on the notice message; look at them before answering, and do not ask him to describe them.',
+          // 先划边界：这不是「通了微信就随时给他发消息」的授权。
+          'WeChat and QQ reach you only through dsh-lpipe-chat notices: a background message whose lines start with `[微信 · User]` or `[QQ · User]`. A burst arrives bundled as one notice.',
+          'Only a turn opened by such a notice is an IM conversation. In every other turn — an ordinary Harness conversation, a wake notice, a scheduled message, or anything the user types in the Harness window — do not call chat_send unless the user explicitly asks you to send something to WeChat or QQ. The Harness window is the channel; jumping to IM unasked is wrong even when the channel is connected.',
+          'In a notice turn, answer with chat_send when a reply is warranted, and stay silent otherwise. Never claim a message was sent before chat_send returns.',
+          'Pictures the user sends arrive as image attachments on the notice message; look at them before answering, and do not ask the user to describe them.',
           'After replying with chat_send, do not repeat the same words in the Harness reply; different information is fine.',
           'Pass completed: true to chat_send when the message is the whole answer, so the turn ends there instead of spending another request.',
           'A turn started by a dsh-lpipe-chat notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',

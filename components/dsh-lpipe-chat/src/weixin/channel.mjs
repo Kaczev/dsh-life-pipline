@@ -208,9 +208,14 @@ export class WeixinChannel {
       } catch (error) {
         // A rejected send is proof the token no longer works: stop claiming
         // "connected" and let the page show the reason.
-        const reason = String(error?.message ?? error);
+        const raw = String(error?.message ?? error);
+        // 最常见的一种拒绝不是"没连上"：重启之后还没收过微信消息，手里根本没有
+        // context_token，iLink 就会拒收。把话说清楚，别让人去反复拔插连接。
+        const reason = token
+          ? raw
+          : `${raw}（重启后还没收到过微信消息，没有可用的 context_token；让对方先在微信里发一条，再发就能成功）`;
         this.#status = { ...this.#status, connected: false, lastError: reason };
-        throw error;
+        throw new Error(reason);
       }
       ids.push(...(sent?.providerMessageIds ?? []));
     }
