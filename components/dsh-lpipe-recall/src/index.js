@@ -478,6 +478,24 @@ export function apply(ctx, options = {}) {
     bufferSeen.set(sessionId, session.seq)
   }
 
+  /**
+   * 本轮已经摆出去的片段 id。
+   *
+   * 不能只靠「扫会话事件」判断摆过没有：pre-step 塞进去的那条消息要过一会儿才
+   * 落到会话里，同一步里再评估一次就会把同一段又摆一遍（`#100` 连续出现两次
+   * 就是这么来的）。所以本轮投递过的 id 自己记一份，新的一轮清空。
+   */
+  const deliveredKeys = new Map()
+
+  /** 记下这一块摆过哪些片段：同一步里再评估一次时要把它们算作「已经在上下文里」。 */
+  const rememberBlock = (sessionId, block) => {
+    const set = deliveredKeys.get(sessionId) ?? new Set()
+    for (const key of block.match(/lpipe_recall_id\[[^\]]*\]/g) ?? []) {
+      set.add(key.replace(/^lpipe_recall_id\[|\]$/g, ''))
+    }
+    deliveredKeys.set(sessionId, set)
+  }
+
   /** 二类触发源：本轮内攒了几次「我的思考 / 中途回复 / 工具结果」。 */
   const secondCounts = new Map()
   const secondSeen = new Map()
@@ -681,6 +699,7 @@ export function apply(ctx, options = {}) {
           secondCounts.set(session.id, 0)
           const present = keysInSession(session)
           for (const key of keysInContext(decision.messages)) present.add(key)
+          for (const key of deliveredKeys.get(session.id) ?? []) present.add(key)
           noteRun({ session: session.id, event: 'second-class', turn, step, count, every, keys: present.size })
           // 二类触发源没有「哪一句」可指，窗口末尾就是此刻的上下文。
           block = compose(session.id, '', (diag) => noteRun({ session: session.id, ...diag }), present)
@@ -689,6 +708,7 @@ export function apply(ctx, options = {}) {
           return decision
         }
         if (!block) return decision
+        rememberBlock(session.id, block)
         return {
           ...decision,
           messages: [
@@ -727,6 +747,7 @@ export function apply(ctx, options = {}) {
         }
         const text = found.text
         // 「摆过没有」不再查账本：把这一次请求的 messages 扫一遍，块头上的记号就是凭据。
+        deliveredKeys.set(session.id, new Set())
         const present = keysInSession(session)
         for (const key of keysInContext(decision.messages)) present.add(key)
         noteRun({
@@ -744,6 +765,7 @@ export function apply(ctx, options = {}) {
         return decision
       }
       if (!block) return decision
+      rememberBlock(session.id, block)
       try {
         return {
           ...decision,
