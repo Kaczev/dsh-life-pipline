@@ -9,6 +9,7 @@ import { loadConfig } from './config.mjs'
 import { flickerStars } from './match.mjs'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
 import { isSpokenRow, renderRecall } from './render.mjs'
+import { createRecallTools } from './tools.mjs'
 
 export const name = 'dsh-lpipe-recall'
 
@@ -630,7 +631,14 @@ export function apply(ctx, options = {}) {
   }
 
   ctx.inject(['tools'], (toolsCtx) => {
-    for (const tool of createRecallTools({ reader, compose })) {
+    let tools = []
+    try {
+      tools = createRecallTools({ reader, compose })
+    } catch (error) {
+      warn(`[dsh-lpipe-recall] 造工具失败：${error?.message ?? error}`)
+      return
+    }
+    for (const tool of tools) {
       // 工具名撞车不该把整个包带下去。
       try {
         toolsCtx.tools.register(tool)

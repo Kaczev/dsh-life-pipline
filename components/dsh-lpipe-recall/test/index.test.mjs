@@ -242,3 +242,25 @@ test('从会话事件里认已经摆过的片段，被 rewind 掉的不算', () 
   const present = keysInSession(session)
   assert.deepEqual([...present].sort(), ['warehouse-a#429', 'warehouse-a#431'])
 })
+
+
+test('装上之后确实把两个工具注册给了宿主', async () => {
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { apply } = await import('../src/index.js')
+  const empty = mkdtempSync(join(tmpdir(), 'recall-tools-'))
+  const registered = []
+  const ctx = {
+    logger: { info: () => {}, warn: () => {} },
+    on: () => {},
+    inject(names, callback) {
+      const service = { tools: { register: (tool) => registered.push(tool.name) }, sessions: { on: () => {} } }
+      const picked = {}
+      for (const name of names) picked[name] = service[name]
+      if (picked.tools || names.includes('tools')) callback(picked)
+    },
+  }
+  apply(ctx, { root: empty, memoryRoot: empty, starmapRoot: empty })
+  assert.deepEqual(registered.sort(), ['recall_fragments', 'recall_open'])
+})
