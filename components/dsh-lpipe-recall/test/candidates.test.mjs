@@ -36,15 +36,21 @@ test('准入：至少两颗闪烁星、强度够、且必须有真正的概念�
     ],
   })
 
-  const enough = candidatesOf({ repo, flicker: flickerMap([['s_a', 1.5], ['s_b', 1.2]]) })
+  const ahead = new Set(['s_a', 's_b'])
+  const enough = candidatesOf({ repo, flicker: flickerMap([['s_a', 1.5], ['s_b', 1.2]]), foreground: ahead })
   assert.equal(enough.length, 1)
   assert.equal(enough[0].turn, 1)
   assert.equal(enough[0].stars.length, 2)
 
-  const single = candidatesOf({ repo, flicker: flickerMap([['s_a', 1.5]]) })
+  const single = candidatesOf({ repo, flicker: flickerMap([['s_a', 1.5]]), foreground: ahead })
   assert.equal(single.length, 0, '一颗星不算回忆')
 
-  const fuzzyOnly = candidatesOf({ repo, flicker: flickerMap([['s_c', 1.0, 'fuzzy'], ['s_a', 0.1, 'fuzzy']]), minStars: 1 })
+  const fuzzyOnly = candidatesOf({
+    repo,
+    flicker: flickerMap([['s_c', 1.0, 'fuzzy'], ['s_a', 0.1, 'fuzzy']]),
+    minStars: 1,
+    foreground: new Set(['s_a']),
+  })
   assert.equal(fuzzyOnly.length, 0, '光靠数字不上台')
 })
 
@@ -60,12 +66,17 @@ test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时�
     stars: ['s_exact', 's_f1', 's_f2', 's_f3'].map((id) => ({ id, name: id })),
   })
 
-  const one = candidatesOf({ repo, flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy']]) })
+  const one = candidatesOf({
+    repo,
+    flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy']]),
+    foreground: new Set(['s_exact']),
+  })
   assert.equal(one[0].strength, 1.2 + 1, '只有一颗模糊星时，它最多算 1')
 
   const three = candidatesOf({
     repo,
     flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy'], ['s_f2', 1.8, 'fuzzy'], ['s_f3', 1.7, 'fuzzy']]),
+    foreground: new Set(['s_exact']),
   })
   assert.equal(three[0].fuzzy, 3)
   assert.ok(Math.abs(three[0].strength - (1.2 + 3 * (2 / 3))) < 1e-9, '三颗时每颗最多 2/3，总和 2')
@@ -86,12 +97,33 @@ test('排除冷却片段，按强度排序，同一颗星只算一次', () => {
     stars: ['s_a', 's_b', 's_c', 's_d'].map((id) => ({ id, name: id })),
   })
   const flicker = flickerMap([['s_a', 0.8], ['s_b', 0.6], ['s_c', 2], ['s_d', 1.9]])
-  const all = candidatesOf({ repo, flicker, limit: 5 })
+  const all = candidatesOf({ repo, flicker, limit: 5, foreground: new Set(['s_a', 's_b', 's_c', 's_d']) })
   assert.equal(all.length, 2)
   assert.equal(all[0].key, 's#2')
   assert.equal(all[0].strength, 3.9)
   assert.equal(all[1].strength, 1.4, '同一颗星在两句里出现也只加一次')
 
-  const withoutHot = candidatesOf({ repo, flicker, excluded: new Set(['s#2']), limit: 5 })
+  const withoutHot = candidatesOf({
+    repo,
+    flicker,
+    excluded: new Set(['s#2']),
+    limit: 5,
+    foreground: new Set(['s_a', 's_b', 's_c', 's_d']),
+  })
   assert.deepEqual(withoutHot.map((entry) => entry.key), ['s#1'])
+})
+
+
+test('只在背景窗口里亮起来的星，凑不出一次回忆', () => {
+  const repo = repoOf({
+    turns: [{ session: 's', turn: 1, at: 100, from: 0, to: 3, lines: [] }],
+    byStar: { s_a: [{ key: 's#1', index: 0, seq: 0 }], s_b: [{ key: 's#1', index: 0, seq: 1 }] },
+    stars: [
+      { id: 's_a', name: '记忆管线' },
+      { id: 's_b', name: '星图' },
+    ],
+  })
+  const flicker = flickerMap([['s_a', 1.2], ['s_b', 1.1]])
+  assert.equal(candidatesOf({ repo, flicker, foreground: new Set() }).length, 0, '没有真文星就是不认')
+  assert.equal(candidatesOf({ repo, flicker, foreground: new Set(['s_a']) }).length, 1)
 })

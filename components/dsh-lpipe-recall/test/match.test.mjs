@@ -4,10 +4,11 @@ import { flickerStars, isTooShort, positionWeight } from '../src/match.mjs'
 
 const star = (id, name, extra = {}) => ({ id, name, kind: 'exact', form: null, value: null, ...extra })
 
-test('位置权重：最旧 1.0、最新 2.0，越靠后越算数', () => {
+test('位置权重：最旧 1.0、最新 2.0，前平后陡', () => {
   assert.equal(positionWeight(0, 100), 1)
   assert.equal(positionWeight(100, 100), 2)
-  assert.equal(positionWeight(50, 100), 1.5)
+  assert.equal(positionWeight(50, 100), 1 + 0.5 ** 4, '半程只比最旧高一丁点')
+  assert.equal(positionWeight(90, 100), 1 + 0.9 ** 4, '最后那一小段才迅速爬升')
   assert.equal(positionWeight(0, 0), 1)
   assert.equal(positionWeight(200, 100), 2)
 })

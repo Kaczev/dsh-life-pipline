@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, recentText, textOfEvent, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -142,4 +142,13 @@ test('正文在 content 分片里，不在 data.text 上', () => {
   )
   assert.equal(textOfEvent({}), '')
   assert.equal(textOfEvent(undefined), '')
+})
+
+
+test('摆过一次的片段还在冷却期里就不再重复摆', () => {
+  const ledger = new Map([['s#1', 1000]])
+  const candidates = [{ key: 's#1' }, { key: 's#2' }]
+  assert.deepEqual(pickFresh(candidates, ledger, 1500, 1000).map((entry) => entry.key), ['s#2'], '1000 字前摆过，还在冷却')
+  assert.deepEqual(pickFresh(candidates, ledger, 2500, 1000).map((entry) => entry.key), ['s#1', 's#2'], '冷却期过了可以再摆')
+  assert.equal(charsOf([{ text: 'abc' }, { kind: 'tool/call', arguments: '{}' }]), 5)
 })

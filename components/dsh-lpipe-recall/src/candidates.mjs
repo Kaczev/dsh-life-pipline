@@ -41,10 +41,11 @@ export function candidatesOf({
   excluded = new Set(),
   minStars = 2,
   minStrength = 1,
-  minExact = 1,
+  minForeground = 1,
   fuzzyBudget = 2,
   common = new Set(),
   commonBudget = 0.4,
+  foreground = new Set(),
   limit = 5,
 }) {
   const buckets = new Map()
@@ -53,7 +54,7 @@ export function candidatesOf({
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
@@ -68,6 +69,7 @@ export function candidatesOf({
       } else {
         bucket.exact += 1
         bucket.exactScore += hit.score
+        if (foreground.has(id)) bucket.foreground += 1
       }
       bucket.lines.set(id, entry.seq)
     }
@@ -85,13 +87,15 @@ export function candidatesOf({
     const commonCap = bucket.common.length > 1 ? commonBudget / bucket.common.length : COMMON_SOURCE
     for (const score of bucket.common) bucket.strength += Math.min(score, commonCap)
     if (bucket.strength < minStrength) continue
-    // 光靠数字对上不叫「想起来了」：数字太容易撞，必须有真正的概念连上。
-    if (bucket.exact < minExact) continue
+    // 光靠数字对上、或者只在很早的背景里对上，都不叫「想起来了」：
+    // 必须有一颗星亮在真文窗口（最近 8K）里。
+    if (bucket.foreground < minForeground) continue
     const record = repo.turns.get(bucket.key) ?? null
     out.push({
       key: bucket.key,
       stars: bucket.stars,
       exact: bucket.exact,
+      foreground: bucket.foreground,
       strength: bucket.strength,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,

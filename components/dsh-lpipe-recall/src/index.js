@@ -1,4 +1,4 @@
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -136,6 +136,41 @@ export function matchTextOf(rows, current, matchChars) {
   return joined.length > matchChars ? joined.slice(-matchChars) : joined
 }
 
+/**
+ * 把匹配窗口切成两段：真文窗口（最近 `foregroundChars`）与背景窗口（更早的
+ * `backgroundChars`）。真文窗口是「你现在真的在说的事」，背景窗口只是上下文。
+ */
+/** 会话现在的「字符钟」：回忆账本用它判断一段记忆是不是还在冷却期内。 */
+export function charsOf(rows) {
+  let size = 0
+  for (const row of rows ?? []) {
+    if (typeof row?.text === 'string') size += row.text.length
+    else if (row?.kind === 'tool/call') size += String(row?.arguments ?? '').length
+  }
+  return size
+}
+
+/**
+ * 账本过滤：已经摆到过模型面前的片段，只要还在冷却窗口里就不再重复摆。
+ *
+ * 没有这一步，每一轮都会把同一段旧记忆重新注入一遍——用户看到的就是
+ * 「怎么老是这两段」。
+ */
+export function pickFresh(candidates, ledger, now, coolChars) {
+  return (candidates ?? []).filter((entry) => {
+    const at = ledger?.get?.(entry.key)
+    return !(Number.isFinite(at) && now - at < coolChars)
+  })
+}
+
+export function windowsOf(rows, current, { backgroundChars, foregroundChars }) {
+  const text = matchTextOf(rows, current, backgroundChars + foregroundChars)
+  if (text.length <= foregroundChars) return { background: '', foreground: text }
+  const foreground = text.slice(-foregroundChars)
+  const background = text.slice(0, text.length - foregroundChars).slice(-backgroundChars)
+  return { background, foreground }
+}
+
 export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {} }) {
   const seen = new Set()
   return (session, event) => {
@@ -247,6 +282,35 @@ export function apply(ctx, options = {}) {
     return rows
   }
 
+  const recalledFile = join(recallDir, 'recalled.jsonl')
+  let recalled = null
+
+  const loadRecalled = () => {
+    if (recalled) return recalled
+    recalled = new Map()
+    try {
+      for (const line of readFileSync(recalledFile, 'utf8').split('\n')) {
+        if (!line.trim()) continue
+        const entry = JSON.parse(line)
+        for (const key of entry.keys ?? []) recalled.set(key, Number(entry.chars) || 0)
+      }
+    } catch {
+      /* 还没有账本 */
+    }
+    return recalled
+  }
+
+  const rememberRecalled = (sessionId, keys, chars) => {
+    if (keys.length === 0) return
+    try {
+      mkdirSync(recallDir, { recursive: true })
+      appendFileSync(recalledFile, `${JSON.stringify({ at: Date.now(), session: sessionId, chars, keys })}\n`)
+      for (const key of keys) recalled.set(key, chars)
+    } catch {
+      /* 记不下来就多回忆一次，不算错 */
+    }
+  }
+
   const compose = (sessionId, raw, report = () => {}) => {
     const settings = config()
     if (!settings.enabled) {
@@ -261,9 +325,10 @@ export function apply(ctx, options = {}) {
       return ''
     }
 
-    // 32K 窗口里所有触发源一起点亮，不只是最新那一条。
-    const text = matchTextOf(rows, raw, settings.matchChars)
-    if (!text.trim()) return ''
+    // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
+    // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
+    const { background, foreground } = windowsOf(rows, raw, settings)
+    if (!(background + foreground).trim()) return ''
 
     const store = repoNow()
     if (!store || store.stars.size === 0) {
@@ -273,9 +338,21 @@ export function apply(ctx, options = {}) {
     // 通用星：在超过 30% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
-    const flicker = flickerStars({ text, stars: [...store.stars.values()], common })
+    const stars = [...store.stars.values()]
+    const span = background.length + foreground.length
+    const behind = flickerStars({ text: background, stars, common, offset: 0, total: span })
+    const ahead = flickerStars({ text: foreground, stars, common, offset: background.length, total: span })
+    // 真文窗口里亮起来的准确星：候选必须至少沾上一颗，否则只是「背景里像」。
+    const foregroundExact = new Set(
+      [...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
+    )
+    const flicker = new Map(behind)
+    for (const [id, hit] of ahead) {
+      const previous = flicker.get(id)
+      if (!previous || previous.score < hit.score) flicker.set(id, hit)
+    }
     if (flicker.size === 0) {
-      report({ skip: 'no-flicker', chars: text.length, stars: store.stars.size, rows: rows.length })
+      report({ skip: 'no-flicker', chars: span, stars: stars.length, rows: rows.length })
       return ''
     }
 
@@ -287,17 +364,32 @@ export function apply(ctx, options = {}) {
       minStars: settings.minStars,
       minStrength: settings.minStrength,
       common,
+      foreground: foregroundExact,
       limit: settings.fragments,
     })
     if (candidates.length === 0) {
-      report({ skip: 'no-candidates', flicker: flicker.size, excluded: excluded.size, rows: rows.length })
+      report({
+        skip: 'no-candidates',
+        flicker: flicker.size,
+        foreground: foregroundExact.size,
+        excluded: excluded.size,
+        rows: rows.length,
+      })
+      return ''
+    }
+
+    const now = charsOf(rows)
+    const fresh = pickFresh(candidates, loadRecalled(), now, settings.coolChars)
+    if (fresh.length === 0) {
+      report({ skip: 'all-recalled', flicker: flicker.size, candidates: candidates.length })
       return ''
     }
 
     const key = `${sessionId}|${rows.length}|${repoStamp}|${JSON.stringify(settings)}`
     const cached = textCache.get(key)
     if (cached !== undefined) return cached
-    const block = renderRecall({ candidates, flicker, reader, config: settings })
+    const block = renderRecall({ candidates: fresh, flicker, reader, config: settings })
+    if (block) rememberRecalled(sessionId, fresh.map((entry) => entry.key), now)
     if (textCache.size > 32) textCache.clear()
     textCache.set(key, block)
     return block

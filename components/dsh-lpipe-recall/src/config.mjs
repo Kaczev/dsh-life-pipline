@@ -4,7 +4,8 @@ import { configFile, recallRoot } from './paths.mjs'
 
 /**
  * M1 的旋钮。数字都按「字符」算，不按轮：
- * - `matchChars` 是回忆匹配窗口（32K），只用来看哪些星星在眼前这段话里闪；
+ * - 回忆匹配窗口（32K）拆成两段：`foregroundChars`（8K，真文窗口）与
+ *   `backgroundChars`（24K，背景窗口）。真文窗口里亮的星才是「你真在说的事」；
  * - `coolChars` 是回忆冷却窗口（1M），从会话末尾往前数，落在里面的片段一律不选；
  * - `fragments` 每轮最多摆几个片段；
  * - `minStars` / `minStrength` 是片段的准入门槛：至少两颗闪烁星、强度至少 1。
@@ -12,7 +13,8 @@ import { configFile, recallRoot } from './paths.mjs'
 export const DEFAULT_CONFIG = {
   enabled: true,
   fragments: 2,
-  matchChars: 32000,
+  backgroundChars: 24000,
+  foregroundChars: 8000,
   coolChars: 1000000,
   minStars: 2,
   minStrength: 1,
@@ -30,7 +32,8 @@ export function normalizeConfig(raw = {}) {
   return {
     enabled: merged.enabled !== false,
     fragments: clamp(merged.fragments, 1, 5, DEFAULT_CONFIG.fragments),
-    matchChars: clamp(merged.matchChars, 4000, 200000, DEFAULT_CONFIG.matchChars),
+    backgroundChars: clamp(merged.backgroundChars, 8000, 96000, DEFAULT_CONFIG.backgroundChars),
+    foregroundChars: clamp(merged.foregroundChars, 2000, 32000, DEFAULT_CONFIG.foregroundChars),
     coolChars: clamp(merged.coolChars, 32000, 4000000, DEFAULT_CONFIG.coolChars),
     minStars: clamp(merged.minStars, 1, 6, DEFAULT_CONFIG.minStars),
     minStrength: Math.max(0, Number(merged.minStrength) || DEFAULT_CONFIG.minStrength),

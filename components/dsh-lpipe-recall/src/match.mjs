@@ -37,7 +37,8 @@ export function isTooShort(name) {
 export function positionWeight(at, length) {
   if (!(length > 0)) return 1
   const ratio = Math.max(0, Math.min(1, at / length))
-  return 1 + ratio
+  // 前平后陡：x^4 在 0.7 之前几乎贴着 1，最后那一段才迅速爬向 2。
+  return 1 + ratio ** 4
 }
 
 /**
@@ -52,9 +53,12 @@ export function positionWeight(at, length) {
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function flickerStars({ text, stars, common = new Set() }) {
+export function flickerStars({ text, stars, common = new Set(), offset = 0, total = null }) {
   const source = String(text ?? '')
   const folded = foldText(source)
+  // 背景窗口与真文窗口各自是一次调用，位置要放在整窗（32K）里算：
+  // 同样一句话，出现在真文窗口里就比出现在背景窗口里更「近」。
+  const span = total ?? folded.length
   const out = new Map()
 
   const keep = (star, score, at) => {
@@ -83,7 +87,7 @@ export function flickerStars({ text, stars, common = new Set() }) {
     const last = folded.lastIndexOf(needle)
     if (last < 0) continue
     const base = common.has(star.id) ? COMMON_SOURCE : EXACT_SOURCE
-    keep(star, base * positionWeight(last, folded.length), last)
+    keep(star, base * positionWeight(offset + last, span), last)
   }
 
   const fuzzy = (stars ?? []).filter(
