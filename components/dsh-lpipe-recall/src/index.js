@@ -503,10 +503,25 @@ export function apply(ctx, options = {}) {
       return ''
     }
 
+    // 为什么推这一段：把命中的星星连同分数写进日志，事后能复盘「它到底看见了什么」。
+    const picked = fresh.slice(0, settings.fragments).map((entry) => ({
+      id: `lpipe_recall_id[${entry.session}:${entry.turn}]`,
+      exact: entry.exact,
+      fuzzy: entry.fuzzy,
+      strength: Number((entry.strength ?? 0).toFixed(2)),
+      stars: (entry.stars ?? []).slice(0, 8).map((id) => {
+        const hit = flicker.get(id)
+        return { name: hit?.name ?? id, kind: hit?.kind ?? 'exact', score: Number((hit?.score ?? 0).toFixed(2)) }
+      }),
+    }))
     const key = `${sessionId}|${rows.length}|${repoStamp}|${JSON.stringify(settings)}`
     const cached = textCache.get(key)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) {
+      if (cached) report({ delivered: true, picked })
+      return cached
+    }
     const block = renderRecall({ candidates: fresh, flicker, reader, config: settings })
+    if (block) report({ delivered: true, picked })
     if (textCache.size > 32) textCache.clear()
     textCache.set(key, block)
     return block
@@ -587,7 +602,7 @@ export function apply(ctx, options = {}) {
           sample: [...present].slice(0, 3),
           messages: decision.messages?.length ?? 0,
         })
-        block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }), present)
+        block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag }), present)
       } catch (error) {
         warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)
         return decision
