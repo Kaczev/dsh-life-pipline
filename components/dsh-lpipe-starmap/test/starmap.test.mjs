@@ -7,6 +7,7 @@ import test from 'node:test'
 import { canExtract, routeOf } from '../src/config.mjs'
 
 import { RULES_VERSION, buildTurn, starWorthy } from '../src/build.mjs'
+import { MATCH_VERSION } from '../src/llm.mjs'
 import { apply } from '../src/index.js'
 import { createQueries } from '../src/query.mjs'
 import { openRepo, starIdOf } from '../src/store.mjs'
@@ -513,4 +514,39 @@ test('已经抽成了的轮次不再算「坏掉的轮次」', async () => {
   const progress = api.queries.progress()
   assert.equal(progress.skipped, 0, '抽成了就不该再说它坏着')
   assert.deepEqual(progress.problems, [])
+})
+
+test('匹配口径变了只换拒绝清单，星星一颗都不动', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-match-'))
+  const at = Date.parse('2026-11-06T14:00:00+08:00')
+  const repo = openRepo({ root })
+  const rows = [
+    { seq: 0, turn: 21, at, kind: 'user/message', text: '记忆管线和唤醒管线一起工作。' },
+    { seq: 1, turn: 21, at, kind: 'assistant/message', text: '好的。' },
+  ]
+  buildTurn({
+    repo,
+    turn: makeTurn({ turn: 21, at, rows }),
+    sessionId: 'sess-m',
+    pairs: [['记忆管线', '唤醒管线']],
+  })
+  repo.setMemoryFormat(2)
+  repo.setRules(RULES_VERSION)
+  // 盘上记的是旧匹配口径（1），账本里还留着按旧口径判的拒绝记录。
+  const before = repo.stars.size
+  assert.ok(before > 0)
+  appendFileSync(
+    join(root, 'rejects.jsonl'),
+    `${JSON.stringify({ at, session: 'sess-m', turn: 21, pair: ['甲', '乙'], why: 'one-missing' })}\n`,
+    'utf8',
+  )
+
+  const ctx = { logger: { info() {}, warn() {} }, inject() {}, effect() {} }
+  apply(ctx, { root, llm: {}, warmDelay: 0, noWarm: true, reader: { sessions: () => [], reload() {}, state: { version: 2 } } })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const after = openRepo({ root })
+  assert.equal(after.stars.size, before, '星星不动：这次只是匹配口径变了')
+  assert.equal(after.state.match, MATCH_VERSION, '新的匹配口径记下来了')
+  assert.equal(existsSync(join(root, 'rejects.jsonl')), false, '旧拒绝清单归档，不再挂在面板上')
 })

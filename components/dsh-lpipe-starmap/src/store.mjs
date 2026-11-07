@@ -209,6 +209,13 @@ export function openRepo({ root = starmapRoot() } = {}) {
   }
 
   /** 记下这次重建依据的抽星规则版本。 */
+  function setMatch(version) {
+    if (state.match === version) return false
+    state.match = version
+    writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
+    return true
+  }
+
   function setRules(version) {
     if (state.rules === version) return false
     state.rules = version
@@ -300,6 +307,7 @@ export function openRepo({ root = starmapRoot() } = {}) {
     reload,
     reset,
     setMemoryFormat,
+    setMatch,
     setRules,
   }
 }

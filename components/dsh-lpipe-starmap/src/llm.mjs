@@ -222,6 +222,12 @@ export function describeFailure(reason) {
 /** 一轮最多问几次：空回复或答成散文都要重试，但同一个错试到第三次就放弃。 */
 export const MAX_ATTEMPTS = 3
 
+/**
+ * 匹配口径的版本：只影响「名字算不算在原文里」，不影响抽星规则本身。
+ * 变一次就把 rejects.jsonl 换新——旧账里那些「找不到」是按旧口径判的，留着只会误导。
+ */
+export const MATCH_VERSION = 2
+
 /** 模型没按格式回时的纠正话术。 */
 const CORRECTION = 'That was not valid JSON. Reply again with only the JSON array — no prose, no explanation, no roleplay.'
 
@@ -422,10 +428,10 @@ const LATEX_SYMBOLS = [
   [/\\times\b/g, '×'], [/\\cdot\b/g, '·'], [/\\pm\b/g, '±'], [/\\infty\b/g, '∞'],
 ]
 
-export function foldText(value) {
+export function foldText(value, { keepConnectives = false } = {}) {
   let text = String(value ?? '').normalize('NFKC').toLowerCase()
   for (const [pattern, symbol] of LATEX_SYMBOLS) text = text.replace(pattern, symbol)
-  return (
+  const folded = (
     text
       // 公式两侧的 $ 和 \( \) 只是排版记号，不参与「这个名字在不在原文里」。
       .replace(/\$|\\\(|\\\)/g, '')
@@ -437,19 +443,33 @@ export function foldText(value) {
       // 空白、引号、括号都不算名字的一部分：「\(+x\) 轴」与「x轴」、「“摊薄”效应」与「摊薄效应」是同一件事。
       .replace(/[\s"'`“”‘’「」『』《》()（）\[\]{}]/g, '')
       // 中文的「的 / 地 / 得」只是连接词：「外部的场强」与「外部场强」说的是同一个东西。
-      .replace(/[的地得]/g, '')
+      // 但名字本身就是「地」「土地」时不能抹：那样 needle 会变成空串，永远匹配不上。
+      .replace(/[的地得]/g, keepConnectives ? '$&' : '')
       // 正负号属于式子，不属于名字主体：「+x 轴」与「x轴」。
       .replace(/^[+\-−=]+/, '')
+      // Markdown 的强调符号、中文间隔号、千分位逗号、连字符：都是排版，不是名字。
+      .replace(/[*_~]/g, '')
+      .replace(/[·・]/g, '')
+      .replace(/[,，]/g, '')
+      .replace(/[-–—]/g, '')
   )
+  return folded
 }
 
 /** 模型给的名字在原文里出现的位置（句子下标），找不到就是空数组。 */
 export function findInSentences(sentences, name) {
   const needle = foldText(name)
-  if (!needle) return []
+  // 「地」「土地」这种名字在去掉连接词之后会变空（或变短），所以再拿一份保留连接词的做兜底。
+  const light = foldText(name, { keepConnectives: true })
+  if (!needle && !light) return []
   const out = []
   for (const [index, sentence] of sentences.entries()) {
-    if (foldText(sentence.text).includes(needle)) out.push(index)
+    const hay = foldText(sentence.text)
+    if (needle && hay.includes(needle)) {
+      out.push(index)
+      continue
+    }
+    if (light && foldText(sentence.text, { keepConnectives: true }).includes(light)) out.push(index)
   }
   return out
 }

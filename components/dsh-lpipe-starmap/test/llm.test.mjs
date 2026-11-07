@@ -313,3 +313,18 @@ test('原文写 LaTeX 符号、模型回希腊字母，也算同一个名字', (
   assert.deepEqual(findInSentences(sentences, '线电荷密度'), [0])
   assert.deepEqual(findInSentences(sentences, 'λ'), [])
 })
+
+test('排版差异不该把名字挡在外面：Markdown、连字符、千分位、间隔号', () => {
+  // 这几条都是 rejects.jsonl 里真实出现过的假阴性：名字本身在原文里，只是中间隔了排版符号。
+  assert.ok(findInSentences([{ seq: 1, row: 0, text: '所以集电极 C 接**正电源**，发射极 E 接**负电源（或地）**。' }], 'C接正电源').length > 0);
+  assert.ok(findInSentences([{ seq: 1, row: 0, text: 'Help - Cursor - Community Forum' }], 'Cursor Community Forum').length > 0);
+  assert.ok(findInSentences([{ seq: 1, row: 0, text: '总额 10,000 元，用户（Kaczev）拿 9000。' }], '10000 元').length > 0);
+  assert.ok(findInSentences([{ seq: 1, row: 0, text: '**第一轮·第 3 小轮：总额 1 亿元。' }], '第一轮第 3 小轮').length > 0);
+});
+
+test('名字本身是「地」「土地」时，不会被连接词规则抹成空串', () => {
+  const sentences = [{ seq: 1, row: 0, text: '发射极 E 接**地**，集电极接电源。' }];
+  assert.deepEqual(findInSentences(sentences, '地'), [0]);
+  // 「土地」去不掉「地」之后，仍然要能靠保留连接词的那一份找到。
+  assert.ok(findInSentences([{ seq: 1, row: 0, text: '这片土地很硬。' }], '土地').length > 0);
+});

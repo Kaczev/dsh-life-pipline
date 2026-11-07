@@ -10,7 +10,7 @@ import { memoryRoot } from 'dsh-lpipe-memory/paths'
 
 import { RULES_VERSION, buildTurn, groupTurns, textsOf } from './build.mjs'
 import { canExtract, loadConfig, routeOf, saveConfig } from './config.mjs'
-import { createExtractor, turnSource } from './llm.mjs'
+import { MATCH_VERSION, createExtractor, turnSource } from './llm.mjs'
 import { starmapRoot } from './paths.mjs'
 import { createQueries } from './query.mjs'
 import { createStarmapRpcHandler, registerStarmapRpc } from './rpc.mjs'
@@ -107,6 +107,16 @@ export function apply(ctx, options = {}) {
    * 那样旧星表就会一直留在盘上，界面显示「全亮」。
    * 返回 true 表示这次真的清过库。
    */
+  /** 把账本换个名字归档：不删数据，但下一次从空账开始记。 */
+  const retireLedger = (name) => {
+    try {
+      const file = join(root, name)
+      if (statSync(file).size > 0) renameSync(file, `${file}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    } catch {
+      // 没有这个文件就跳过。
+    }
+  }
+
   const reconcileFormat = () => {
     const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
     const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
@@ -117,9 +127,19 @@ export function apply(ctx, options = {}) {
       // 全新安装：只记版本，不喊「清空」。
       repo.setMemoryFormat(format)
       repo.setRules(RULES_VERSION)
+      repo.setMatch(MATCH_VERSION)
       return false
     }
-    if (builtWith === format && builtRules === RULES_VERSION) return false
+    if (builtWith === format && builtRules === RULES_VERSION) {
+      // 规则没动，但「名字算不算在原文里」的口径变了：旧拒绝清单是按旧口径判的，换新。
+      const builtMatch = Number.isInteger(repo.state?.match) ? repo.state.match : 1
+      if (builtMatch !== MATCH_VERSION) {
+        info(`[dsh-lpipe-starmap] 匹配口径 ${builtMatch} → ${MATCH_VERSION}：拒绝清单换新（星星不动）`)
+        retireLedger('rejects.jsonl')
+        repo.setMatch(MATCH_VERSION)
+      }
+      return false
+    }
 
     try {
       info(
@@ -129,18 +149,12 @@ export function apply(ctx, options = {}) {
       repo.reset()
       // 旧星表作废，用量账本也一起换新：不然面板上还挂着上一套规则花掉的 token，看着像新规则烧的。
       // 用量账本与拒绝清单都跟着规则一起换新：上一套规则的账不该算到这一套头上。
-      for (const name of ['usage.jsonl', 'rejects.jsonl']) {
-        try {
-          const file = join(root, name)
-          if (statSync(file).size > 0) renameSync(file, `${file}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`)
-        } catch {
-          // 没有这个文件就跳过。
-        }
-      }
+      for (const name of ['usage.jsonl', 'rejects.jsonl']) retireLedger(name)
       memory.reload()
       repo.reload()
       repo.setMemoryFormat(format)
       repo.setRules(RULES_VERSION)
+      repo.setMatch(MATCH_VERSION)
       return true
     } catch (error) {
       warn(`[dsh-lpipe-starmap] 清空旧索引失败：${error?.message ?? error}`)
