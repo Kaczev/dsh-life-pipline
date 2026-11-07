@@ -34,6 +34,12 @@ test('component loads, registers four tools and the prompt guidance', () => {
   assert.equal(name, 'dsh-lpipe-chat');
   assert.deepEqual(registrations.tools.sort(), ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
   assert.equal(registrations.promptsSection[0].name, 'dsh-lpipe-chat');
+  const guidance = registrations.promptsSection[0];
+  assert.equal(guidance.interpolate, false);
+  assert.ok(guidance.text.startsWith('## WeChat and QQ conversations\n\n'));
+  assert.match(guidance.text, /do not call chat_send unless the user explicitly asks/);
+  assert.match(guidance.text, /nothing else is still running or promised/);
+  assert.match(guidance.text, /do not call ask_user_question/);
   assert.equal(registrations.promptsContext.length, 0, 'the rules belong in the system prompt, not runtime context');
   assert.equal(registrations.effects.length, 2);
   // No credentials: nothing connects, so installing cannot fight dsh-im for the channel.

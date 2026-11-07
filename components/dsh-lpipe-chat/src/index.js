@@ -172,6 +172,7 @@ export function apply(ctx, config) {
         order: 700,
         interpolate: false,
         text: [
+          '## WeChat and QQ conversations',
           // 先划边界：这不是「通了微信就随时给他发消息」的授权。
           'WeChat and QQ reach you only through dsh-lpipe-chat notices: a background message whose lines start with `[微信 · User]` or `[QQ · User]`. A burst arrives bundled as one notice.',
           'Only a turn opened by such a notice is an IM conversation. In every other turn — an ordinary Harness conversation, a wake notice, a scheduled message, or anything the user types in the Harness window — do not call chat_send unless the user explicitly asks you to send something to WeChat or QQ. The Harness window is the channel; jumping to IM unasked is wrong even when the channel is connected.',
@@ -180,7 +181,7 @@ export function apply(ctx, config) {
           'After replying with chat_send, do not repeat the same words in the Harness reply; different information is fine.',
           'Pass completed: true to chat_send only when this notice turn is the whole answer AND nothing else is still running or promised in the session, so the turn can end there instead of spending another request. If the owner wrote while you were in the middle of a task, or you told them you would keep working, send the reply WITHOUT completed and then carry on with that work; marking it complete ends the activity and strands whatever was in progress.',
           'A turn started by a dsh-lpipe-chat notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI. Ask in plain text over the same channel instead.',
-        ].join(' '),
+        ].join('\n\n'),
       });
     } catch (error) {
       log.warn(`[life-chat] system prompt guidance unavailable: ${error?.message ?? error}`);

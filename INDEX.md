@@ -23,7 +23,7 @@
   - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` 定义与执行。
   - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
   - [src/rpc.mjs](components/dsh-lpipe-recall/src/rpc.mjs)：`/api/dsh-lpipe-recall` 的 `recall.config` / `recall.config.save`。
-  - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、预注入、RPC 注册及可见回忆结果去重。
+  - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、主动回忆系统指引、预注入、RPC 注册及可见回忆结果去重。
   - [client/panel.js](components/dsh-lpipe-recall/client/panel.js)：设置页里的「回忆管线」块（五项，一行排完，支持 K/M 简写）；构建到 [lib/client.js](components/dsh-lpipe-recall/lib/client.js)。
   - [scripts/build-client.mjs](components/dsh-lpipe-recall/scripts/build-client.mjs)：把面板包成宿主的客户端模块壳。
   - [test/open.test.mjs](components/dsh-lpipe-recall/test/open.test.mjs) / [test/index.test.mjs](components/dsh-lpipe-recall/test/index.test.mjs)：区间、限额、事件去重与真实存储查询回归。
