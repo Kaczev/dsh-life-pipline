@@ -79,21 +79,27 @@ export function sentenceScore(text, flicker) {
 
 function fragmentSentences({ reader, candidate, flicker, limit }) {
   const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn && isSpokenRow(row))
-  const scored = []
+  // 句子 id = 句在这一片段里的序号（1 起）。它只是片段内的坐标，跨片段没有意义——
+  // 模型要深挖时报的是「仓库 + 片段 + 句子」三个 id，缺一个都定位不到。
+  const all = []
   for (const row of rows) {
     const text = typeof row.text === 'string' ? row.text : ''
     if (!text) continue
     for (const sentence of pieces(text)) {
       const { score, exact } = sentenceScore(sentence, flicker)
-      if (score > 0 && exact > 0) scored.push({ score, at: row.at ?? candidate.at, text: sentence })
+      all.push({ id: all.length + 1, score, exact, at: row.at ?? candidate.at, text: sentence })
     }
   }
-  if (scored.length === 0) return { total: 0, lines: [] }
+  const scored = all.filter((entry) => entry.score > 0 && entry.exact > 0)
+  if (scored.length === 0) return { total: all.length, lines: [] }
   const top = [...scored].sort((a, b) => b.score - a.score).slice(0, limit)
-  top.sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+  top.sort((a, b) => a.id - b.id)
   return {
-    total: scored.length,
-    lines: top.map((entry) => (entry.text.length > MAX_SENTENCE_CHARS ? `${entry.text.slice(0, MAX_SENTENCE_CHARS)}…` : entry.text)),
+    total: all.length,
+    lines: top.map((entry) => ({
+      id: entry.id,
+      text: entry.text.length > MAX_SENTENCE_CHARS ? `${entry.text.slice(0, MAX_SENTENCE_CHARS)}…` : entry.text,
+    })),
   }
 }
 
@@ -115,8 +121,10 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
     })
     if (lines.length === 0) continue
     const when = clockOf(candidate.at)
-    const head = `第 ${index + 1} 段｜会话 ${shortSession(candidate.session)} · 第 ${candidate.turn} 轮${when ? ` · ${when}` : ''}（共 ${total} 句，这里摆出 ${lines.length} 句）`
-    blocks.push(`${head}\n……${lines.join('……')}……`)
+    // 三个 id：仓库（会话 id 全写）、片段（轮号）、句子（片段内序号）。句子的序号挂在
+    // 每一句前面——摆出来的几句经常是不连续的，只在头上写一个区间反而指不准。
+    const head = `第 ${index + 1} 段｜仓库 ${candidate.session} · 片段 ${candidate.turn}${when ? ` · ${when}` : ''}（共 ${total} 句，这里摆出 ${lines.length} 句）`
+    blocks.push(`${head}\n……${lines.map((line) => `〔${line.id}〕${line.text}`).join('……')}……`)
   }
   if (blocks.length === 0) return ''
   const opening = '〔回忆 · 模糊〕下面几段来自更早的记忆，不是这次对话里说过的话。也许相关，也许只是像。'

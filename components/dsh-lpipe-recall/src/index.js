@@ -158,11 +158,32 @@ export function charsOf(rows) {
  * 没有这一步，每一轮都会把同一段旧记忆重新注入一遍——用户看到的就是
  * 「怎么老是这两段」。
  */
-export function pickFresh(candidates, ledger, now, coolChars) {
-  return (candidates ?? []).filter((entry) => {
-    const at = ledger?.get?.(entry.key)
-    return !(Number.isFinite(at) && now - at < coolChars)
-  })
+/**
+ * 上下文里已经摆过哪些片段。
+ *
+ * 不再维护账本：模糊回忆的块头写着 `«会话#轮»`，模型看见的就是这些记号；
+ * 把这一次请求的 messages 扫一遍，就能知道「哪些记忆此刻已经在他眼前」。
+ * 出了上下文（被压缩掉、或者滑出窗口）自然就不再算「摆过」。
+ */
+export function keysInContext(messages) {
+  const found = new Set()
+  const pattern = /仓库\s+(\S+)\s*·\s*片段\s+(\d+)/g
+  for (const message of messages ?? []) {
+    const content = message?.content
+    const texts = Array.isArray(content)
+      ? content.filter((part) => typeof part?.text === 'string').map((part) => part.text)
+      : [typeof message?.text === 'string' ? message.text : '']
+    for (const text of texts) {
+      if (!text) continue
+      pattern.lastIndex = 0
+      let hit = pattern.exec(text)
+      while (hit) {
+        found.add(`${hit[1]}#${hit[2]}`)
+        hit = pattern.exec(text)
+      }
+    }
+  }
+  return found
 }
 
 export function splitWindows(text, { backgroundChars, foregroundChars }) {
@@ -207,8 +228,6 @@ export function activityTextOf(event) {
   return ''
 }
 
-export const QUIET_MS = 10 * 60 * 1000
-
 export function createTriggerHandler({
   compose,
   deliver,
@@ -219,10 +238,6 @@ export function createTriggerHandler({
 }) {
   const seen = new Set()
   const secondCount = new Map()
-  // 同一块回忆刚摆过就不再摆：账本按「会话字符钟」判冷却，同一轮里连跑两步时
-  // 字符钟还没往前走，账本会放行，于是同一段话被摆两次。这里按内容再兜一层。
-  let lastBlock = ''
-  let lastAt = 0
 
   const evaluate = (sessionId, text) => {
     let block = ''
@@ -234,13 +249,6 @@ export function createTriggerHandler({
       return
     }
     if (!block) return
-    const at = Date.now()
-    if (block === lastBlock && at - lastAt < QUIET_MS) {
-      note({ session: sessionId, skip: 'duplicate-block', chars: block.length })
-      return
-    }
-    lastBlock = block
-    lastAt = at
     // 能同步投就同步投：这个回调是在消息落盘时触发的，越早塞进去，
     // 越可能在第一次模型请求装配之前被看见。
     try {
@@ -380,35 +388,6 @@ export function apply(ctx, options = {}) {
     return rows
   }
 
-  const recalledFile = join(recallDir, 'recalled.jsonl')
-  let recalled = null
-
-  const loadRecalled = () => {
-    if (recalled) return recalled
-    recalled = new Map()
-    try {
-      for (const line of readFileSync(recalledFile, 'utf8').split('\n')) {
-        if (!line.trim()) continue
-        const entry = JSON.parse(line)
-        for (const key of entry.keys ?? []) recalled.set(key, Number(entry.chars) || 0)
-      }
-    } catch {
-      /* 还没有账本 */
-    }
-    return recalled
-  }
-
-  const rememberRecalled = (sessionId, keys, chars) => {
-    if (keys.length === 0) return
-    try {
-      mkdirSync(recallDir, { recursive: true })
-      appendFileSync(recalledFile, `${JSON.stringify({ at: Date.now(), session: sessionId, chars, keys })}\n`)
-      for (const key of keys) recalled.set(key, chars)
-    } catch {
-      /* 记不下来就多回忆一次，不算错 */
-    }
-  }
-
   /** 最近的「说话流水」：你说的话、我的思考与回复、工具结果。匹配窗口就切它。 */
   const HISTORY_CHARS = 64000
   const buffers = new Map()
@@ -434,7 +413,7 @@ export function apply(ctx, options = {}) {
     buffers.set(sessionId, next.length > HISTORY_CHARS ? next.slice(-HISTORY_CHARS) : next)
   }
 
-  const compose = (sessionId, raw, report = () => {}) => {
+  const compose = (sessionId, raw, report = () => {}, present = new Set()) => {
     const settings = config()
     if (!settings.enabled) {
       report({ skip: 'disabled' })
@@ -516,10 +495,10 @@ export function apply(ctx, options = {}) {
       return ''
     }
 
-    const now = charsOf(rows)
-    const fresh = pickFresh(candidates, loadRecalled(), now, settings.coolChars)
+    // 已经在他眼前的片段不再摆：记号就写在上一次的块头上。
+    const fresh = candidates.filter((entry) => !present.has(entry.key))
     if (fresh.length === 0) {
-      report({ skip: 'all-recalled', flicker: flicker.size, candidates: candidates.length })
+      report({ skip: 'in-context', flicker: flicker.size, candidates: candidates.length })
       return ''
     }
 
@@ -527,7 +506,6 @@ export function apply(ctx, options = {}) {
     const cached = textCache.get(key)
     if (cached !== undefined) return cached
     const block = renderRecall({ candidates: fresh, flicker, reader, config: settings })
-    if (block) rememberRecalled(sessionId, fresh.map((entry) => entry.key), now)
     if (textCache.size > 32) textCache.clear()
     textCache.set(key, block)
     return block
@@ -597,7 +575,9 @@ export function apply(ctx, options = {}) {
           return decision
         }
         const text = found.text
-        block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }))
+        // 「摆过没有」不再查账本：把这一次请求的 messages 扫一遍，块头上的记号就是凭据。
+        const present = keysInContext(decision.messages)
+        block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }), present)
       } catch (error) {
         warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)
         return decision

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, keysInContext, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -145,11 +145,18 @@ test('正文在 content 分片里，不在 data.text 上', () => {
 })
 
 
-test('摆过一次的片段还在冷却期里就不再重复摆', () => {
-  const ledger = new Map([['s#1', 1000]])
-  const candidates = [{ key: 's#1' }, { key: 's#2' }]
-  assert.deepEqual(pickFresh(candidates, ledger, 1500, 1000).map((entry) => entry.key), ['s#2'], '1000 字前摆过，还在冷却')
-  assert.deepEqual(pickFresh(candidates, ledger, 2500, 1000).map((entry) => entry.key), ['s#1', 's#2'], '冷却期过了可以再摆')
+test('已经摆在上下文里的片段不再重复摆', () => {
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: '第 1 段｜仓库 ddb93dff · 片段 429 ·（共 40 句，这里摆出 4 句）' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '嗯。' }] },
+  ]
+  const candidates = [{ key: 'ddb93dff#429' }, { key: 'ddb93dff#430' }]
+  const present = keysInContext(messages)
+  assert.deepEqual(
+    candidates.filter((entry) => !present.has(entry.key)).map((entry) => entry.key),
+    ['ddb93dff#430'],
+    '块头上的记号已经在这段上下文里，就不再摆',
+  )
   assert.equal(charsOf([{ text: 'abc' }, { kind: 'tool/call', arguments: '{}' }]), 5)
 })
 
@@ -205,22 +212,3 @@ test('触发源从这一次请求的 messages 里认：step 1 时它还没进 se
 })
 
 
-test('同一块回忆连着来两次，只摆一次', async () => {
-  const delivered = []
-  let block = '〔回忆 · 模糊〕同一段旧事'
-  const handler = createTriggerHandler({
-    compose: () => block,
-    deliver: (sessionId, text) => delivered.push(text),
-  })
-  const said = (seq, text = '嗯') => ({ seq, type: 'user/message', data: { text, source: { kind: 'user' } } })
-
-  handler({ id: 's1' }, said(1))
-  handler({ id: 's1' }, said(2))
-  await Promise.resolve()
-  assert.equal(delivered.length, 1, '内容一模一样，第二次不投')
-
-  block = '〔回忆 · 模糊〕换了一段'
-  handler({ id: 's1' }, said(3))
-  await Promise.resolve()
-  assert.equal(delivered.length, 2, '换了一段就照常投')
-})

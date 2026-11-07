@@ -37,14 +37,17 @@ test('模糊回忆照抄原句、用省略号连接，并带上是哪一段', ()
     ],
   })
   const block = renderRecall({
-    candidates: [{ key: 'session-aadf6fa4-1234#7', session: 'session-aadf6fa4-1234', turn: 7, at: Date.UTC(2026, 8, 16, 8, 24), stars: ['s_a', 's_b'], strength: 3.4 }],
+    candidates: [
+      { key: 'session-aadf6fa4-1234#7', session: 'session-aadf6fa4-1234', turn: 7, from: 5, to: 7, at: Date.UTC(2026, 8, 16, 8, 24), stars: ['s_a', 's_b'], strength: 3.4 },
+    ],
     flicker,
     reader,
     config,
   })
   assert.match(block, /〔回忆 · 模糊〕/)
   assert.match(block, /第 1 段/)
-  assert.match(block, /第 7 轮/)
+  assert.match(block, /仓库 session-aadf6fa4-1234 · 片段 7/)
+  assert.match(block, /〔1〕记忆管线开工。/, '句子 id 挂在每一句前面')
   assert.match(block, /……/)
   assert.ok(block.includes('记忆管线开工'))
   assert.ok(!block.includes('今天天气不错'), '没点亮星的句子不该出现')
