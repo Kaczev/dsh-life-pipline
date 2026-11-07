@@ -82,6 +82,38 @@ export function recentText(rows, matchChars) {
  *
  * 单独抽出来是为了能测——真正的组装与投递都被换成参数，这里只管「该不该、投什么」。
  */
+/**
+ * 拿去点亮星星的文本：32K 之内的**所有触发源**，不只是最新那一条。
+ *
+ * 一行一行往前收：只认来源在白名单里、又不是自然唤醒的 `user/message`，
+ * 收够 `matchChars` 就停；最后把当前这条（记忆层还没写进去的）接在末尾。
+ */
+/** 唤醒分两种：自然醒来不该触发回忆，主动安排的要。宿主给的措辞可能写作「自主」或「自然」。 */
+export function isNaturalWake(source) {
+  if (source?.kind !== 'dsh-lpipe-wake') return false
+  return /自主|自然/.test(String(source?.summary ?? ''))
+}
+
+export function matchTextOf(rows, current, matchChars) {
+  const chunks = []
+  let size = 0
+  for (let index = rows.length - 1; index >= 0 && size < matchChars; index -= 1) {
+    const row = rows[index]
+    if (row?.kind !== 'user/message') continue
+    const kind = row?.source?.kind
+    if (!TRIGGER_KINDS.has(kind)) continue
+    if (isNaturalWake(row?.source)) continue
+    const text = typeof row?.text === 'string' ? row.text : ''
+    if (!text.trim()) continue
+    chunks.push(text)
+    size += text.length
+  }
+  chunks.reverse()
+  chunks.push(current)
+  const joined = chunks.join('\n')
+  return joined.length > matchChars ? joined.slice(-matchChars) : joined
+}
+
 export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {} }) {
   const seen = new Set()
   return (session, event) => {
@@ -89,7 +121,7 @@ export function createTriggerHandler({ compose, deliver, warn = () => {}, note =
     const source = event?.data?.source ?? {}
     if (!TRIGGER_KINDS.has(source.kind)) return
     // 自然唤醒不触发回忆：醒来的那一下本来就是自己想想。
-    if (source.kind === 'dsh-lpipe-wake' && String(source.summary ?? '').includes('自主')) return
+    if (isNaturalWake(source)) return
     const sessionId = session?.id ?? ''
     if (!sessionId) return
     const key = `${sessionId}#${event.seq ?? event.id ?? ''}`
@@ -187,15 +219,16 @@ export function apply(ctx, options = {}) {
       return ''
     }
     if (!sessionId) return ''
-    // 长消息（聊天批量合并、粘贴的日志）只取末尾 `matchChars`：越近越算数。
-    const text = raw.length > settings.matchChars ? raw.slice(-settings.matchChars) : raw
-    if (!text.trim()) return ''
     let rows = []
     try {
       rows = rowsNow(sessionId)
     } catch {
       return ''
     }
+
+    // 32K 窗口里所有触发源一起点亮，不只是最新那一条。
+    const text = matchTextOf(rows, raw, settings.matchChars)
+    if (!text.trim()) return ''
 
     const store = repoNow()
     if (!store || store.stars.size === 0) {

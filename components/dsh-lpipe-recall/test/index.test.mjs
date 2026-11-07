@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, createTriggerHandler, recentText, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, commonStars, createTriggerHandler, matchTextOf, recentText, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -92,4 +92,28 @@ test('触发源来了才注入，而且只注入一条带自己来源的消息',
   await Promise.resolve()
   assert.equal(delivered.length, 1)
   assert.deepEqual(delivered[0], { sessionId: 's1', block: '〔回忆 · 模糊〕s1 记得雪糕' })
+})
+
+
+test('点亮星星用的是 32K 里所有触发源，不只是最新一条', () => {
+  const row = (kind, source, text) => ({ kind, source, text })
+  const rows = [
+    row('user/message', { kind: 'user' }, '最早的我自己打字'),
+    row('user/message', { kind: 'time-context' }, 'Time sampled while preparing turn 1'),
+    row('assistant/message', { kind: 'assistant' }, '我的回复不算触发源'),
+    row('tool/result', { kind: 'tool' }, '工具输出也不算'),
+    row('user/message', { kind: 'dsh-lpipe-chat' }, '微信发来的那句'),
+    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }, '主动醒来那句'),
+    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自然醒来' }, '自己醒来那句'),
+  ]
+  const text = matchTextOf(rows, '现在这一句', 1000)
+  assert.equal(
+    text,
+    '最早的我自己打字\n微信发来的那句\n主动醒来那句\n现在这一句',
+    '时间戳、助手、工具、自然唤醒都不进来',
+  )
+  // 收够字数就从最早的那头截掉，当前这句永远在末尾
+  const short = matchTextOf(rows, '现在这一句', 5)
+  assert.equal(short, '现在这一句', '收够字数就从最早的那头截掉，当前这句永远在末尾')
+  assert.equal(matchTextOf([], '', 100), '')
 })
