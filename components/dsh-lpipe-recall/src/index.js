@@ -12,6 +12,8 @@ import { isSpokenRow, renderRecall } from './render.mjs'
 export const name = 'dsh-lpipe-recall'
 
 /** 能开启一轮、值得回忆的来源。自然唤醒不在其中（见规划文档 §3）。 */
+export const inject = ['agents']
+
 export const TRIGGER_KINDS = new Set(['user', 'dsh-lpipe-chat', 'dsh-lpipe-wake'])
 
 /**
@@ -533,6 +535,7 @@ export function apply(ctx, options = {}) {
   ctx.on(
     'agent/pre-step',
     async ({ agent, turn, step, signal }, next) => {
+      noteRun({ event: 'pre-step', turn, step })
       const decision = await next()
       if (decision?.kind === 'reject' || signal?.aborted) return decision
       // 一轮只有第一次请求需要回忆：后面几步眼前已经有它了。
