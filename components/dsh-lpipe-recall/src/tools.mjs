@@ -1,10 +1,9 @@
-import { MAX_SENTENCES, openRange, parseRecallId } from './open.mjs'
+import { MAX_SENTENCES, openRange, parsePosition } from './open.mjs'
 
 /**
  * 主动深挖的记忆工具：模型手里只有「模糊回忆」摆出来的那几句，想多读就读这里。
  *
- * 只读：不改记忆、不改星图、不写账本。被翻过的片段靠「返回正文里带着 id」
- * 自动算作已经在上下文里（下一次被动回忆会跳过它），不需要额外的记账。
+ * 只读：不改记忆、不改星图、不写账本。两个工具的可见结果都参与已读排除。
  */
 export function createRecallTools({ reader, compose = null }) {
   return [
@@ -39,8 +38,9 @@ export function createRecallTools({ reader, compose = null }) {
         const query = String(args?.query ?? '').trim()
         if (!query) throw new Error('query is empty')
         if (typeof compose !== 'function') throw new Error('recall is not wired up')
-        const sessionId = exec?.agent?.session?.id ?? exec?.session?.id ?? ''
-        const block = compose(sessionId, query) ?? ''
+        const session = exec?.agent?.session ?? exec?.session
+        const sessionId = session?.id ?? ''
+        const block = await compose(sessionId, query, undefined, undefined, session) ?? ''
         if (!block.trim()) return { text: '（没有想起什么：没有够格的候选片段）', summary: '主动回忆：没有候选' }
         const fragments = (block.match(/lpipe_recall_id\[[^\]]*\]/g) ?? []).length
         return { text: block, summary: `主动回忆：${fragments} 段` }
@@ -49,16 +49,17 @@ export function createRecallTools({ reader, compose = null }) {
     {
       name: 'recall_open',
       description:
-        'Open a fragment of memory and read its original sentences. Pass the id printed on a recalled block (lpipe_recall_id[repo:turn]) or on one of its sentences (lpipe_recall_id[repo:turn:sentence]); give `to` as a second id to read a range. The first and last sentences of the reply carry their full ids — copy the last one as `from` to read further.',
+        '读取旧记忆的原句，可跨片段。仓库单独填写，起止位置用“片段ID:句子ID”；返回包含两个端点的区间及下一页坐标。',
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          from: { type: 'string', description: 'Starting id, e.g. lpipe_recall_id[deepseek-web-abc:858:12]. A bare fragment id starts at its first sentence.' },
-          to: { type: 'string', description: 'Optional ending id (same shape). Inclusive.' },
-          count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: 'How many sentences to read when `to` is omitted. Default 6.' },
+          repo: { type: 'string', description: '记忆仓库 ID，即模糊回忆 lpipe_recall_id 中第一个冒号之前的部分。' },
+          from: { type: 'string', description: '起点“片段ID:句子ID”，例如 858:12（包含该句）。' },
+          to: { type: 'string', description: '可选终点“片段ID:句子ID”（包含该句），可跨片段。' },
+          count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: '省略 to 时读取的句数，默认 6，范围 1–40。' },
         },
-        required: ['from'],
+        required: ['repo', 'from'],
       },
       output: {
         schema: {
@@ -73,28 +74,14 @@ export function createRecallTools({ reader, compose = null }) {
         render: (_args, value) => [{ type: 'text', text: value.text }],
       },
       async execute(args) {
-        const from = parseRecallId(args?.from)
-        if (!from) {
-          throw new Error('from must look like lpipe_recall_id[repo:turn] or lpipe_recall_id[repo:turn:sentence]')
-        }
-        const to = args?.to ? parseRecallId(args.to) : null
-        if (args?.to && !to) throw new Error('to must look like lpipe_recall_id[repo:turn] or lpipe_recall_id[repo:turn:sentence]')
-        if (to && (to.session !== from.session || to.turn !== from.turn)) {
-          throw new Error('from and to must point into the same fragment')
-        }
-        const opened = openRange({
-          reader,
-          session: from.session,
-          turn: from.turn,
-          from: from.sentence ?? 1,
-          to: to?.sentence ?? null,
-          count: args?.count,
-        })
-        if (!opened) throw new Error('that fragment has no readable sentences')
-        return {
-          text: opened.text,
-          summary: `打开 ${from.session}:${from.turn} 第 ${opened.start}–${opened.end} 句（共 ${opened.total} 句）`,
-        }
+        const repo = args?.repo
+        if (typeof repo !== 'string' || !repo.trim() || /[\s:\[\]]/.test(repo)) throw new Error('repo must be a memory repository ID')
+        const from = parsePosition(args?.from)
+        const to = args?.to === undefined ? null : parsePosition(args.to)
+        if (!from || (args?.to !== undefined && !to)) throw new Error('from/to must look like turn:sentence with positive integer IDs')
+        reader.reload?.()
+        const opened = openRange({ reader, session: repo, from, to, count: args?.count ?? 6 })
+        return { text: opened.text, summary: `打开 ${repo} ${opened.start}–${opened.end}` }
       },
     },
   ]

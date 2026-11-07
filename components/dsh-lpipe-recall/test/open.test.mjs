@@ -1,106 +1,93 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fragmentSentencesOf, openRange, parseRecallId, recallIdOf } from '../src/open.mjs'
+import { MAX_CHARS, fragmentSentencesOf, openRange, parsePosition, parseRecallId } from '../src/open.mjs'
 import { createRecallTools } from '../src/tools.mjs'
 
-const readerOf = (rows) => ({
-  rows: (session) => rows.filter((row) => (row.session ?? 'repo') === session),
+const row = (turn, text, extra = {}) => ({ turn, text, kind: 'user/message', source: { kind: 'user' }, ...extra })
+const readerOf = (rows) => ({ rows: (session) => session === 'repo' ? rows : [] })
+const open = (rows, options = {}) => openRange({ reader: readerOf(rows), session: 'repo', from: { turn: 5, sentence: 1 }, ...options })
+
+test('坐标必须是正安全整数，完整 ID 仍能解析', () => {
+  assert.deepEqual(parsePosition('858:12'), { turn: 858, sentence: 12 })
+  for (const value of ['0:1', '1:0', '-1:2', '1.2:3', '9007199254740992:1', 'repo:5:1', null]) assert.equal(parsePosition(value), null)
+  assert.deepEqual(parseRecallId('lpipe_recall_id[repo:5:1]'), { session: 'repo', turn: 5, sentence: 1 })
 })
 
-const row = (turn, seq, text, extra = {}) => ({
-  session: 'repo',
-  turn,
-  seq,
-  at: 1_700_000_000_000 + seq,
-  kind: 'user/message',
-  source: { kind: 'user' },
-  text,
-  ...extra,
+test('与模糊回忆切句口径一致，排除工具和代码', () => {
+  const reader = readerOf([row(5, '一。二。'), row(5, '工具', { kind: 'tool/result' }), row(5, '```js\na=1\n```'), row(6, '别的轮次。')])
+  assert.deepEqual(fragmentSentencesOf(reader, 'repo', 5).map((line) => line.text), ['一。', '二。'])
 })
 
-test('认 id：片段级、句子级、外面包了话都行', () => {
-  assert.deepEqual(parseRecallId('lpipe_recall_id[abc:12]'), { session: 'abc', turn: 12, sentence: null })
-  assert.deepEqual(parseRecallId('〔3〕lpipe_recall_id[abc:12:3] 这句话'), { session: 'abc', turn: 12, sentence: 3 })
-  assert.equal(parseRecallId('第 1 段｜deepseek-web-1:56'), null, '没有 lpipe_recall_id 就不认')
-  assert.equal(parseRecallId(null), null)
-  assert.equal(recallIdOf('abc', 12), 'lpipe_recall_id[abc:12]')
-  assert.equal(recallIdOf('abc', 12, 3), 'lpipe_recall_id[abc:12:3]')
+test('跨片段区间包含端点；头部列出所有已读片段和总数', () => {
+  const value = open([row(5, '一。二。三。'), row(7, '四。五。'), row(8, '六。')], { from: { turn: 5, sentence: 2 }, to: { turn: 7, sentence: 1 } })
+  assert.match(value.text, /本仓库共 3 个片段/)
+  assert.match(value.text, /lpipe_recall_id\[repo:5\] 本片段共 3 句/)
+  assert.match(value.text, /lpipe_recall_id\[repo:7\] 本片段共 2 句/)
+  assert.match(value.text, /lpipe_recall_id\[repo:5:2\] 二。/)
+  assert.match(value.text, /lpipe_recall_id\[repo:7:1\] 四。/)
+  assert.doesNotMatch(value.text, /五。/)
+  assert.match(value.text, /下一页 from=7:2/)
+  assert.deepEqual(value.turns, [5, 7])
 })
 
-test('切句：一个片段里的句子从 1 编号，只认说过的话', () => {
-  const reader = readerOf([
-    row(5, 1, '第一句。第二句！'),
-    row(5, 2, '第三句？', { kind: 'tool/result' }),
-    row(6, 3, '别的轮次'),
-    row(5, 4, '\n```js\nconst a = 1\n```\n', { kind: 'assistant/message', source: { kind: 'assistant' } }),
-  ])
-  const lines = fragmentSentencesOf(reader, 'repo', 5)
-  assert.deepEqual(lines.map((line) => line.text), ['第一句。', '第二句！'])
-  assert.deepEqual(lines.map((line) => line.id), [1, 2])
+test('按 count 翻页跨轮且不重复尾句；同一句区间可读', () => {
+  const rows = [row(5, '一。二。'), row(6, '三。四。')]
+  const value = open(rows, { count: 2 })
+  assert.match(value.text, /下一页 from=6:1/)
+  const next = open(rows, { from: { turn: 6, sentence: 1 }, count: 2 })
+  assert.doesNotMatch(next.text, /二。|下一页/)
+  assert.equal(open(rows, { to: { turn: 5, sentence: 1 } }).end, '5:1')
 })
 
-test('打开：只给 from 就读一段，首尾句带完整 id', () => {
-  const reader = readerOf([row(5, 1, '一。二。三。四。五。六。七。八。')])
-  const opened = openRange({ reader, session: 'repo', turn: 5, from: 2, count: 3 })
-  assert.equal(opened.start, 2)
-  assert.equal(opened.end, 4)
-  assert.equal(opened.total, 8)
-  assert.equal(opened.left, 4)
-  assert.match(opened.text, /lpipe_recall_id\[repo:5\] 第 2–4 句，本片段共 8 句/)
-  assert.match(opened.text, /lpipe_recall_id\[repo:5:2\] 二。/)
-  assert.match(opened.text, /lpipe_recall_id\[repo:5:4\] 四。/)
-  assert.match(opened.text, /〔3〕三。/)
+test('不存在的起止和反向区间报错，不静默夹到尾句', () => {
+  const rows = [row(5, '一。二。')]
+  assert.throws(() => open(rows, { from: { turn: 5, sentence: 3 } }), /missing/)
+  assert.throws(() => open(rows, { to: { turn: 9, sentence: 1 } }), /missing/)
+  assert.throws(() => open(rows, { from: { turn: 5, sentence: 2 }, to: { turn: 5, sentence: 1 } }), /precede/)
+  for (const count of [0, 41, 1.5]) assert.throws(() => open(rows, { count }), /count/)
 })
 
-test('打开：用句子 id 指定区间，超长会截断并说清楚', () => {
-  // 八十句、每句一百多字，一口气读完会超过 8000 字的上限。
-  const long = Array.from({ length: 80 }, () => `${'字'.repeat(250)}。`).join('')
-  const reader = readerOf([row(5, 1, long)])
-  const opened = openRange({ reader, session: 'repo', turn: 5, from: 1, to: 80 })
-  assert.equal(opened.truncated, true)
-  assert.ok(opened.end < 80, '放不下就停在那儿')
-  assert.match(opened.text, /已截断/)
+test('40 句截断明确标记，8000 字包含头部、ID 和翻页提示', () => {
+  const value = open([row(5, '一。'.repeat(80))], { to: { turn: 5, sentence: 80 } })
+  assert.equal(value.end, '5:40')
+  assert.equal(value.truncated, true)
+  assert.match(value.text, /已截断/)
+  assert.match(value.text, /下一页 from=5:41/)
+  const large = open([row(5, `${'字'.repeat(250)}。`.repeat(80))], { to: { turn: 5, sentence: 80 } })
+  assert.ok(large.text.length <= MAX_CHARS)
+  assert.equal(large.truncated, true)
+  const single = open([row(5, `${'字'.repeat(250)}。`)], { maxChars: 180 })
+  assert.ok(single.text.length <= 180)
+  assert.match(single.text, /单句过长.*未完整返回/)
+  assert.doesNotMatch(single.text, /下一页/)
 })
 
-test('recall_open：拿 id 打开原文；跨片段就报错', async () => {
-  const reader = readerOf([row(5, 1, '一。二。三。')])
+test('recall_open 使用独立仓库和起止坐标，读取前刷新索引', async () => {
+  const reader = readerOf([row(5, '一。二。'), row(6, '三。')])
+  let reloaded = 0
+  reader.reload = () => reloaded++
   const tool = createRecallTools({ reader }).find((entry) => entry.name === 'recall_open')
-  assert.ok(tool, 'recall_open 应该注册在工具表里')
-
-  const value = await tool.execute({ from: 'lpipe_recall_id[repo:5:2]', count: 2 })
-  assert.match(value.text, /二。/)
-  assert.match(value.summary, /第 2–3 句/)
-
-  await assert.rejects(() => tool.execute({ from: '不是 id' }), /lpipe_recall_id/)
-  await assert.rejects(
-    () => tool.execute({ from: 'lpipe_recall_id[repo:5:1]', to: 'lpipe_recall_id[repo:6:1]' }),
-    /same fragment/,
-  )
+  assert.deepEqual(tool.parameters.required, ['repo', 'from'])
+  const result = await tool.execute({ repo: 'repo', from: '5:2', to: '6:1' })
+  assert.match(result.text, /二。/)
+  assert.match(result.text, /三。/)
+  assert.equal(reloaded, 1)
+  await assert.rejects(() => tool.execute({ repo: 'repo', from: '错误' }), /turn:sentence/)
+  await assert.rejects(() => tool.execute({ repo: '', from: '5:1' }), /repo/)
 })
 
-
-
-
-test('recall_fragments：把 query 当成输入源，交给同一条回忆链路', async () => {
+test('recall_fragments 传递查询与会话，支持异步组装，空查询报错', async () => {
+  const session = { id: 's1' }
   const seen = []
-  const tools = createRecallTools({
-    reader: { rows: () => [] },
-    compose: (sessionId, query) => {
-      seen.push({ sessionId, query })
-      return '第 1 段｜lpipe_recall_id[repo:7], 11-01 09:00, 共 4 句，展示 2 句\n〔1〕嗯。'
-    },
-  })
-  const tool = tools.find((entry) => entry.name === 'recall_fragments')
-  assert.ok(tool)
-  const value = await tool.execute({ query: '雪糕' }, { agent: { session: { id: 's1' } } })
-  assert.deepEqual(seen, [{ sessionId: 's1', query: '雪糕' }])
-  assert.match(value.text, /lpipe_recall_id\[repo:7\]/)
-  assert.match(value.summary, /1 段/)
-
-  const empty = await createRecallTools({ reader: { rows: () => [] }, compose: () => '' }).find(
-    (entry) => entry.name === 'recall_fragments',
-  ).execute({ query: '雪糕' })
-  assert.match(empty.text, /没有想起什么/)
-
-  await assert.rejects(() => tool.execute({ query: '   ' }), /query is empty/)
+  const tool = createRecallTools({ reader: readerOf([]), compose: async (...args) => {
+    seen.push(args)
+    return 'lpipe_recall_id[repo:5]'
+  } }).find((entry) => entry.name === 'recall_fragments')
+  assert.match((await tool.execute({ query: ' 雪糕 ' }, { agent: { session } })).text, /repo:5/)
+  assert.equal(seen[0][0], 's1')
+  assert.equal(seen[0][1], '雪糕')
+  assert.equal(seen[0][4], session)
+  await assert.rejects(() => tool.execute({ query: ' ' }), /query is empty/)
+  const empty = createRecallTools({ reader: readerOf([]), compose: () => '' })[0]
+  assert.match((await empty.execute({ query: '雪糕' })).text, /没有想起什么/)
 })

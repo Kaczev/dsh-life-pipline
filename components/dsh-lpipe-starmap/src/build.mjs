@@ -5,7 +5,7 @@
 // 整轮记 0.5。这样权重永远是确定性的，模型换了也不会飘。
 import { clockOf } from './extract.mjs'
 import { fuzzyStarsIn, starMeta } from './fuzzy.mjs'
-import { cleanStarName, findInSentences } from './llm.mjs'
+import { cleanStarName, findInSentences, foldText } from './llm.mjs'
 import { PIPELINE_SOURCES, isPipelineTool } from './pipeline.mjs'
 import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
@@ -24,9 +24,12 @@ const CJK_MAX = 10
  * 模型偶尔会把整句、公式、量词短语原样搬出来。这些当「星」没有意义：
  * 下一次几乎不可能以完全相同的字面再出现，等于给星图塞了一批一次性噪音。
  */
+export const isSingleLatinStar = (name) => /^\p{Script=Latin}$/u.test(foldText(name))
+
 export function starWorthy(name) {
   const text = String(name ?? '').trim()
   if (!text) return false
+  if (isSingleLatinStar(text)) return false
   if (SYMBOL_ONLY.test(text)) return false
   const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
   if (cjk > CJK_MAX) return false

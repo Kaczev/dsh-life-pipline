@@ -1,3 +1,4 @@
+import { FUZZY_FLOOR, NUMBER_FLOOR } from './match.mjs'
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
 import { foldText } from 'dsh-lpipe-starmap/llm'
 import { splitSentences } from 'dsh-lpipe-starmap/segment'
@@ -60,7 +61,7 @@ export function clockOf(at) {
 
 /**
  * 一句话里落了几颗闪烁星（准确星看名字、模糊星看感觉）。
- * 返回 `exact`：没有准确星的句子不进回忆——只有时间/数字撞上的句子，多半是日志。
+ * 候选准入已保证准确真文星；选句只按承载的星的总亮度，不再额外要求准确星。
  */
 export function sentenceScore(text, flicker) {
   const folded = foldText(text)
@@ -69,7 +70,7 @@ export function sentenceScore(text, flicker) {
   const ids = []
   for (const hit of flicker.values()) {
     if (hit.kind === 'fuzzy') {
-      if (fuzzyStarsIn(text).some((candidate) => fuzzyScore(candidate, hit) >= 0.5)) score += hit.score
+      if (fuzzyStarsIn(text).some((candidate) => candidate.form === hit.form && fuzzyScore(candidate, hit) >= (hit.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR))) score += hit.score
       continue
     }
     const needle = foldText(hit.name)
@@ -101,34 +102,10 @@ function fragmentSentences({ reader, candidate, flicker, limit }) {
       all.push({ id: all.length + 1, score, exact, ids, at: row.at ?? candidate.at, text: sentence })
     }
   }
-  const scored = all.filter((entry) => entry.score > 0 && entry.exact > 0)
-  if (scored.length === 0) return { total: all.length, lines: [] }
-  // 挑哪几句给人看：**先保证「这段为什么被想起来」能看出来**——优先挑覆盖了
-  // 更多「命中星」的句子（贪心覆盖），剩下的位置再按分数补。
-  // 否则会出现「日志、记忆、GitHub 亮了，正文里却一句都没有它们」的错觉。
-  const chosen = []
-  const covered = new Set()
-  const pool = [...scored]
-  while (chosen.length < limit && pool.length > 0) {
-    let best = -1
-    let bestGain = -1
-    for (let index = 0; index < pool.length; index += 1) {
-      const gain = (pool[index].ids ?? []).filter((id) => wanted.has(id) && !covered.has(id)).length
-      if (gain > bestGain || (gain === bestGain && best >= 0 && pool[index].score > pool[best].score)) {
-        best = index
-        bestGain = gain
-      }
-    }
-    if (best < 0 || bestGain <= 0) break
-    const [pick] = pool.splice(best, 1)
-    chosen.push(pick)
-    for (const id of pick.ids ?? []) if (wanted.has(id)) covered.add(id)
-  }
-  if (chosen.length < limit) {
-    const rest = pool.sort((a, b) => b.score - a.score)
-    chosen.push(...rest.slice(0, limit - chosen.length))
-  }
-  const top = chosen.sort((a, b) => a.id - b.id)
+  const top = all.filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.id - b.id)
+    .slice(0, limit)
+    .sort((a, b) => a.id - b.id)
   return {
     total: all.length,
     lines: top.map((entry) => ({

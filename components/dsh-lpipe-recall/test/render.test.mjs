@@ -129,3 +129,11 @@ test('展示的句子要能看出「为什么是这段」：命中星星所在�
   })
   assert.match(text, /顺着日志一条条排查/)
 })
+
+test('选最亮四句而非覆盖最多星，并保持原句序号顺序', () => {
+  const flicker = new Map([['a',{id:'a',name:'亮星',kind:'exact',score:5}],['b',{id:'b',name:'弱星',kind:'exact',score:1}]])
+  const text=renderRecall({candidates:[{session:'s',turn:1,stars:['a','b'],at:0}],flicker,
+    reader:readerOf({s:[{turn:1,kind:'user/message',text:'亮星甲。亮星乙。弱星丙。亮星丁。亮星戊。'}]}),config:{sentencesPerFragment:4}})
+  assert.ok(!text.includes('弱星丙'))
+  assert.match(text,/〔1〕亮星甲。……〔2〕亮星乙。……〔4〕亮星丁。……〔5〕亮星戊。/)
+})

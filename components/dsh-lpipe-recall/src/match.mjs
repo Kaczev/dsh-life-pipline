@@ -13,6 +13,64 @@ export const FUZZY_FLOOR = 0.5
  */
 export const NUMBER_FLOOR = 0.8
 
+/** 长度只给准确星加权，最多翻倍；计 Unicode 字符而不是 UTF-16 单元。 */
+export function lengthWeight(name) {
+  return 1 + Math.min(1, Math.max(0, [...foldText(name)].length - 2) / 10)
+}
+
+/** 按不同片段频率算稀有度，范围 1..2；没有语料统计时不猜。 */
+export function rarityWeights(repo) {
+  const total = repo.turns.size
+  const weights = new Map()
+  if (!total) return weights
+  for (const [id, entries] of repo.byStar) {
+    const count = new Set(entries.map((entry) => entry.key)).size
+    weights.set(id, 1 + Math.log((total + 1) / (Math.min(total, count) + 1)) / Math.log(total + 1))
+  }
+  return weights
+}
+
+/**
+ * 准确星可以局部点亮，但至少连续覆盖 65%，且至少三个汉字或五个 ASCII 字符。
+ * 局部证据平方衰减并减半，不能凭一小段拿走长名称的完整权重。
+ * 不做语义猜测，也不对数字/单字或超长名称展开近似搜索。
+ */
+export function exactMatch(source, name) {
+  return matchFolded(foldText(source), foldText(name))
+}
+
+function matchFolded(folded, needle) {
+  if (!needle) return null
+  const at = folded.lastIndexOf(needle)
+  if (at >= 0) return { similarity: 1, at }
+  const chars = [...needle]
+  if (chars.length < 4 || chars.length > 64 || !/\p{L}/u.test(needle)) return null
+  const minimum = Math.max(/[\u3400-\u9fff]/u.test(needle) ? 3 : 5, Math.ceil(chars.length * 0.65))
+  for (let size = chars.length - 1; size >= minimum; size -= 1) {
+    let last = -1
+    for (let start = 0; start + size <= chars.length; start += 1) {
+      const part = chars.slice(start, start + size).join('')
+      if (!/\p{L}/u.test(part)) continue
+      last = Math.max(last, folded.lastIndexOf(part))
+    }
+    if (last >= 0) return { similarity: 0.5 * (size / chars.length) ** 2, at: last }
+  }
+  return null
+}
+
+/** 真文星优先占有来源；剩余背景星共享与真文等量的全局亮度预算。 */
+export function balanceFlicker(ahead, behind) {
+  const foregroundSum = [...ahead.values()].reduce((sum, hit) => sum + hit.score, 0)
+  const background = [...behind].filter(([id]) => !ahead.has(id))
+  const backgroundSum = background.reduce((sum, [, hit]) => sum + hit.score, 0)
+  const factor = backgroundSum > 0 ? foregroundSum / backgroundSum : 0
+  const flicker = new Map(ahead)
+  if (factor > 0) for (const [id, hit] of background) {
+    flicker.set(id, { ...hit, score: hit.score * factor })
+  }
+  return { flicker, foregroundSum, backgroundSum, factor }
+}
+
 /** 星对象的折叠名缓存：星表是只读快照，同一颗星的折叠结果不会变。 */
 const foldedCache = new WeakMap()
 
@@ -56,7 +114,7 @@ export function positionWeight(at, length) {
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function flickerStars({ text, stars, common = new Set(), offset = 0, total = null, weight = null }) {
+export function flickerStars({ text, stars, common = new Set(), rarity = new Map(), offset = 0, total = null, weight = null }) {
   const source = String(text ?? '')
   const folded = foldText(source)
   // 背景窗口与真文窗口各自是一次调用，位置要放在整窗（32K）里算：
@@ -83,17 +141,19 @@ export function flickerStars({ text, stars, common = new Set(), offset = 0, tota
   }
 
   for (const star of stars ?? []) {
-    if ((star.kind ?? 'exact') !== 'exact') continue
+    if (!['exact', 'common'].includes(star.kind ?? 'exact')) continue
     let needle = foldedCache.get(star)
     if (needle === undefined) {
       needle = foldText(star.name)
       foldedCache.set(star, needle)
     }
     if (!needle) continue
-    const last = folded.lastIndexOf(needle)
-    if (last < 0) continue
-    const base = common.has(star.id) ? COMMON_SOURCE : EXACT_SOURCE
-    keep(star, base * weigh(offset + last, span), last)
+    const match = matchFolded(folded, needle)
+    if (!match) continue
+    const isCommon = common.has(star.id) || star.kind === 'common'
+    const base = isCommon ? COMMON_SOURCE : EXACT_SOURCE
+    const length = isCommon ? 1 : lengthWeight(star.name)
+    keep({ ...star, kind: isCommon ? 'common' : 'exact' }, base * length * (rarity.get(star.id) ?? 1) * match.similarity * weigh(offset + match.at, span), match.at)
   }
 
   const fuzzy = (stars ?? []).filter(
@@ -112,7 +172,7 @@ export function flickerStars({ text, stars, common = new Set(), offset = 0, tota
         if (similarity < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
         // 这里只算「像多少」；一颗星能加多少，还要看这个片段里一共有几颗模糊星
         // （片段内的上限在 candidates.mjs 里按 2/n 压）。
-        keep(star, FUZZY_SOURCE * similarity * weigh(hit.at ?? 0, source.length), hit.at ?? 0)
+        keep(star, FUZZY_SOURCE * (rarity.get(star.id) ?? 1) * similarity * weigh(offset + (hit.at ?? 0), span), hit.at ?? 0)
       }
     }
   }

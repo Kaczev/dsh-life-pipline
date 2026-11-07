@@ -4,8 +4,6 @@ const textOf = (row) => {
   return ''
 }
 
-import { COMMON_SOURCE } from './match.mjs'
-
 export const turnKeyOf = (sessionId, turn) => `${sessionId}#${turn}`
 
 /**
@@ -28,26 +26,16 @@ export function coolTurns({ rows, coolChars }) {
   return cool
 }
 
-/**
- * 候选片段：把闪烁星映射回它出现过的那些轮。
- *
- * 准入两条同时满足——至少 `minStars` 颗不同的闪烁星，且这些星的强度加起来 ≥
- * `minStrength`。同一颗星在一个片段里出现十次也只算一次：片段强度衡量的是
- * 「这段记忆和眼前这段话有多少种联系」，不是「重复了多少遍」。
- */
+/** 仅准确真文星建立候选，其余星只加分；片段内每颗星仅计一次。 */
 export function candidatesOf({
   repo,
   flicker,
   excluded = new Set(),
-  minStars = 1,
-  minStrength = 1,
-  minForeground = 1,
-  fuzzyBudget = 2,
+  minStrength = 0,
   common = new Set(),
-  commonBudget = 0.4,
   foreground = new Set(),
   current = new Set(),
-  limit = 5,
+  limit = 2,
 }) {
   const buckets = new Map()
   // 第一遍：只有「真文窗口里的准确星」能建候选。模糊星、通用星、背景星都只配加权，
@@ -79,14 +67,14 @@ export function candidatesOf({
   for (const [id, hit] of flicker) {
     // 真文里的准确星在第一遍已经算过了；其余（背景准确星、模糊星、通用星）到这里补分。
     const isExact = (hit.kind ?? 'exact') === 'exact'
-    if (isExact && foreground.has(id)) continue
+    if (isExact && foreground.has(id) && !common.has(id)) continue
     for (const entry of repo.byStar.get(id) ?? []) {
       const bucket = buckets.get(entry.key)
       if (!bucket || bucket.seen.has(id)) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
       if (hit.kind === 'fuzzy') bucket.fuzzy.push(hit.score)
-      else if (common.has(id)) bucket.common.push(hit.score)
+      else if (hit.kind === 'common' || common.has(id)) bucket.common.push(hit.score)
       else {
         bucket.exact += 1
         bucket.exactScore += hit.score
@@ -98,15 +86,10 @@ export function candidatesOf({
   const out = []
   for (const bucket of buckets.values()) {
     // 桶是由真文准确星建起来的，「至少几颗」不再需要单独判。
-    // 模糊星的总和封顶 `fuzzyBudget`（默认 2），单颗封顶 1；片段里模糊星超过一颗时
-    // 每颗的上限是 `fuzzyBudget / n`——「感觉」再多，也不该顶掉「说到了」。
-    const cap = bucket.fuzzy.length > 1 ? fuzzyBudget / bucket.fuzzy.length : 1
-    // 权重已经在点亮时算好了：真文星 3，背景星按位置从 0 到 2，这里直接相加。
+    // 单星亮度已包含所有系数，片段只求和，不再二次压分。
     bucket.strength = bucket.foregroundScore + bucket.exactScore
-    for (const score of bucket.fuzzy) bucket.strength += Math.min(score, cap)
-    // 通用星的总和也封顶：默认 0.4，等于两颗通用星的份量。
-    const commonCap = bucket.common.length > 1 ? commonBudget / bucket.common.length : COMMON_SOURCE
-    for (const score of bucket.common) bucket.strength += Math.min(score, commonCap)
+    for (const score of bucket.fuzzy) bucket.strength += score
+    for (const score of bucket.common) bucket.strength += score
     if (bucket.strength < minStrength) continue
     const record = repo.turns.get(bucket.key) ?? null
     out.push({
@@ -126,14 +109,11 @@ export function candidatesOf({
       to: record?.to ?? null,
     })
   }
-  // 排序：先看「当前这一句」对上了几颗（你此刻问的是什么），再看真文窗口，
-  // 再比亮度，最后比时间。不这么排，话题热度会盖过问题本身。
+  // 总亮度优先；同分才比较准确真文星数量和时间。
   out.sort(
     (a, b) =>
-      b.current - a.current ||
-      b.currentWeight - a.currentWeight ||
-      b.foreground - a.foreground ||
       b.strength - a.strength ||
+      b.foreground - a.foreground ||
       (b.at ?? 0) - (a.at ?? 0),
   )
   return out.slice(0, Math.max(1, limit))

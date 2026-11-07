@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG = {
   backgroundChars: 16000,
   inputChars: 32000,
   coolChars: 1000000,
-  minStrength: 1,
+  minStrength: 0,
   sentencesPerFragment: 4,
   // 二类触发源（我的思考、中途回复、工具结果）每攒够这么多次才评估一次回忆。
 }
@@ -33,10 +33,10 @@ export function normalizeConfig(raw = {}) {
     enabled: merged.enabled !== false,
     fragments: clamp(merged.fragments, 1, 5, DEFAULT_CONFIG.fragments),
     backgroundChars: clamp(merged.backgroundChars, 8000, 96000, DEFAULT_CONFIG.backgroundChars),
-    foregroundChars: clamp(merged.foregroundChars, 2000, 32000, DEFAULT_CONFIG.foregroundChars),
+    inputChars: clamp(merged.inputChars, 2000, 32000, DEFAULT_CONFIG.inputChars),
     coolChars: clamp(merged.coolChars, 32000, 4000000, DEFAULT_CONFIG.coolChars),
     minStars: clamp(merged.minStars, 1, 6, DEFAULT_CONFIG.minStars),
-    minStrength: Math.max(0, Number(merged.minStrength) || DEFAULT_CONFIG.minStrength),
+    minStrength: Math.max(0, Number(merged.minStrength) || 0),
     sentencesPerFragment: clamp(merged.sentencesPerFragment, 1, 12, DEFAULT_CONFIG.sentencesPerFragment),
   }
 }

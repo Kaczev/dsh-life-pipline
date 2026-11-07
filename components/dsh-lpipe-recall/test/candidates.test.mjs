@@ -54,7 +54,7 @@ test('准入：至少一颗真文闪烁星、强度够', () => {
   assert.equal(fuzzyOnly.length, 0, '光靠数字不上台')
 })
 
-test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时每颗封顶 2/n', () => {
+test('片段直接累加不同星的最终亮度，不再二次封顶', () => {
   const repo = repoOf({
     turns: [{ session: 's', turn: 1, at: 100, from: 0, to: 3, lines: [] }],
     byStar: {
@@ -71,7 +71,7 @@ test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时�
     flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy']]),
     foreground: new Set(['s_exact', 's_f1']),
   })
-  assert.equal(one[0].strength, 1.2 + 1, '只有一颗模糊星时，它最多算 1')
+  assert.equal(one[0].strength, 1.2 + 1.9)
   // 反过来：一颗真文准确星、强度够，现在就算候选（不再要求两颗）。
   const single = candidatesOf({
     repo,
@@ -87,7 +87,7 @@ test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时�
     foreground: new Set(['s_exact', 's_f1', 's_f2', 's_f3']),
   })
   assert.equal(three[0].fuzzy, 3)
-  assert.ok(Math.abs(three[0].strength - (1.2 + 3 * (2 / 3))) < 1e-9, '三颗时每颗最多 2/3，总和 2')
+  assert.ok(Math.abs(three[0].strength - (1.2 + 1.9 + 1.8 + 1.7)) < 1e-9, '各星亮度直接累加')
 })
 
 test('排除冷却片段，按强度排序，同一颗星只算一次', () => {
@@ -134,4 +134,15 @@ test('只在背景窗口里亮起来的星，凑不出一次回忆', () => {
   const flicker = flickerMap([['s_a', 1.2], ['s_b', 1.1]])
   assert.equal(candidatesOf({ repo, flicker, foreground: new Set() }).length, 0, '没有真文星就是不认')
   assert.equal(candidatesOf({ repo, flicker, foreground: new Set(['s_a']) }).length, 1)
+})
+
+test('总亮度优先于命中数量，同分依次比真文星数量与时间', () => {
+  const repo = repoOf({turns:[1,2,3,4].map(turn=>({session:'s',turn,at:turn})), stars:[],
+    byStar:{a:[{key:'s#1'},{key:'s#3'},{key:'s#4'}],b:[{key:'s#1'},{key:'s#3'},{key:'s#4'}],c:[{key:'s#2'}]}})
+  const flicker=flickerMap([['a',1],['b',1],['c',5]])
+  const out=candidatesOf({repo,flicker,foreground:new Set(['a','b','c']),limit:4})
+  assert.deepEqual(out.map(x=>x.turn),[2,4,3,1])
+  const tied=candidatesOf({repo,flicker:flickerMap([['a',1],['b',1],['c',2]]),foreground:new Set(['a','b','c']),limit:4})
+  assert.deepEqual(tied.map(x=>x.turn),[4,3,1,2])
+  assert.equal(candidatesOf({repo,flicker,foreground:new Set(['a']),common:new Set(['a'])}).length,0)
 })

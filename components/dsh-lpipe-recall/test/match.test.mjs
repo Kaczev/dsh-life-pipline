@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { flickerStars, positionWeight } from '../src/match.mjs'
+import { balanceFlicker, flickerStars, positionWeight, lengthWeight, rarityWeights, exactMatch } from '../src/match.mjs'
+
+test('背景预算全局归一：保留相对强弱、真文优先、没有真文就没有背景', () => {
+  const ahead = new Map([['a', { score: 6 }], ['b', { score: 4 }]])
+  const behind = new Map([['a', { score: 100 }], ['c', { score: 30 }], ['d', { score: 10 }]])
+  const { flicker, factor, foregroundSum, backgroundSum } = balanceFlicker(ahead, behind)
+  assert.equal(factor, 0.25)
+  assert.equal(foregroundSum, 10)
+  assert.equal(backgroundSum, 40)
+  assert.equal(flicker.get('a').score, 6)
+  assert.equal(flicker.get('c').score, 7.5)
+  assert.equal(flicker.get('d').score, 2.5)
+  assert.equal(behind.get('c').score, 30, '不修改原始点亮结果')
+  assert.equal(balanceFlicker(new Map(), behind).flicker.size, 0)
+  assert.equal(balanceFlicker(ahead, new Map()).factor, 0)
+  assert.equal(balanceFlicker(ahead, new Map([['c', { score: 1 }]])).factor, 10, '按指定公式可放大，不私自封顶')
+})
 
 const star = (id, name, extra = {}) => ({ id, name, kind: 'exact', form: null, value: null, ...extra })
 
@@ -17,8 +33,8 @@ test('只留最强的一次点亮：同一个词出现十遍，也只记一个�
   const stars = [star('s_a', '记忆管线')]
   const hit = flickerStars({ text: '记忆管线记忆管线', stars })
   assert.equal(hit.size, 1)
-  assert.equal(hit.get('s_a').score, positionWeight(4, 8), '分数是「最后出现的位置」，不是次数之和')
-  assert.ok(hit.get('s_a').score <= 2)
+  assert.equal(hit.get('s_a').score, lengthWeight('记忆管线') * positionWeight(4, 8), '分数是「最后出现的位置」，不是次数之和')
+  assert.ok(hit.get('s_a').score <= 2 * lengthWeight('记忆管线'))
 })
 
 test('通用星只值 0.2：单靠它们凑不出一次回忆', () => {
@@ -65,4 +81,22 @@ test('模糊星靠感觉点亮：20:46 会想起 20:44，648 会想起 648.5', (
 test('两位整数不参与感觉：19 / 23 / 37 在技术对话里到处都是', () => {
   const stars = [{ id: 's_19', name: '19', kind: 'fuzzy', form: 'number', value: 19 }]
   assert.equal(flickerStars({ text: '一共 19 个', stars }).size, 0)
+})
+
+ test('长度封顶、稀有度连续，局部匹配低亮度且不改变准确类别', () => {
+  assert.equal(lengthWeight('星图'), 1)
+  assert.equal(lengthWeight('超长名称'.repeat(20)), 2)
+  assert.ok(lengthWeight('记忆管线') > lengthWeight('记忆'))
+  const repo = { turns: new Map(Array.from({length: 10}, (_,i)=>[i,{}])), byStar: new Map([['rare',[{key:1}]],['wide', Array.from({length:8},(_,i)=>({key:i}))]]) }
+  const weights = rarityWeights(repo)
+  assert.ok(weights.get('rare') > weights.get('wide'))
+  assert.ok(weights.get('rare') <= 2)
+  assert.equal(exactMatch('记忆', '记忆管线'), null)
+  const partial = exactMatch('回忆匹配的规则', '回忆匹配窗口')
+  assert.ok(partial.similarity > 0 && partial.similarity < 0.5)
+  const stars = [star('a', '回忆匹配窗口')]
+  const full = flickerStars({text:'回忆匹配窗口',stars,weight:()=>3})
+  const weak = flickerStars({text:'回忆匹配的规则',stars,weight:()=>3})
+  assert.equal(weak.get('a').kind, 'exact')
+  assert.ok(weak.get('a').score < full.get('a').score)
 })

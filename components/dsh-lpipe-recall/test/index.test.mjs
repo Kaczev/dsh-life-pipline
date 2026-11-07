@@ -156,7 +156,7 @@ test('已经摆在上下文里的片段不再重复摆', () => {
     { role: 'user', content: '第 2 段｜lpipe_recall_id[ddb93dff:432], 11-02 17:16' },
   ]
   const candidates = [{ key: 'ddb93dff#429' }, { key: 'ddb93dff#430' }]
-  const present = keysInContext(messages)
+  const present = keysInContext(messages.map((message) => ({ ...message, source: { kind: 'dsh-lpipe-recall' } })))
   assert.equal(present.has('ddb93dff#432'), true, '投影成字符串的 content 也要认出记号')
   assert.deepEqual(
     candidates.filter((entry) => !present.has(entry.key)).map((entry) => entry.key),
@@ -243,6 +243,50 @@ test('从会话事件里认已经摆过的片段，被 rewind 掉的不算', () 
   assert.deepEqual([...present].sort(), ['warehouse-a#429', 'warehouse-a#431'])
 })
 
+
+test('工具结果按 callId 认来源，跨片段全部排除，隐藏结果和普通消息不算', () => {
+  const call = (seq, callId, name, args = {}) => ({ seq, type: 'tool/call', data: { callId, name, arguments: JSON.stringify(args) } })
+  const result = (seq, callId, text, isError = false) => ({ seq, type: 'tool/result', data: { message: { toolCallId: callId, isError, content: [{ type: 'text', text }] } } })
+  const events = [call(1, 'a', 'recall_open'), result(2, 'a', 'lpipe_recall_id[repo:5] lpipe_recall_id[repo:6]'),
+    call(3, 'b', 'recall_fragments'), result(4, 'b', 'lpipe_recall_id[repo:7]'),
+    call(5, 'c', 'read'), result(6, 'c', 'lpipe_recall_id[repo:8]'),
+    call(7, 'd', 'recall_open', { repo: 'repo', from: '9:1', to: '10:2' }), result(8, 'd', 'failed', true)]
+  assert.deepEqual([...keysInSession({ snapshotEvents: () => events, surface: { nodes: [2, 6, 8] } })].sort(), ['repo#10', 'repo#5', 'repo#6', 'repo#9'])
+  assert.equal(keysInContext([{ role: 'user', content: 'lpipe_recall_id[repo:99]' }]).size, 0)
+})
+
+test('真实组装：不同 query 不串缓存，已读排除先于限额且主动查询同样生效', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { MemoryWriter } = await import('../../dsh-lpipe-memory/src/writer.mjs')
+  const { openRepo } = await import('../../dsh-lpipe-starmap/src/store.mjs')
+  const { apply } = await import('../src/index.js')
+  const root = mkdtempSync(join(tmpdir(), '回忆 query test '))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const memoryRoot = join(root, 'memory')
+  const starmapRoot = join(root, 'stars')
+  const writer = new MemoryWriter({ root: memoryRoot })
+  const store = openRepo({ root: starmapRoot })
+  const ice = store.ensureStar('雪糕', 1, 0)
+  const cat = store.ensureStar('小猫', 1, 0)
+  for (let turn = 1; turn <= 3; turn++) {
+    const text = turn === 2 ? '小猫在睡觉。' : '我吃了雪糕。'
+    const record = writer.append({ sessionId: 'archive', eventSeq: turn, at: Date.now() + turn, kind: 'user/message', turn, payload: { text, source: { kind: 'user' } } })
+    store.recordTurn({ session: 'archive', turn, at: record.at, from: record.seq, to: record.seq, lines: [{ seq: record.seq, stars: [turn === 2 ? cat.id : ice.id] }] })
+  }
+  writer.close()
+  const tools = new Map()
+  apply({ logger: { warn() {} }, on() {}, inject: (_, fn) => fn({ tools: { register: (tool) => tools.set(tool.name, tool) } }) }, { root, memoryRoot, starmapRoot })
+  writeFileSync(join(root, 'config.json'), JSON.stringify({ fragments: 1 }))
+  const session = { id: 'current', snapshotEvents: () => [], surface: { nodes: [] } }
+  const ask = (query) => tools.get('recall_fragments').execute({ query }, { agent: { session } })
+  assert.match((await ask('雪糕')).text, /archive:3/)
+  assert.match((await ask('小猫')).text, /archive:2/)
+  session.snapshotEvents = () => [{ seq: 1, type: 'tool/call', data: { callId: 'read', name: 'recall_open', arguments: '{}' } }, { seq: 2, type: 'tool/result', data: { message: { toolCallId: 'read', content: [{ type: 'text', text: 'lpipe_recall_id[archive:3]' }] } } }]
+  session.surface.nodes = [2]
+  assert.match((await ask('雪糕')).text, /archive:1/)
+})
 
 test('装上之后确实把两个工具注册给了宿主', async () => {
   const { mkdtempSync } = await import('node:fs')

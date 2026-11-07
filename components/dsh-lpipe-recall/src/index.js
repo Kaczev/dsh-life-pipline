@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { openRepo } from 'dsh-lpipe-starmap/store'
 import { candidatesOf, coolTurns } from './candidates.mjs'
-import { backgroundWeight, foregroundWeight } from './match.mjs'
+import { backgroundWeight, foregroundWeight, rarityWeights, balanceFlicker } from './match.mjs'
 import { loadConfig } from './config.mjs'
 import { flickerStars } from './match.mjs'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
@@ -38,7 +38,7 @@ export function triggerOf(rows) {
   return null
 }
 
-/** 通用星判据：出现在超过三成的片段里。 */
+/** 通用星判据：出现在超过 5% 的片段里。 */
 export const COMMON_SHARE = 0.05
 
 export function commonStars(repo) {
@@ -165,7 +165,7 @@ export function keysInContext(messages) {
   const found = new Set()
   const pattern = /lpipe_recall_id\[([^\]:]+):(\d+)\]/g
   for (const message of messages ?? []) {
-    if (message?.role === 'assistant') continue
+    if (message?.role !== 'user' || message?.source?.kind !== 'dsh-lpipe-recall') continue
     const content = message?.content
     // 请求里的 messages 可能已经过一层投影：content 可能是分片数组、整段字符串，
     // 也可能只剩 message.text。三种都试，别因为形状不同就漏掉。
@@ -208,12 +208,29 @@ export function keysInSession(session) {
     return found
   }
   if (!Array.isArray(events)) return found
+  const calls = new Map(events.filter((event) => event?.type === 'tool/call').map((event) => [event.data?.callId, event.data]))
   const pattern = /lpipe_recall_id\[([^\]:]+):(\d+)\]/g
   for (const event of events) {
-    if (event?.type !== 'user/message') continue
-    if (event?.data?.source?.kind !== 'dsh-lpipe-recall') continue
     if (visible && !visible.has(event.seq)) continue
-    const content = event?.data?.content
+    let content
+    if (event?.type === 'user/message' && event?.data?.source?.kind === 'dsh-lpipe-recall') {
+      content = event.data.content
+    } else if (event?.type === 'tool/result') {
+      const message = event.data?.message
+      const call = calls.get(message?.toolCallId ?? message?.source?.callId)
+      if (!['recall_open', 'recall_fragments'].includes(call?.name)) continue
+      content = message?.content
+      // 失败时也排除参数中明确指定的端点片段，不把助手自行构造的 ID 当已读。
+      if (message?.isError || event.data?.error) {
+        try {
+          const args = JSON.parse(call.arguments)
+          for (const value of [args.from, args.to]) {
+            const pos = /^(\d+):\d+$/.exec(value ?? '')
+            if (args.repo && pos) found.add(`${args.repo}#${Number(pos[1])}`)
+          }
+        } catch { /* 无效调用参数不作为坐标 */ }
+      }
+    } else continue
     const texts = Array.isArray(content)
       ? content.map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : '')).filter(Boolean)
       : typeof event?.data?.text === 'string'
@@ -357,7 +374,6 @@ export function apply(ctx, options = {}) {
   let repo = null
   let repoStamp = 0
   const rowCache = new Map()
-  const textCache = new Map()
 
   const config = () => loadConfig(recallDir)
 
@@ -402,11 +418,11 @@ export function apply(ctx, options = {}) {
   }
 
   const rowsNow = (sessionId) => {
+    reader.reload()
     const info = reader.sessions().find((entry) => entry.sessionId === sessionId)
     const lastSeq = info?.lastSeq ?? -1
     const cached = rowCache.get(sessionId)
     if (cached && cached.lastSeq === lastSeq) return cached.rows
-    reader.reload()
     const rows = reader.rows(sessionId)
     rowCache.set(sessionId, { lastSeq, rows })
     return rows
@@ -487,7 +503,11 @@ export function apply(ctx, options = {}) {
     buffers.set(sessionId, next.length > HISTORY_CHARS ? next.slice(-HISTORY_CHARS) : next)
   }
 
-  const compose = (sessionId, raw, report = () => {}, present = new Set()) => {
+  const compose = (sessionId, raw, report = () => {}, present = new Set(), session = null) => {
+    if (session) {
+      syncBuffer(session)
+      for (const key of keysInSession(session)) present.add(key)
+    }
     const settings = config()
     if (!settings.enabled) {
       report({ skip: 'disabled' })
@@ -508,7 +528,10 @@ export function apply(ctx, options = {}) {
     let background = ''
     try {
       const buffer = bufferOf(sessionId) ?? ''
-      background = buffer.length > settings.backgroundChars ? buffer.slice(-settings.backgroundChars) : buffer
+      const previous = buffer.trimEnd().endsWith(input) && input
+        ? buffer.trimEnd().slice(0, -input.length)
+        : buffer
+      background = previous.length > settings.backgroundChars ? previous.slice(-settings.backgroundChars) : previous
     } catch {
       background = ''
     }
@@ -524,31 +547,30 @@ export function apply(ctx, options = {}) {
       report({ skip: 'no-store', stars: store?.stars?.size ?? 0 })
       return ''
     }
-    // 通用星：在超过 30% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
+    // 通用星：在超过 5% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
     const stars = [...store.stars.values()]
-    const behind = flickerStars({ text: background, stars, common, weight: backgroundWeight })
-    const ahead = flickerStars({ text: foreground, stars, common, weight: foregroundWeight })
+    const rarity = rarityWeights(store)
+    const behind = flickerStars({ text: background, stars, common, rarity, weight: backgroundWeight })
+    const ahead = flickerStars({ text: foreground, stars, common, rarity, weight: foregroundWeight })
     // 真文星只有一个来源：这一轮的输入源。它既决定候选，也决定排序的第一顺位。
     const currentExact = new Set([...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const foregroundExact = new Set(currentExact)
-    const flicker = new Map(behind)
-    for (const [id, hit] of ahead) {
-      const previous = flicker.get(id)
-      if (!previous || previous.score < hit.score) flicker.set(id, hit)
-    }
+    const { flicker, foregroundSum, backgroundSum, factor } = balanceFlicker(ahead, behind)
+    report({ event: 'balance', foregroundSum, backgroundSum, backgroundFactor: factor })
     if (flicker.size === 0) {
       report({ skip: 'no-flicker', chars: background.length + foreground.length, stars: stars.length, rows: rows.length })
       return ''
     }
 
     const excluded = coolTurns({ rows, coolChars: settings.coolChars })
+    for (const key of present) excluded.add(key)
     const candidates = candidatesOf({
       repo: store,
       flicker,
       excluded,
-      minStrength: settings.minStrength,
+      minStrength: 0,
       common,
       foreground: foregroundExact,
       current: currentExact,
@@ -583,16 +605,8 @@ export function apply(ctx, options = {}) {
         return { name: hit?.name ?? id, kind: hit?.kind ?? 'exact', score: Number((hit?.score ?? 0).toFixed(2)) }
       }),
     }))
-    const key = `${sessionId}|${rows.length}|${repoStamp}|${JSON.stringify(settings)}`
-    const cached = textCache.get(key)
-    if (cached !== undefined) {
-      if (cached) report({ delivered: true, picked })
-      return cached
-    }
     const block = renderRecall({ candidates: fresh, flicker, reader, config: settings })
     if (block) report({ delivered: true, picked })
-    if (textCache.size > 32) textCache.clear()
-    textCache.set(key, block)
     return block
   }
 

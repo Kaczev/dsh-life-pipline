@@ -15,7 +15,14 @@
 - [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖本包。
 - [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖本包。
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
-- [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（M1：看近窗、点亮星星、把旧记忆模糊地摆回来），只读星图与记忆。
+  - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
+- [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
+  - [README.md](components/dsh-lpipe-recall/README.md)：两个主动工具的参数与分页规则。
+  - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：单星五项系数、准确真文准入、亮度排序与原文选句。
+  - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` 定义与执行。
+  - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
+  - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、注册及可见回忆结果去重。
+  - [test/open.test.mjs](components/dsh-lpipe-recall/test/open.test.mjs) / [test/index.test.mjs](components/dsh-lpipe-recall/test/index.test.mjs)：区间、限额、事件去重与真实存储查询回归。
 
 ## components/dsh-lpipe-chat
 
