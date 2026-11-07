@@ -26,7 +26,7 @@ export function triggerOf(rows) {
     if (row?.kind !== 'user/message') continue
     const kind = row?.source?.kind
     if (!TRIGGER_KINDS.has(kind)) continue
-    if (kind === 'dsh-lpipe-wake' && String(row?.source?.summary ?? '').includes('自主')) {
+    if (kind === 'dsh-lpipe-wake' && isNaturalWake(row?.source)) {
       return { row, skip: 'natural-wake' }
     }
     return { row, skip: null }
