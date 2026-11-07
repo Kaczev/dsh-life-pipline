@@ -32,7 +32,7 @@ export function looksLikeCode(sentence) {
   return value.length > 0 && symbols / value.length > 0.16
 }
 
-const pieces = (text) => {
+export const pieces = (text) => {
   const out = []
   for (const piece of splitSentences(stripCodeBlocks(text))) {
     const value = typeof piece === 'string' ? piece : piece?.text

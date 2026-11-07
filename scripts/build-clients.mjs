@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,6 +19,8 @@ const targets = [
 ];
 
 for (const file of targets) {
+  // 只有宿主半边、还没有设置页的包（比如刚起步的回忆管线）没有这个脚本，跳过就好。
+  if (!existsSync(file)) continue;
   const module = await import(pathToFileURL(file).href);
   const buildClient = module.buildClient;
   if (typeof buildClient !== 'function') {

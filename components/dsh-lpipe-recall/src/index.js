@@ -682,6 +682,17 @@ export function apply(ctx, options = {}) {
     return null
   }
 
+  ctx.inject(['tools'], (toolsCtx) => {
+    for (const tool of createRecallTools({ reader })) {
+      // 工具名撞车不该把整个包带下去。
+      try {
+        toolsCtx.tools.register(tool)
+      } catch (error) {
+        warn(`[dsh-lpipe-recall] 注册 ${tool.name} 失败：${error?.message ?? error}`)
+      }
+    }
+  })
+
   ctx.on(
     'agent/pre-step',
     async ({ agent, turn, step, signal }, next) => {
