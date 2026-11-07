@@ -6,7 +6,7 @@ import { fuzzyScore, fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
-export function createQueries({ repo, memoryStatus, progressState, usageStats }) {
+export function createQueries({ repo, memoryStatus, progressState, usageStats, problems = () => [], retrySkipped = null }) {
   const find = (key) => {
     if (!key) return null
     const direct = repo.stars.get(key)
@@ -197,7 +197,9 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
       fuzzy,
       built,
       turns: status.turns,
-      grey: Math.max(0, status.turns - built),
+      grey: Math.max(0, status.turns - built - (status.skipped ?? 0)),
+      skipped: status.skipped ?? 0,
+      problems: problems(),
       sessions: status.sessions,
       lastBuiltAt: status.lastBuiltAt,
       lastTurn: status.lastTurn,
@@ -208,5 +210,14 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats })
     }
   }
 
-  return { star, turn, links, near, progress }
+  /** 把跳过的那一轮放回队列（下次点「现在抽星」会再试一次）。 */
+  function retry(key) {
+    if (typeof retrySkipped !== 'function') return { ok: false, reason: 'unavailable' }
+    const sessionId = typeof key === 'string' ? key.split('#')[0] : key?.session
+    const turnNo = typeof key === 'string' ? Number(key.split('#')[1]) : Number(key?.turn)
+    if (!sessionId || !Number.isInteger(turnNo)) return { ok: false, reason: 'bad-key' }
+    return { ok: retrySkipped(sessionId, turnNo) === true }
+  }
+
+  return { star, turn, links, near, progress, retry }
 }

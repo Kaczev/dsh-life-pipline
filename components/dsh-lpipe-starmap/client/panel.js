@@ -372,7 +372,9 @@ function StarmapPanel({ rpcCall }) {
   const value = state.value;
   const built = value?.built ?? 0;
   const turns = value?.turns ?? 0;
-  const grey = value?.grey ?? 0;
+  const skipped = Number(value?.skipped) || 0;
+  const problems = Array.isArray(value?.problems) ? value.problems : [];
+  const grey = Math.max(0, turns - built - skipped);
   const extract = value?.extract || {};
   const usage = value?.usage || {};
   const { alive, busy, stopping, buttonLabel } = runState(pending, extract);
@@ -468,6 +470,17 @@ function StarmapPanel({ rpcCall }) {
       });
   };
 
+  // 跳过的那一轮放回队列：不立刻抽星，等下次点「现在抽星」再试。
+  const retryTurn = (entry) => {
+    Promise.resolve()
+      .then(() => rpcCall('starmap.retry', { session: entry.session, turn: entry.turn }))
+      .then((reply) => {
+        setSaved(reply?.ok ? `第 ${entry.turn} 轮放回去了，下次抽星会再试` : `放回失败：${reply?.error?.message || '未知原因'}`)
+        reloadRef.current?.()
+      })
+      .catch((error) => setSaved(`放回失败：${String(error?.message || error)}`));
+  };
+
   const revert = () => {
     setForm({ ...committed });
     setSaved('');
@@ -524,6 +537,14 @@ function StarmapPanel({ rpcCall }) {
               { style: { display: 'flex', alignItems: 'baseline' } },
               h('span', { style: { ...mid, color: COLORS.warning } }, String(grey)),
               h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.warning } }, '轮还是灰的'),
+            )
+          : null,
+        skipped > 0
+          ? h(
+              'div',
+              { style: { display: 'flex', alignItems: 'baseline' } },
+              h('span', { style: { ...mid, color: COLORS.muted } }, String(skipped)),
+              h('span', { style: { ...small, position: 'relative', top: -2, color: COLORS.muted } }, '轮跳过'),
             )
           : null,
         ),
@@ -587,6 +608,46 @@ function StarmapPanel({ rpcCall }) {
       usageBars(usage.daily),
       state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
     ),
+    // 坏掉的轮次：默认折叠。不是每个人都需要知道「哪一轮卡住了」，但需要的人会非常需要。
+    problems.length > 0
+      ? h(
+          'div',
+          { style: { ...card, paddingTop: 10, paddingBottom: 10 } },
+          h(
+            'details',
+            null,
+            h(
+              'summary',
+              { style: { cursor: 'pointer', fontSize: 11, color: COLORS.muted, lineHeight: '18px' } },
+              `坏掉的轮次（${problems.length}）— 连试三次没成，已跳过`,
+            ),
+            h(
+              'div',
+              { style: { marginTop: 8, display: 'grid', gap: 6 } },
+              problems.map((entry) =>
+                h(
+                  'div',
+                  {
+                    key: `${entry.session}#${entry.turn}`,
+                    style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', fontSize: 11, lineHeight: '17px' },
+                  },
+                  h('span', { style: { color: COLORS.text } }, `第 ${entry.turn} 轮`),
+                  h('span', { style: { color: COLORS.faint, fontFamily: 'ui-monospace, monospace' } }, String(entry.session ?? '').slice(-8)),
+                  h('span', { style: { color: COLORS.danger, flex: '1 1 auto', minWidth: 0 } }, String(entry.error ?? '').slice(0, 80)),
+                  h(
+                    'button',
+                    {
+                      style: { ...button(null), padding: '2px 8px', fontSize: 11 },
+                      onClick: () => retryTurn(entry),
+                    },
+                    '放回',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+      : null,
     h(
       'div',
       { style: card },

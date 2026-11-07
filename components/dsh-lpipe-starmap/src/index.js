@@ -167,9 +167,69 @@ export function apply(ctx, options = {}) {
   /** 连着失败了几轮；模型那边出问题时用它及时刹车，不把额度烧在必然失败的调用上。 */
   let failureStreak = 0
   const rejectsFile = join(root, 'rejects.jsonl')
+  const failuresFile = join(root, 'failures.jsonl')
+  const skippedFile = join(root, 'skipped.jsonl')
+  // 同一轮连续失败这么多次就先放过它：一直卡在同一轮，剩下的记忆永远亮不了。
+  const SKIP_AFTER = 3
+  const failures = new Map()
+  const skipped = new Map()
+
+  const appendLine = (file, value) => {
+    try {
+      mkdirSync(root, { recursive: true })
+      appendFileSync(file, `${JSON.stringify(value)}\n`, 'utf8')
+    } catch (error) {
+      warn(`[dsh-lpipe-starmap] 写不进 ${file}：${error?.message ?? error}`)
+    }
+  }
+
+  const loadProblems = () => {
+    for (const file of [failuresFile, skippedFile]) {
+      let text = ''
+      try {
+        text = readFileSync(file, 'utf8')
+      } catch {
+        continue
+      }
+      for (const line of text.split('\n')) {
+        if (!line) continue
+        let entry = null
+        try {
+          entry = JSON.parse(line)
+        } catch {
+          continue
+        }
+        if (!Number.isInteger(entry?.turn) || !entry?.session) continue
+        const key = turnKey(entry.session, entry.turn)
+        if (file === skippedFile) skipped.set(key, entry)
+        else failures.set(key, { count: Number(entry.attempts ?? entry.count ?? 1), error: entry.error ?? '', at: entry.at ?? null })
+      }
+    }
+  }
+
+  const recordFailure = (sessionId, turn, error) => {
+    const key = turnKey(sessionId, turn)
+    const previous = failures.get(key)
+    const count = (previous?.count ?? 0) + 1
+    const at = new Date().toISOString()
+    failures.set(key, { count, error, at })
+    appendLine(failuresFile, { at, session: sessionId, turn, error, attempts: count })
+    if (count >= SKIP_AFTER && !skipped.has(key)) {
+      const entry = { at, session: sessionId, turn, error, attempts: count }
+      skipped.set(key, entry)
+      appendLine(skippedFile, entry)
+      info(`[dsh-lpipe-starmap] 第 ${turn} 轮已经连续失败 ${count} 次，先跳过它，接着点后面的`)
+    }
+  }
+
+  const clearFailure = (sessionId, turn) => {
+    failures.delete(turnKey(sessionId, turn))
+  }
 
   /** sessionId -> 记忆里这个会话最大的轮号（启动或构建时更新，设置页读它算灰） */
   const maxTurn = new Map()
+  /** 「会话#lastSeq」-> 这个会话一共有多少轮（跳号不算重） */
+  const turnCount = new Map()
 
   const sessions = () => {
     try {
@@ -241,6 +301,7 @@ export function apply(ctx, options = {}) {
       progressState.failed += 1
       progressState.error = reply.error || '模型没有回出可用结果'
       progressState.errorAt = Date.now()
+      recordFailure(sessionId, turn.turn, progressState.error)
       runLog('turn-fail', {
         turn: turn.turn,
         error: progressState.error,
@@ -254,6 +315,7 @@ export function apply(ctx, options = {}) {
       noteRejects(sessionId, turn.turn, [{ pair: null, why: 'llm-failed', error: reply.error }])
       return false
     }
+    clearFailure(sessionId, turn.turn)
     const { rejects } = buildTurn({ repo, turn, sessionId, pairs: reply.pairs })
     noteRejects(sessionId, turn.turn, rejects)
     return true
@@ -266,7 +328,9 @@ export function apply(ctx, options = {}) {
     const turns = groupTurns(rows)
     const last = turns[turns.length - 1]
     if (last) maxTurn.set(sessionId, last.turn)
-    const pending = turns.filter((turn) => !repo.turns.has(turnKey(sessionId, turn.turn)))
+    const pending = turns.filter(
+      (turn) => !repo.turns.has(turnKey(sessionId, turn.turn)) && !skipped.has(turnKey(sessionId, turn.turn)),
+    )
     progressState.total += pending.length
     let built = 0
     let cursor = 0
@@ -345,12 +409,19 @@ export function apply(ctx, options = {}) {
     let lastBuiltAt = null
     let lastTurn = null
     for (const session of sessions()) {
-      let max = maxTurn.get(session.sessionId)
+      // 数「确实有几轮」，不拿最大轮号当总数：轮号会跳号，1543 里其实只有 1444 轮。
+      const countKey = `${session.sessionId}#${session.lastSeq}`
+      let max = turnCount.get(countKey)
       if (!Number.isInteger(max)) {
-        const lastRow = memory.read(session.lastSeq)
-        max = Number.isInteger(lastRow?.turn) ? lastRow.turn : 0
-        maxTurn.set(session.sessionId, max)
+        const seen = new Set()
+        for (const row of rowsOf(session.sessionId)) {
+          if (Number.isInteger(row?.turn)) seen.add(row.turn)
+        }
+        max = seen.size
+        turnCount.set(countKey, max)
+        if (max > 0) maxTurn.set(session.sessionId, [...seen].reduce((best, turn) => (turn > best ? turn : best), 0))
       }
+      const sessionSkipped = [...skipped.values()].filter((entry) => entry.session === session.sessionId).length
       // 数「星源里真的有几轮」而不是水位上那个最大轮号：三路并发时轮号是跳着完成的，
       // 只看最大值会从 1 直接跳到 4，面板看起来就像卡住了。
       let builtTurns = 0
@@ -359,8 +430,15 @@ export function apply(ctx, options = {}) {
         builtTurns += 1
       }
       turns += max
-      lit += Math.min(builtTurns, max)
-      list.push({ sessionId: session.sessionId, turns: max, built: Math.min(builtTurns, max), grey: Math.max(0, max - builtTurns) })
+      const litHere = Math.min(builtTurns, max)
+      lit += litHere
+      list.push({
+        sessionId: session.sessionId,
+        turns: max,
+        built: litHere,
+        skipped: Math.min(sessionSkipped, Math.max(0, max - litHere)),
+        grey: Math.max(0, max - litHere - sessionSkipped),
+      })
     }
     for (const record of repo.turns.values()) {
       if (lastBuiltAt === null || (record.at ?? 0) > lastBuiltAt) {
@@ -368,7 +446,7 @@ export function apply(ctx, options = {}) {
         lastTurn = record.turn
       }
     }
-    return { turns, lit, sessions: list, lastBuiltAt, lastTurn }
+    return { turns, lit, skipped: skipped.size, sessions: list, lastBuiltAt, lastTurn, problems: [...skipped.values()].slice(-50).reverse() }
   }
 
   /** 出问题时用的一次性快照：界面看到的标志、真正的活儿、最近几行运行日志。 */
@@ -404,7 +482,23 @@ export function apply(ctx, options = {}) {
     }
   }
 
-  const queries = createQueries({ repo, memoryStatus: status, progressState, usageStats: () => usageStats(root), debug })
+  loadProblems()
+
+  const queries = createQueries({
+    repo,
+    memoryStatus: status,
+    progressState,
+    usageStats: () => usageStats(root),
+    debug,
+    problems: () => [...skipped.values()].slice(-50).reverse(),
+    retrySkipped: (sessionId, turn) => {
+      const key = turnKey(sessionId, turn)
+      skipped.delete(key)
+      failures.delete(key)
+      appendLine(skippedFile, { at: new Date().toISOString(), session: sessionId, turn, retry: true })
+      return true
+    },
+  })
 
   const run = (label, work) => {
     const fail = (error) => {

@@ -12,6 +12,7 @@ const METHODS = new Set([
   'starmap.debug',
   'starmap.config',
   'starmap.config.set',
+  'starmap.retry',
   'starmap.catalog',
   'starmap.efforts',
 ])
@@ -41,6 +42,10 @@ export function createStarmapRpcHandler({ queries, debug, rebuild, config, catal
       if (method === 'starmap.config.set') {
         if (!config?.set) return failure('starmap/unavailable', 'Config is not wired up.')
         return { ok: true, value: config.set(isRecord(payload) ? payload : {}) }
+      }
+      if (method === 'starmap.retry') {
+        const value = queries.retry?.(payload?.key ?? { session: payload?.session, turn: payload?.turn })
+        return value?.ok ? { ok: true, value } : failure('starmap/unavailable', 'Retry is not wired up.')
       }
       if (method === 'starmap.debug') {
         if (typeof debug !== 'function') return failure('starmap/unavailable', 'Debug is not wired up.')
