@@ -285,6 +285,24 @@ export function createTriggerHandler({
   }
 }
 
+/** 从这一次请求的 messages 里找触发源：step 1 的用户消息还没进 session 事件，只在这里。 */
+export function triggerFromMessages(messages) {
+  for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || message.role !== 'user') continue
+    const source = message.source ?? {}
+    if (!TRIGGER_KINDS.has(source.kind)) continue
+    if (isNaturalWake(source)) return { skip: 'natural-wake' }
+    const text = (message.content ?? [])
+      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+      .map((part) => part.text)
+      .join('\n')
+    if (!text.trim()) continue
+    return { text }
+  }
+  return null
+}
+
 export function apply(ctx, options = {}) {
   const recallDir = options.root || recallRoot()
   const memoryDir = options.memoryRoot || memoryRoot()
@@ -548,16 +566,24 @@ export function apply(ctx, options = {}) {
       if (!session?.id) return decision
       let block = ''
       try {
-        const found = triggerEventOf(session)
+        // 先看这一次请求自己带的 messages：step 1 的用户消息这时还没写进 session 事件，
+        // 从事件里找永远是「找不到触发源」。
+        const fresh = triggerFromMessages(decision.messages)
+        const found = fresh ? { text: fresh.text, skip: fresh.skip } : null
+        if (found) {
+          noteRun({ session: session.id, trigger: 'messages', turn, step, chars: found.text?.length ?? 0 })
+        }
         if (!found || found.skip) {
-          noteRun({ session: session.id, skip: found?.skip ?? 'no-trigger', turn, step })
+          noteRun({
+            session: session.id,
+            skip: found?.skip ?? 'no-trigger',
+            turn,
+            step,
+            messages: decision.messages?.length ?? 0,
+          })
           return decision
         }
-        const text = textOfEvent(found.event.data)
-        if (!text.trim()) {
-          noteRun({ session: session.id, skip: 'empty-text' })
-          return decision
-        }
+        const text = found.text
         block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }))
       } catch (error) {
         warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)

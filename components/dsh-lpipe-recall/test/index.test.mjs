@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, pickFresh, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -180,4 +180,26 @@ test('二类触发源：每 16 次思考/回复/工具结果才评估一次回�
 test('工具结果也算二类触发源', () => {
   const text = activityTextOf({ type: 'tool/result', data: { text: '命令输出' } })
   assert.equal(text, '命令输出')
+})
+
+
+test('触发源从这一次请求的 messages 里认：step 1 时它还没进 session 事件', () => {
+  const user = (text, kind = 'user', extra = {}) => ({
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind, ...extra },
+  })
+  // 运行时快照排在后面，但它不是触发源，要跳过
+  const messages = [
+    { role: 'system', content: [{ type: 'text', text: '系统提示' }] },
+    user('_B1 是什么意思？'),
+    user('Time sampled while preparing turn 271, step 1', 'time-context'),
+    user('Current runtime context', 'runtime-context'),
+  ]
+  assert.deepEqual(triggerFromMessages(messages), { text: '_B1 是什么意思？' })
+  assert.deepEqual(triggerFromMessages([user('醒了', 'dsh-lpipe-wake', { wake: 'natural' })]), {
+    skip: 'natural-wake',
+  })
+  assert.equal(triggerFromMessages([user('随便说点', 'runtime-context')]), null)
+  assert.equal(triggerFromMessages([]), null)
 })
