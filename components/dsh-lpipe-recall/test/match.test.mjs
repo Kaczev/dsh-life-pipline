@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { flickerStars, isTooShort, positionWeight } from '../src/match.mjs'
+import { flickerStars, positionWeight } from '../src/match.mjs'
 
 const star = (id, name, extra = {}) => ({ id, name, kind: 'exact', form: null, value: null, ...extra })
 
@@ -30,16 +30,13 @@ test('通用星只值 0.2：单靠它们凑不出一次回忆', () => {
   assert.ok(hit.get('s_rare').score > hit.get('s_common').score)
 })
 
-test('单个拉丁字母、纯符号不成星：它们在任何英文里都能找到', () => {
-  assert.equal(isTooShort('a'), true)
-  assert.equal(isTooShort('E'), true)
-  assert.equal(isTooShort('×'), true)
-  assert.equal(isTooShort('地'), true, '单个中文字都是虚词')
-  assert.equal(isTooShort('ls'), true, '小写两字母是命令')
-  assert.equal(isTooShort('AI'), false, '大写两字母是缩写')
-  assert.equal(isTooShort('AI'), false)
-  const stars = [star('s_a', 'a'), star('s_e', 'E')]
-  assert.equal(flickerStars({ text: 'a test for E', stars }).size, 0)
+test('星是什么由星图说了算：回忆不再自己加一道「太短」的闸', () => {
+  // 以前这里会挡掉 `_A0`、`a`、`E` 这种短名字。现在对齐星图：星表里有的就点亮，
+  // 星表里没有的（`a` 这种）自然也不会出现，不需要回忆侧再判一遍。
+  const stars = [star('s_a0', '_A0'), star('s_v1', 'V1')]
+  const hit = flickerStars({ text: '刚 _A0 又发生了，V1 也记一下', stars })
+  assert.equal(hit.size, 2)
+  assert.ok(hit.get('s_a0').score > 0)
 })
 
 test('排版差异不影响点亮：加粗、空格、大小写都算同一个名字', () => {

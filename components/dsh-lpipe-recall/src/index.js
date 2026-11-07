@@ -310,8 +310,6 @@ export function apply(ctx, options = {}) {
     return repo
   }
 
-  let sessionController = null
-
   /**
    * 每次触发都记一行：点亮了几颗、几段候选、投了没有。没有这一行的话，
    * 「没想起什么」和「根本没跑」在界面上长得一模一样。
@@ -510,68 +508,76 @@ export function apply(ctx, options = {}) {
    * 注入一条 source.kind = 'dsh-lpipe-recall' 的用户消息——它是独立的一块，
    * 来源写在消息上；记忆层与星图都会把这类来源整体丢掉，不会自我消化。
    */
-  /** 记住解析过的 agent：events 是同步送进来的，缓存之后这一轮就能在第一次请求装配前塞进去。 */
-  const agentCache = new Map()
-
-  const injectNow = (agent, text) => {
-    if (!agent || typeof agent.inject !== 'function') return false
-    agent.inject({
-      id: randomUUID(),
-      role: 'user',
-      content: [Object.freeze({ type: 'text', text })],
-      source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
-    })
-    return true
+  /**
+   * 为什么不用 `agent.inject`：它的语义是「下一次 step 才看见」（`inject()` 内部就是
+   * `send(input, 'next-step', false)`，见宿主 `packages/core/agent-loop/src/agent.ts`）。
+   * 于是回忆永远落在第一轮回答之后。
+   *
+   * `agent/pre-step` 是宿主给插件留的「请求装配前」钩子（`time-context` 就是这么塞时钟的）：
+   * 钩子是异步的、会被 `await`，返回的 `messages` 直接进这一次请求。所以这里挂上去，
+   * 回忆就紧贴着触发源那条消息，而且请求会等我们把检索做完。
+   */
+  const triggerEventOf = (session, turn) => {
+    for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+      const event = session.eventAt(seq)
+      if (!event || event.type !== 'user/message') continue
+      if (event.data?.turn !== turn) continue
+      const source = event.data?.source ?? {}
+      if (!TRIGGER_KINDS.has(source.kind)) continue
+      if (isNaturalWake(source)) return { skip: 'natural-wake' }
+      return { event }
+    }
+    return null
   }
 
-  const deliver = async (sessionId, text) => {
-    const known = agentCache.get(sessionId)
-    if (known && injectNow(known, text)) return true
-    if (!sessionController || typeof sessionController.resolveAgent !== 'function') return false
-    const result = await sessionController.resolveAgent(sessionId)
-    const agent = result?.agent
-    if (!agent || typeof agent.inject !== 'function') return false
-    agentCache.set(sessionId, agent)
-    return injectNow(agent, text)
-  }
-
-  const onEvent = createTriggerHandler({
-    compose,
-    deliver,
-    warn,
-    note: noteRun,
-    activity: appendActivity,
-    secondEvery: () => config().secondEvery,
-  })
-
-  ctx.inject(['sessionController'], (serviceCtx) => {
-    sessionController = serviceCtx.sessionController ?? null
-  })
-
+  ctx.on(
+    'agent/pre-step',
+    async ({ agent, turn, step, signal }, next) => {
+      const decision = await next()
+      if (decision?.kind === 'reject' || signal?.aborted) return decision
+      // 一轮只有第一次请求需要回忆：后面几步眼前已经有它了。
+      if (step !== 1) return decision
+      const session = agent?.session
+      if (!session?.id) return decision
+      let block = ''
+      try {
+        const found = triggerEventOf(session, turn)
+        if (!found || found.skip) {
+          if (found?.skip) noteRun({ session: session.id, skip: found.skip })
+          return decision
+        }
+        const text = textOfEvent(found.event.data)
+        if (!text.trim()) {
+          noteRun({ session: session.id, skip: 'empty-text' })
+          return decision
+        }
+        block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }))
+      } catch (error) {
+        warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)
+        return decision
+      }
+      if (!block) return decision
+      try {
+        return {
+          ...decision,
+          messages: [
+            ...(decision.messages ?? []),
+            {
+              id: randomUUID(),
+              role: 'user',
+              content: [Object.freeze({ type: 'text', text: block })],
+              source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
+            },
+          ],
+        }
+      } catch (error) {
+        warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`)
+        return decision
+      }
+    },
+    { prepend: true },
+  )
   // 装上就留个记号：没有这一行 = 插件根本没被宿主加载（和「加载了但没回忆」是两回事）。
   noteRun({ event: 'loaded', root: recallDir })
 
-  let seenEvents = 0
-
-  try {
-    ctx.inject(['sessions'], (sessionsCtx) => {
-      noteRun({ event: 'subscribed' })
-      sessionsCtx.on('session/event', (session, event) => {
-        // 前 40 条用户消息都记一笔：确认订阅到底有没有把事件送到这里。
-        if (event?.type === 'user/message' && seenEvents < 40) {
-          seenEvents += 1
-          noteRun({ event: 'seen', seq: event?.seq ?? null, source: event?.data?.source?.kind ?? null })
-        }
-        try {
-        onEvent(session, event)
-        } catch (error) {
-          warn(`[dsh-lpipe-recall] 事件处理失败：${error?.message ?? error}`)
-          noteRun({ event: 'handler-error', error: String(error?.message ?? error) })
-        }
-      })
-    })
-  } catch (error) {
-    warn(`[dsh-lpipe-recall] 订阅 session/event 失败：${error?.message ?? error}`)
-    noteRun({ event: 'subscribe-failed', error: String(error?.message ?? error) })
-  }
 }
