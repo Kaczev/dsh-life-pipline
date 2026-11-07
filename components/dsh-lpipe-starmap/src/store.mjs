@@ -186,10 +186,24 @@ export function openRepo({ root = starmapRoot() } = {}) {
 
   reload()
 
-  /** 整库重来：删掉星表、星源、水位，从头重建。只在 full rebuild 时用。 */
+  /**
+   * 整库重来：把星表与星源挪进 archive/，清空内存索引，从头重建。
+   * 星源里存着模型给的对子，那是真金白银换来的，规则变了要作废也不能删——
+   * 归档留着，万一想回滚、想对比、想把旧对子重放，都还有东西可查。
+   */
   function reset() {
-    rmSync(starsFile(root), { force: true })
-    rmSync(sourcesDir(root), { recursive: true, force: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const keep = join(root, 'archive', stamp)
+    try {
+      mkdirSync(keep, { recursive: true })
+      if (existsSync(starsFile(root))) renameSync(starsFile(root), join(keep, 'stars.jsonl'))
+      if (existsSync(sourcesDir(root))) renameSync(sourcesDir(root), join(keep, 'sources'))
+    } catch {
+      // 归档失败不能挡住重置：最坏情况是删掉，但至少敢先试归档。
+      rmSync(starsFile(root), { force: true })
+      rmSync(sourcesDir(root), { recursive: true, force: true })
+    }
+    pruneArchive(keep)
     stars.clear()
     byName.clear()
     turns.clear()
@@ -198,6 +212,20 @@ export function openRepo({ root = starmapRoot() } = {}) {
     state.pending = {}
     writeAtomic(stateFile(root), `${JSON.stringify(state)}\n`)
     return state
+  }
+
+  /** 归档只留最近三份：再多也没人看，占的是磁盘。 */
+  function pruneArchive(latest) {
+    try {
+      const base = join(root, 'archive')
+      const names = readdirSync(base).filter((name) => name !== '.DS_Store').sort().reverse()
+      for (const name of names.slice(3)) {
+        const path = join(base, name)
+        if (path !== latest) rmSync(path, { recursive: true, force: true })
+      }
+    } catch {
+      // 清旧归档失败无所谓。
+    }
   }
 
   /** 记下这次重建依据的记忆格式版本：记忆那边一升级，旧轮次就得重来一遍。 */

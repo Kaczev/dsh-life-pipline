@@ -550,3 +550,47 @@ test('匹配口径变了只换拒绝清单，星星一颗都不动', async () =>
   assert.equal(after.state.match, MATCH_VERSION, '新的匹配口径记下来了')
   assert.equal(existsSync(join(root, 'rejects.jsonl')), false, '旧拒绝清单归档，不再挂在面板上')
 })
+
+test('数字密集成一屏的回合，一个模糊星都不产生', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-dense-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T15:00:00+08:00')
+  // 一屏列表：十几个数值挤在两百来字里，人记不住，星图也不该假装记得。
+  const rows = [
+    {
+      seq: 0,
+      turn: 1,
+      at,
+      kind: 'user/message',
+      text: '这批数据：3.3 5.1 7.9 12 18 24.5 31 40 52.8 66 81 97.2 115 134 154 176 199 223 248 274',
+    },
+    { seq: 1, turn: 1, at, kind: 'assistant/message', text: '收到，看起来是一串等距增长的数。' },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-dense', pairs: [] })
+
+  // 一颗星都没有时 stars.jsonl 根本不会生成，这本身就是「没有模糊星」。
+  const stars = existsSync(starsFile(root))
+    ? readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    : []
+  assert.equal(stars.filter((star) => star.kind === 'fuzzy').length, 0, '数字太密，不产生模糊星')
+})
+
+test('正常说几句话里的时间与数字，仍然成模糊星', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-sparse-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T15:00:00+08:00')
+  const rows = [
+    {
+      seq: 0,
+      turn: 1,
+      at,
+      kind: 'user/message',
+      text: '我 20:44 到的实验室，外面温度 648.5 度，桌上还剩半杯雪糕，明天 09:15 再来一次。',
+    },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-sparse', pairs: [] })
+
+  const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  const names = stars.filter((star) => star.kind === 'fuzzy').map((star) => star.name).sort()
+  assert.deepEqual(names, ['09:15', '20:44', '648.5'])
+})
