@@ -42,6 +42,12 @@ const pieces = (text) => {
   return out
 }
 
+/** 片段 id：`lpipe_recall_id[仓库 id:片段 id]`。格式固定，好认也好喂给工具。 */
+export const fragmentId = (sessionId, turn) => `lpipe_recall_id[${sessionId}:${turn}]`
+
+/** 句子 id：`lpipe_recall[仓库 id:片段 id:句子 id]`。只在准确回忆里出现。 */
+export const sentenceId = (sessionId, turn, sentence) => `lpipe_recall[${sessionId}:${turn}:${sentence}]`
+
 export const shortSession = (sessionId) => {
   const text = String(sessionId ?? '')
   const tail = text.slice(text.lastIndexOf('-') + 1)
@@ -121,10 +127,11 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
     })
     if (lines.length === 0) continue
     const when = clockOf(candidate.at)
-    // 三个 id：仓库（会话 id 全写）、片段（轮号）、句子（片段内序号）。句子的序号挂在
-    // 每一句前面——摆出来的几句经常是不连续的，只在头上写一个区间反而指不准。
-    const head = `第 ${index + 1} 段｜仓库 ${candidate.session} · 片段 ${candidate.turn}${when ? ` · ${when}` : ''}（共 ${total} 句，这里摆出 ${lines.length} 句）`
-    blocks.push(`${head}\n……${lines.map((line) => `〔${line.id}〕${line.text}`).join('……')}……`)
+    // 片段 id 是固定格式：`lpipe_recall_id[仓库:片段]`。程序靠它在上下文里认出
+    // 「这一段已经摆过了」，模型复制它去喂 recall_open。句子的 id 不在这里给——
+    // 模糊回忆本来就只摆几句，位置靠前、靠后的信息足够，精确定位是准确回忆的事。
+    const head = `第 ${index + 1} 段｜${fragmentId(candidate.session, candidate.turn)}${when ? `, ${when}` : ''}, 共 ${total} 句，展示 ${lines.length} 句`
+    blocks.push(`${head}\n……${lines.map((line) => line.text).join('……')}……`)
   }
   if (blocks.length === 0) return ''
   const opening = '〔回忆 · 模糊〕下面几段来自更早的记忆，不是这次对话里说过的话。也许相关，也许只是像。'

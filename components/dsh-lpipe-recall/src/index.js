@@ -161,13 +161,14 @@ export function charsOf(rows) {
 /**
  * 上下文里已经摆过哪些片段。
  *
- * 不再维护账本：模糊回忆的块头写着 `«会话#轮»`，模型看见的就是这些记号；
+ * 不再维护账本：模糊回忆的块头写着 `lpipe_recall_id[仓库:片段]`，模型看见的就是这些记号；
  * 把这一次请求的 messages 扫一遍，就能知道「哪些记忆此刻已经在他眼前」。
  * 出了上下文（被压缩掉、或者滑出窗口）自然就不再算「摆过」。
  */
 export function keysInContext(messages) {
   const found = new Set()
-  const pattern = /仓库\s+(\S+)\s*·\s*片段\s+(\d+)/g
+  // 模糊回忆与 recall_open 的返回都用这个结构；扫到它，就说明这一段此刻在模型眼前。
+  const pattern = /lpipe_recall(?:_id)?\[([^\]:]+):(\d+)(?::\d+)?\]/g
   for (const message of messages ?? []) {
     const content = message?.content
     const texts = Array.isArray(content)
