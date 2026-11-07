@@ -241,7 +241,16 @@ export function apply(ctx, options = {}) {
       progressState.failed += 1
       progressState.error = reply.error || '模型没有回出可用结果'
       progressState.errorAt = Date.now()
-      runLog('turn-fail', { turn: turn.turn, error: progressState.error, ms: Date.now() - startedAt })
+      runLog('turn-fail', {
+        turn: turn.turn,
+        error: progressState.error,
+        ms: Date.now() - startedAt,
+        model: config.model,
+        provider: config.provider,
+        effort: config.reasoningEffort || null,
+        diag: reply.diag ?? null,
+        sourceChars: source.length,
+      })
       noteRejects(sessionId, turn.turn, [{ pair: null, why: 'llm-failed', error: reply.error }])
       return false
     }

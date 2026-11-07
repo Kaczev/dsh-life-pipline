@@ -376,6 +376,7 @@ export function createExtractor(options = {}) {
         error: reply.aborted ? '暂停时切断' : `${tried}${why}${tail}`,
         raw: reply.raw,
         usage: reply.usage,
+        diag: lastDiag,
       }
     }
   }
