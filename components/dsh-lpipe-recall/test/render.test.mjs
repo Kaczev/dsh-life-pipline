@@ -100,3 +100,32 @@ test('代码块与代码行不进回忆：会念出来的只有话', () => {
   assert.ok(block.includes('记忆管线开工'))
   assert.ok(!block.includes('记忆管线 = 1'))
 })
+
+
+test('展示的句子要能看出「为什么是这段」：命中星星所在的句子优先摆出来', () => {
+  // 一句话里星星多的句子分数更高，但真正重要的是「让读者看见命中星」。
+  // 这里第二句只有一颗星，却是唯一包含「日志」的句子，必须被选中。
+  const reader = {
+    rows: () => [
+      {
+        turn: 7,
+        at: 1790000000000,
+        kind: 'assistant/message',
+        source: { kind: 'assistant' },
+        text: 'Hermes 是支持自托管的开源工具，坏了通常不是什么绝症。我陪你顺着日志一条条排查，把之前的配置和记忆恢复回来。',
+      },
+    ],
+  }
+  const flicker = new Map([
+    ['s_a', { id: 's_a', name: 'Hermes', kind: 'exact', score: 1.9 }],
+    ['s_b', { id: 's_b', name: '开源工具', kind: 'exact', score: 1.8 }],
+    ['s_c', { id: 's_c', name: '日志', kind: 'exact', score: 1.0 }],
+  ])
+  const text = renderRecall({
+    candidates: [{ session: 's', turn: 7, at: 1790000000000, stars: ['s_a', 's_b', 's_c'] }],
+    flicker,
+    reader,
+    config: { sentencesPerFragment: 2 },
+  })
+  assert.match(text, /顺着日志一条条排查/)
+})
