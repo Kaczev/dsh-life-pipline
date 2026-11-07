@@ -39,7 +39,7 @@ export function candidatesOf({
   repo,
   flicker,
   excluded = new Set(),
-  minStars = 2,
+  minStars = 1,
   minStrength = 1,
   minForeground = 1,
   fuzzyBudget = 2,

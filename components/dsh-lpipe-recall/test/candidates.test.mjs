@@ -22,7 +22,7 @@ test('冷却窗口：从会话末尾往前数够 1M 字，里面的轮次不再�
   assert.equal(cool.has(turnKeyOf('s', 1)), false)
 })
 
-test('准入：至少两颗闪烁星、强度够、且必须有真正的概念连上', () => {
+test('准入：至少一颗真文闪烁星、强度够', () => {
   const repo = repoOf({
     turns: [
       { session: 's', turn: 1, at: 100, from: 0, to: 3, lines: [] },
@@ -43,7 +43,7 @@ test('准入：至少两颗闪烁星、强度够、且必须有真正的概念�
   assert.equal(enough[0].stars.length, 2)
 
   const single = candidatesOf({ repo, flicker: flickerMap([['s_a', 1.5]]), foreground: ahead })
-  assert.equal(single.length, 0, '一颗星不算回忆')
+  assert.equal(single.length, 1, '现在一颗真文准确星就算回忆（用户 m15771 改的口径）')
 
   const fuzzyOnly = candidatesOf({
     repo,
@@ -72,6 +72,14 @@ test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时�
     foreground: new Set(['s_exact', 's_f1']),
   })
   assert.equal(one[0].strength, 1.2 + 1, '只有一颗模糊星时，它最多算 1')
+  // 反过来：一颗真文准确星、强度够，现在就算候选（不再要求两颗）。
+  const single = candidatesOf({
+    repo,
+    flicker: flickerMap([['s_exact', 1.2]]),
+    foreground: new Set(['s_exact']),
+    minStars: 1,
+  })
+  assert.equal(single.length, 1, '一颗真文准确星也算候选')
 
   const three = candidatesOf({
     repo,

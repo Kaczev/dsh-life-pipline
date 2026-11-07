@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG = {
   backgroundChars: 24000,
   foregroundChars: 8000,
   coolChars: 1000000,
-  minStars: 2,
+  minStars: 1,
   minStrength: 1,
   sentencesPerFragment: 4,
   // 二类触发源（我的思考、中途回复、工具结果）每攒够这么多次才评估一次回忆。
