@@ -201,7 +201,10 @@ export function apply(ctx, options = {}) {
         }
         if (!Number.isInteger(entry?.turn) || !entry?.session) continue
         const key = turnKey(entry.session, entry.turn)
-        if (file === skippedFile) skipped.set(key, entry)
+        if (file === skippedFile) {
+          if (entry.resolved) skipped.delete(key)
+          else skipped.set(key, entry)
+        }
         else failures.set(key, { count: Number(entry.attempts ?? entry.count ?? 1), error: entry.error ?? '', at: entry.at ?? null })
       }
     }
@@ -223,8 +226,14 @@ export function apply(ctx, options = {}) {
   }
 
   const clearFailure = (sessionId, turn) => {
-    failures.delete(turnKey(sessionId, turn))
+    const key = turnKey(sessionId, turn)
+    failures.delete(key)
+    // 跳过不是判决：这一轮后来抽成了，就该从「坏掉的轮次」里消失。
+    if (skipped.delete(key)) appendLine(skippedFile, { at: new Date().toISOString(), session: sessionId, turn, resolved: true })
   }
+
+  /** 已经抽成了的轮次，不该再算在「跳过」里（旧账本可能是失败那次留下的）。 */
+  const liveSkipped = () => [...skipped.entries()].filter(([key]) => !repo.turns.has(key)).map(([, entry]) => entry)
 
   /** sessionId -> 记忆里这个会话最大的轮号（启动或构建时更新，设置页读它算灰） */
   const maxTurn = new Map()
@@ -446,7 +455,8 @@ export function apply(ctx, options = {}) {
         lastTurn = record.turn
       }
     }
-    return { turns, lit, skipped: skipped.size, sessions: list, lastBuiltAt, lastTurn, problems: [...skipped.values()].slice(-50).reverse() }
+    const live = liveSkipped()
+    return { turns, lit, skipped: live.length, sessions: list, lastBuiltAt, lastTurn, problems: live.slice(-50).reverse() }
   }
 
   /** 出问题时用的一次性快照：界面看到的标志、真正的活儿、最近几行运行日志。 */
@@ -514,7 +524,7 @@ export function apply(ctx, options = {}) {
     progressState,
     usageStats: () => usageStats(root),
     debug,
-    problems: () => [...skipped.values()].slice(-50).reverse(),
+    problems: () => liveSkipped().slice(-50).reverse(),
     peek,
     retrySkipped: (sessionId, turn) => {
       const key = turnKey(sessionId, turn)

@@ -493,3 +493,24 @@ test('整句、半句公式、量词短语都当不成星', () => {
   assert.equal(worth('图片1'), false)
   assert.equal(worth('图 2'), false)
 })
+
+test('已经抽成了的轮次不再算「坏掉的轮次」', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-skip-'))
+  const at = Date.parse('2026-11-06T13:00:00+08:00')
+  const repo = openRepo({ root })
+  const rows = [{ seq: 0, turn: 11, at, kind: 'user/message', text: '这一轮后来抽成了。' }]
+  buildTurn({ repo, turn: makeTurn({ turn: 11, at, rows }), sessionId: 'sess-s', pairs: [] })
+  repo.setMemoryFormat(2)
+  repo.setRules(RULES_VERSION)
+
+  // 账本里还留着失败那次写下的「已跳过」，但这一轮其实已经点亮了。
+  appendFileSync(join(root, 'skipped.jsonl'), `${JSON.stringify({ at, session: 'sess-s', turn: 11, error: 'not json', attempts: 3 })}\n`, 'utf8')
+
+  const ctx = { logger: { info() {}, warn() {} }, inject() {}, effect() {} }
+  const api = apply(ctx, { root, llm: {}, warmDelay: 0, noWarm: true, reader: { sessions: () => [], reload() {}, state: { version: 2 } } })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const progress = api.queries.progress()
+  assert.equal(progress.skipped, 0, '抽成了就不该再说它坏着')
+  assert.deepEqual(progress.problems, [])
+})
