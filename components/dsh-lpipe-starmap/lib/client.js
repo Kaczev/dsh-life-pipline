@@ -699,6 +699,11 @@ function StarmapPanel({ rpcCall }) {
                     : null,
                 )
               }),
+              h(
+                'div',
+                { style: { fontSize: 10.5, lineHeight: '16px', color: COLORS.faint, marginTop: 2 } },
+                '这些轮不一定是你写错了。角色扮演、露骨或触发审查的内容，模型可能直接拒答、回一句白话、或者一个字都不给——看起来就像「八字不合」。换一个抽星模型（或者换思考强度）通常就好——换完把这几轮点一下「放回」，再点「现在抽星」。先用「看看」确认原文本身是不是正常的。',
+              ),
             )
             : h('div', { style: { fontSize: 11, color: COLORS.faint } }, '每一轮都抽到了，没有坏轮。')
           : null,
