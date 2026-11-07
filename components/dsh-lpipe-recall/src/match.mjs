@@ -1,7 +1,9 @@
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
 import { foldText } from 'dsh-lpipe-starmap/llm'
 
-/** 通用星（在超过 30% 的片段里都出现）只值这么多：它们几乎不起筛选作用。 */
+/** 三种星的基础亮度：准确星 1、模糊星最高 0.3、通用星 0.2（用户定的口径）。 */
+export const EXACT_SOURCE = 1
+export const FUZZY_SOURCE = 0.3
 export const COMMON_SOURCE = 0.2
 /** 模糊星低于这个相似度就不算「闪了一下」。 */
 export const FUZZY_FLOOR = 0.5
@@ -72,7 +74,7 @@ export function flickerStars({ text, stars, common = new Set() }) {
     if (!needle) continue
     const last = folded.lastIndexOf(needle)
     if (last < 0) continue
-    const base = common.has(star.id) ? COMMON_SOURCE : 1
+    const base = common.has(star.id) ? COMMON_SOURCE : EXACT_SOURCE
     keep(star, base * positionWeight(last, folded.length), last)
   }
 
@@ -88,9 +90,10 @@ export function flickerStars({ text, stars, common = new Set() }) {
     for (const hit of fuzzyStarsIn(source)) {
       for (const star of fuzzy) {
         if (star.form !== hit.form) continue
-        const score = fuzzyScore(hit, star)
-        if (score < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
-        keep(star, score * positionWeight(hit.at ?? 0, source.length), hit.at ?? 0)
+        const similarity = fuzzyScore(hit, star)
+        if (similarity < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
+        // 模糊星再像也只有 0.3：它是「感觉」，不是「说到了」。
+        keep(star, FUZZY_SOURCE * similarity * positionWeight(hit.at ?? 0, source.length), hit.at ?? 0)
       }
     }
   }
