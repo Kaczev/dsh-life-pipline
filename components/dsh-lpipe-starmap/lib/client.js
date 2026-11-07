@@ -481,6 +481,15 @@ function StarmapPanel({ rpcCall }) {
   // 跳过的那一轮放回队列：不立刻抽星，等下次点「现在抽星」再试。
   const peekTurn = (entry) => {
     const key = `${entry.session}#${entry.turn}`
+    // 已经读出来了就收起：同一个按钮管开与关，不要再发一次请求。
+    if (peeks[key] && !peeks[key].loading) {
+      setPeeks((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      return
+    }
     setPeeks((current) => ({ ...current, [key]: { loading: true } }))
     Promise.resolve()
       .then(() => rpcCall('starmap.peek', { session: entry.session, turn: entry.turn }))
