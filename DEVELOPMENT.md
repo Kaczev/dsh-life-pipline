@@ -244,6 +244,10 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 - **temperature: 0**：抽星是结构化任务，不需要发挥；同样的输入尽量得到同样的对子，重建才稳定。
 - **模型用散文回答时纠正一次**：角色扮演的回合最容易让它顺着说下去。第一次解析不出 JSON 就追加一句「That was not valid JSON. Reply again with only the JSON array…」再问一次；第二次还不行，这一轮保持灰色，`rejects.jsonl` 记下模型真写出来的开头（截到 60 字），面板上显示「上次失败：not json：…」。
 - **已亮按真的写下去的轮数算**：三路并发时轮号是跳着完成的，只看水位那个最大值会让面板从 1 直接跳到 4。`status()` 数的是星源里有几轮，水位只负责「从哪继续」。
+- **匹配口径带自己的版本号**：`src/llm.mjs` 的 `MATCH_VERSION` 记在 `state.json` 的 `match` 里，只管「这个名字算不算在原文里」。它和 `RULES_VERSION` 是两件事：口径变了只把 `rejects.jsonl` 归档换新，星星一颗都不动；只有抽星规则变了才整库重抽。
+- **格式差异不该判成「找不到」**：`foldText()` 会抹掉空白、引号、括号、Markdown 的 `* _ ~`、间隔号、千分位逗号、连字符，把 LaTeX 符号换成对应的希腊字母（`\rho` → `ρ`）。名字本身是「地」「土地」时另算一份保留 的/地/得 的口径，避免 `needle` 被抹成空串。
+- **重放已经记下的拒绝**：`scripts/replay-rejects.mjs` 拿 `rejects.jsonl` 里被判丢的对子，按当前口径重新匹配，两端都在原文里的并进那一轮的 `pairs` 再重建——不调模型（抽星是 `temperature: 0`，输入没变答案就没变），所以放宽过滤器的代价是零。`--apply` 才写盘。
+- **星源里的 `pairs` 存的是星 id，不是名字**：重建一轮时先用星表把 id 还原成名字（`scripts/repair-pairs.mjs` 就是这么补的），否则会以「名字找不到」为由把旧对子全丢掉。
 - **抽星规则带版本号**：`src/build.mjs` 的 `RULES_VERSION` 记在 `state.json` 的 `rules` 里。改了提示词、分句、成星判定就把这个数加一，启动时一比对不上就整库重抽——名字是算出来的索引，按旧规则建出来的星表没有修补价值。
 - **两类星星**：准确星（名字，必须原样匹配）与模糊星（时间、数字，按数值感觉匹配）。`src/fuzzy.mjs` 负责识别与打分：时间折成一天里的第几分钟，差一小时之外算无关；数字按二进位的对数距离，相差 4 倍算无关。模糊星由程序从原文里扫出来（不靠模型配对），只抽交流记忆（用户的话、我的正文与思考、`chat_send` 发出去的话），工具输出里的数字是数据不算；它们挂在出现它的那一句上；`starmap.near` 按数值找星，这就是星图对时间与数量的「感觉」。`图11-47`、`q_1`、`12 个` 里的数字不算数值。
 - **提示词用英文三段式**：`SYSTEM_PROMPT`（`Rules:` 每条带一句解释 / `Example:` / `Output format:`）与 `INSTRUCTION`（每条消息只管它自己）。都写在 `components/dsh-lpipe-starmap/src/llm.mjs`。模型输出中文概念名没关系——规则第 1 条要的是原样照抄，语言不变。
