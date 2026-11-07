@@ -84,6 +84,12 @@ export function sentenceScore(text, flicker) {
 
 function fragmentSentences({ reader, candidate, flicker, limit }) {
   const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn && isSpokenRow(row))
+  // 只拿「这一段自己的命中星」来给句子打分。
+  //
+  // 用整窗的点亮星会让别的句子莫名其妙地排前面：那些星是照亮了别的片段的，
+  // 这段只是恰好字面上撞上，对「为什么想起这一段」没有任何解释力。
+  const wanted = new Set(candidate.stars ?? [])
+  const local = new Map([...flicker].filter(([id]) => wanted.size === 0 || wanted.has(id)))
   // 句子 id = 句在这一片段里的序号（1 起）。它只是片段内的坐标，跨片段没有意义——
   // 模型要深挖时报的是「仓库 + 片段 + 句子」三个 id，缺一个都定位不到。
   const all = []
@@ -91,7 +97,7 @@ function fragmentSentences({ reader, candidate, flicker, limit }) {
     const text = typeof row.text === 'string' ? row.text : ''
     if (!text) continue
     for (const sentence of pieces(text)) {
-      const { score, exact, ids } = sentenceScore(sentence, flicker)
+      const { score, exact, ids } = sentenceScore(sentence, local)
       all.push({ id: all.length + 1, score, exact, ids, at: row.at ?? candidate.at, text: sentence })
     }
   }
@@ -100,7 +106,6 @@ function fragmentSentences({ reader, candidate, flicker, limit }) {
   // 挑哪几句给人看：**先保证「这段为什么被想起来」能看出来**——优先挑覆盖了
   // 更多「命中星」的句子（贪心覆盖），剩下的位置再按分数补。
   // 否则会出现「日志、记忆、GitHub 亮了，正文里却一句都没有它们」的错觉。
-  const wanted = new Set(candidate.stars ?? [])
   const chosen = []
   const covered = new Set()
   const pool = [...scored]
