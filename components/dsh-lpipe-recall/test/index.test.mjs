@@ -16,18 +16,18 @@ test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   assert.equal(recentText([], 100), '')
 })
 
-test('通用星：出现在超过三成片段里的星只值 0.2', () => {
+test('通用星：出现得够密的星只值 0.2', () => {
   const turns = Array.from({ length: 10 }, (_, index) => ({ session: 's', turn: index + 1, lines: [] }))
   const repo = {
     turns: new Map(turns.map((record) => [`s#${record.turn}`, record])),
     byStar: new Map([
-      ['s_wide', [{ key: 's#1' }, { key: 's#2' }, { key: 's#3' }, { key: 's#4' }]],
-      ['s_mid', [{ key: 's#1' }, { key: 's#2' }]],
-      ['s_narrow', [{ key: 's#1' }]],
+      ['s_wide', Array.from({ length: 6 }, (_, index) => ({ key: `s#${index + 1}` }))],
+      ['s_mid', Array.from({ length: 2 }, (_, index) => ({ key: `s#${index + 1}` }))],
+      ['s_narrow', Array.from({ length: 1 }, (_, index) => ({ key: `s#${index + 1}` }))],
     ]),
   }
   const common = commonStars(repo)
-  assert.equal(COMMON_SHARE, 0.3)
+  assert.equal(COMMON_SHARE, 0.05)
   assert.equal(common.has('s_wide'), true)
   assert.equal(common.has('s_mid'), false)
   assert.equal(common.has('s_narrow'), false)

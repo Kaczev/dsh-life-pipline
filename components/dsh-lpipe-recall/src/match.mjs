@@ -34,19 +34,6 @@ export function isTooShort(name) {
   return false
 }
 
-/**
- * 稀有度：一颗星在多少段记忆里出现过，决定了它算不算「证据」。
- *
- * 「记忆管线」出现在两百多段里，「雪糕」只出现过两段——拿它们去比，前者几乎不
- * 说明任何事。用 idf 归一化到 0..1：越常见越接近 0，越罕见越接近 1。
- */
-export function rarityOf(df, total) {
-  if (!(df > 0) || !(total > 0)) return 1
-  const idf = Math.log(1 + total / df)
-  const ceiling = Math.log(1 + total)
-  return Math.max(0.05, Math.min(1, idf / ceiling))
-}
-
 export function positionWeight(at, length) {
   if (!(length > 0)) return 1
   const ratio = Math.max(0, Math.min(1, at / length))
@@ -65,7 +52,7 @@ export function positionWeight(at, length) {
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function flickerStars({ text, stars, common = new Set(), df = null, total = 0 }) {
+export function flickerStars({ text, stars, common = new Set() }) {
   const source = String(text ?? '')
   const folded = foldText(source)
   const out = new Map()
@@ -96,9 +83,7 @@ export function flickerStars({ text, stars, common = new Set(), df = null, total
     const last = folded.lastIndexOf(needle)
     if (last < 0) continue
     const base = common.has(star.id) ? COMMON_SOURCE : EXACT_SOURCE
-    // 常见词不值钱：出现得越多，越不能拿来说明「这两段记忆有关」。
-    const rare = typeof df === 'function' ? rarityOf(df(star.id), total) : 1
-    keep(star, base * rare * positionWeight(last, folded.length), last)
+    keep(star, base * positionWeight(last, folded.length), last)
   }
 
   const fuzzy = (stars ?? []).filter(

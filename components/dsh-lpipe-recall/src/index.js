@@ -35,7 +35,7 @@ export function triggerOf(rows) {
 }
 
 /** 通用星判据：出现在超过三成的片段里。 */
-export const COMMON_SHARE = 0.3
+export const COMMON_SHARE = 0.05
 
 export function commonStars(repo) {
   const total = repo.turns.size
@@ -273,8 +273,7 @@ export function apply(ctx, options = {}) {
     // 通用星：在超过 30% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
-    const dfOf = (id) => (store.byStar.get(id) ?? []).length
-    const flicker = flickerStars({ text, stars: [...store.stars.values()], common, df: dfOf, total: store.turns.size })
+    const flicker = flickerStars({ text, stars: [...store.stars.values()], common })
     if (flicker.size === 0) {
       report({ skip: 'no-flicker', chars: text.length, stars: store.stars.size, rows: rows.length })
       return ''
@@ -287,6 +286,7 @@ export function apply(ctx, options = {}) {
       excluded,
       minStars: settings.minStars,
       minStrength: settings.minStrength,
+      common,
       limit: settings.fragments,
     })
     if (candidates.length === 0) {
