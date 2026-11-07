@@ -4,6 +4,21 @@ import { splitSentences } from 'dsh-lpipe-starmap/segment'
 
 const MAX_SENTENCE_CHARS = 240
 
+/** 只有「真的说过的话」值得回忆：工具输出、日志、注入的上下文都不算。 */
+const SPOKEN_KINDS = new Set(['user/message', 'assistant/message'])
+const SKIP_SOURCES = new Set([
+  'runtime-context',
+  'time-context',
+  'dsh-lpipe-recall',
+  'dsh-lpipe-assoc',
+  'dsh-lpipe-imagine',
+])
+
+export function isSpokenRow(row) {
+  if (!SPOKEN_KINDS.has(row?.kind)) return false
+  return !SKIP_SOURCES.has(row?.source?.kind)
+}
+
 const pieces = (text) => {
   const out = []
   for (const piece of splitSentences(String(text ?? ''))) {
@@ -27,30 +42,37 @@ export function clockOf(at) {
   return `${pad(when.getMonth() + 1)}-${pad(when.getDate())} ${pad(when.getHours())}:${pad(when.getMinutes())}`
 }
 
-/** 一句话里落了几颗闪烁星（准确星看名字、模糊星看感觉）。 */
+/**
+ * 一句话里落了几颗闪烁星（准确星看名字、模糊星看感觉）。
+ * 返回 `exact`：没有准确星的句子不进回忆——只有时间/数字撞上的句子，多半是日志。
+ */
 export function sentenceScore(text, flicker) {
   const folded = foldText(text)
   let score = 0
+  let exact = 0
   for (const hit of flicker.values()) {
     if (hit.kind === 'fuzzy') {
       if (fuzzyStarsIn(text).some((candidate) => fuzzyScore(candidate, hit) >= 0.5)) score += hit.score
       continue
     }
     const needle = foldText(hit.name)
-    if (needle && folded.includes(needle)) score += hit.score
+    if (needle && folded.includes(needle)) {
+      score += hit.score
+      exact += 1
+    }
   }
-  return score
+  return { score, exact }
 }
 
 function fragmentSentences({ reader, candidate, flicker, limit }) {
-  const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn)
+  const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn && isSpokenRow(row))
   const scored = []
   for (const row of rows) {
     const text = typeof row.text === 'string' ? row.text : ''
     if (!text) continue
     for (const sentence of pieces(text)) {
-      const score = sentenceScore(sentence, flicker)
-      if (score > 0) scored.push({ score, at: row.at ?? candidate.at, text: sentence })
+      const { score, exact } = sentenceScore(sentence, flicker)
+      if (score > 0 && exact > 0) scored.push({ score, at: row.at ?? candidate.at, text: sentence })
     }
   }
   if (scored.length === 0) return { total: 0, lines: [] }

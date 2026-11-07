@@ -13,17 +13,27 @@ const readerOf = (rowsBySession) => ({
 
 const config = { sentencesPerFragment: 2 }
 
-test('句子打分：名字与时间都能点亮，没关系的句子是 0', () => {
-  assert.ok(sentenceScore('记忆管线正在落盘', flicker) > 1)
-  assert.ok(sentenceScore('20:46 吃的雪糕', flicker) > 1)
-  assert.equal(sentenceScore('今天天气不错', flicker), 0)
+test('句子打分：准确星与时间都能点亮，但只有时间不算', () => {
+  assert.ok(sentenceScore('记忆管线正在落盘', flicker).score > 1)
+  assert.equal(sentenceScore('记忆管线正在落盘', flicker).exact, 1)
+  const timeOnly = sentenceScore('20:46 吃的雪糕', flicker)
+  assert.ok(timeOnly.score > 0)
+  assert.equal(timeOnly.exact, 0, '只有时间撞上的句子不进回忆')
+  assert.equal(sentenceScore('今天天气不错', flicker).score, 0)
 })
 
 test('模糊回忆照抄原句、用省略号连接，并带上是哪一段', () => {
   const reader = readerOf({
     'session-aadf6fa4-1234': [
-      { seq: 5, turn: 7, at: Date.UTC(2026, 8, 16, 8, 24), text: '记忆管线开工。今天天气不错。20:44 的雪糕真好吃。' },
-      { seq: 6, turn: 7, at: Date.UTC(2026, 8, 16, 8, 26), text: '星图管线和它一起跑。' },
+      {
+        seq: 5,
+        turn: 7,
+        kind: 'assistant/message',
+        at: Date.UTC(2026, 8, 16, 8, 24),
+        text: '记忆管线开工。今天天气不错。20:44 的雪糕真好吃。',
+      },
+      { seq: 6, turn: 7, kind: 'assistant/message', at: Date.UTC(2026, 8, 16, 8, 26), text: '星图管线和它一起跑。' },
+      { seq: 7, turn: 7, kind: 'tool/result', at: Date.UTC(2026, 8, 16, 8, 27), text: '记忆管线工具输出的日志不该进回忆。' },
     ],
   })
   const block = renderRecall({
@@ -39,6 +49,7 @@ test('模糊回忆照抄原句、用省略号连接，并带上是哪一段', ()
   assert.ok(block.includes('记忆管线开工'))
   assert.ok(!block.includes('今天天气不错'), '没点亮星的句子不该出现')
   assert.ok(!block.includes('星图管线和它一起跑'), '这一句没有闪烁星')
+  assert.ok(!block.includes('工具输出'), '工具结果不是「说过的话」')
 })
 
 test('没有候选、或者候选一句都挑不出来，就什么都不注入', () => {
@@ -46,7 +57,7 @@ test('没有候选、或者候选一句都挑不出来，就什么都不注入',
   const block = renderRecall({
     candidates: [{ key: 's#1', session: 's', turn: 1, at: 0, stars: ['s_a'], strength: 1 }],
     flicker,
-    reader: readerOf({ s: [{ seq: 1, turn: 1, at: 0, text: '完全无关的一句话。' }] }),
+    reader: readerOf({ s: [{ seq: 1, turn: 1, kind: 'assistant/message', at: 0, text: '完全无关的一句话。' }] }),
     config,
   })
   assert.equal(block, '')
