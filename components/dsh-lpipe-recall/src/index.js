@@ -417,6 +417,9 @@ export function apply(ctx, options = {}) {
       return ''
     }
 
+    // 匹配窗口切的是「最近的说话流水」：你说的话、我的思考与回复、工具结果。
+    const text = bufferOf(sessionId)
+    if (!text.trim()) return ''
     // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
     // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
     const { background, foreground } = splitWindows(text, settings)
@@ -439,7 +442,9 @@ export function apply(ctx, options = {}) {
       [...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
     )
     // 当前这一句单独点一遍：排序要看「你此刻问的是什么」，而不是整段窗口的热度。
-    const question = flickerStars({ text: foreground, stars, common, offset: 0, total: Math.max(1, foreground.length) })
+    // 「当前这一句」：一类触发源就是这条消息本身；二类触发源没有单句可指，退回真文窗口末尾。
+    const questionText = raw && raw.trim() ? raw.slice(-settings.foregroundChars) : foreground
+    const question = flickerStars({ text: questionText, stars, common, offset: 0, total: Math.max(1, questionText.length) })
     const currentExact = new Set([...question.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const flicker = new Map(behind)
     for (const [id, hit] of ahead) {

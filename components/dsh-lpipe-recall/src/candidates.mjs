@@ -57,7 +57,7 @@ export function candidatesOf({
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, current: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, current: 0, currentWeight: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
@@ -75,7 +75,13 @@ export function candidatesOf({
           bucket.foreground += 1
           bucket.foregroundScore += hit.score
           // 当前这一句自己点亮的星：最像「你正在问的东西」。
-          if (current.has(id)) bucket.current += 1
+          if (current.has(id)) {
+            bucket.current += 1
+            // 同样都沾上了「当前这一句」，越稀有的那颗越说明问题：「电磁场」只出现在几段里，
+            // 「工程」出现在几百段里——不能让后者顶掉前者。
+            const df = repo.byStar.get(id)?.length ?? 1
+            bucket.currentWeight += hit.score / Math.log2(2 + df)
+          }
         } else {
           bucket.exactScore += hit.score
         }
@@ -123,6 +129,7 @@ export function candidatesOf({
       exact: bucket.exact,
       foreground: bucket.foreground,
       current: bucket.current,
+      currentWeight: bucket.currentWeight,
       strength: bucket.strength,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
@@ -136,7 +143,12 @@ export function candidatesOf({
   // 排序：先看「当前这一句」对上了几颗（你此刻问的是什么），再看真文窗口，
   // 再比亮度，最后比时间。不这么排，话题热度会盖过问题本身。
   out.sort(
-    (a, b) => b.current - a.current || b.foreground - a.foreground || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0),
+    (a, b) =>
+      b.current - a.current ||
+      b.currentWeight - a.currentWeight ||
+      b.foreground - a.foreground ||
+      b.strength - a.strength ||
+      (b.at ?? 0) - (a.at ?? 0),
   )
   return out.slice(0, Math.max(1, limit))
 }
