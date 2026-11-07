@@ -291,6 +291,7 @@ function StarmapPanel({ rpcCall }) {
   const [pending, setPending] = React.useState('');
   // 我按过暂停、还没再点开始：状态行据此显示「已暂停」，哪怕宿主那边还在收尾。
   const [held, setHeld] = React.useState(false);
+  const [openProblems, setOpenProblems] = React.useState(false);
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
   const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
@@ -615,10 +616,20 @@ function StarmapPanel({ rpcCall }) {
           { style: { ...card, paddingTop: 10, paddingBottom: 10 } },
           h(
             'details',
-            null,
+            // 宿主样式会把 details 自带的三角藏掉，所以自己画一个，展开时转向下。
+            { onToggle: (event) => setOpenProblems(Boolean(event?.currentTarget?.open)) },
             h(
               'summary',
-              { style: { cursor: 'pointer', fontSize: 11, color: COLORS.muted, lineHeight: '18px' } },
+              {
+                style: {
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  color: COLORS.muted,
+                  lineHeight: '18px',
+                  listStyle: 'none',
+                },
+              },
+              h('span', { style: { display: 'inline-block', width: 12 } }, openProblems ? '▾' : '▸'),
               `坏掉的轮次（${problems.length}）— 连试三次没成，已跳过`,
             ),
             h(
