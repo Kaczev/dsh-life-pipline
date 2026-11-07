@@ -49,7 +49,9 @@ export function candidatesOf({
   limit = 5,
 }) {
   const buckets = new Map()
+  // 第一遍：只有真文窗口里的星能建候选——背景像的东西不能自己变成一段回忆。
   for (const [id, hit] of flicker) {
+    if (foreground.size > 0 && !foreground.has(id)) continue
     for (const entry of repo.byStar.get(id) ?? []) {
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
@@ -75,6 +77,22 @@ export function candidatesOf({
           bucket.exactScore += hit.score
         }
       }
+      bucket.lines.set(id, entry.seq)
+    }
+  }
+
+  // 第二遍：背景窗口里的星只给已经存在的候选加权，不自己建候选。
+  for (const [id, hit] of flicker) {
+    if (foreground.size === 0 || foreground.has(id)) continue
+    if (hit.kind !== 'exact' || common.has(id)) continue
+    for (const entry of repo.byStar.get(id) ?? []) {
+      const bucket = buckets.get(entry.key)
+      if (!bucket || bucket.seen.has(id)) continue
+      if (excluded.has(entry.key) && !bucket) continue
+      bucket.seen.add(id)
+      bucket.stars.push(id)
+      bucket.exact += 1
+      bucket.exactScore += hit.score
       bucket.lines.set(id, entry.seq)
     }
   }

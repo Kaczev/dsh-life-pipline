@@ -69,14 +69,14 @@ test('模糊星在一个片段里的总和封顶 2，单颗封顶 1，n > 1 时�
   const one = candidatesOf({
     repo,
     flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy']]),
-    foreground: new Set(['s_exact']),
+    foreground: new Set(['s_exact', 's_f1']),
   })
   assert.equal(one[0].strength, 1.2 + 1, '只有一颗模糊星时，它最多算 1')
 
   const three = candidatesOf({
     repo,
     flicker: flickerMap([['s_exact', 1.2], ['s_f1', 1.9, 'fuzzy'], ['s_f2', 1.8, 'fuzzy'], ['s_f3', 1.7, 'fuzzy']]),
-    foreground: new Set(['s_exact']),
+    foreground: new Set(['s_exact', 's_f1', 's_f2', 's_f3']),
   })
   assert.equal(three[0].fuzzy, 3)
   assert.ok(Math.abs(three[0].strength - (1.2 + 3 * (2 / 3))) < 1e-9, '三颗时每颗最多 2/3，总和 2')
