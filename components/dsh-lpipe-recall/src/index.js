@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { openRepo } from 'dsh-lpipe-starmap/store'
@@ -81,7 +82,7 @@ export function recentText(rows, matchChars) {
  *
  * 单独抽出来是为了能测——真正的组装与投递都被换成参数，这里只管「该不该、投什么」。
  */
-export function createTriggerHandler({ compose, deliver, warn = () => {} }) {
+export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {} }) {
   const seen = new Set()
   return (session, event) => {
     if (!event || event.type !== 'user/message') return
@@ -99,14 +100,16 @@ export function createTriggerHandler({ compose, deliver, warn = () => {} }) {
     if (!text.trim()) return
     let block = ''
     try {
-      block = compose(sessionId, text)
+      block = compose(sessionId, text, (diag) => note({ session: sessionId, ...diag, delivered: false }))
     } catch (error) {
       warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)
+      note({ session: sessionId, error: String(error?.message ?? error) })
       return
     }
     if (!block) return
     Promise.resolve()
       .then(() => deliver(sessionId, block))
+      .then((sent) => note({ session: sessionId, delivered: Boolean(sent), chars: block.length }))
       .catch((error) => warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`))
   }
 }
@@ -141,6 +144,19 @@ export function apply(ctx, options = {}) {
   let sessionController = null
 
   /**
+   * 每次触发都记一行：点亮了几颗、几段候选、投了没有。没有这一行的话，
+   * 「没想起什么」和「根本没跑」在界面上长得一模一样。
+   */
+  const noteRun = (entry) => {
+    try {
+      mkdirSync(recallDir, { recursive: true })
+      writeFileSync(join(recallDir, 'recall.jsonl'), `${JSON.stringify({ at: Date.now(), ...entry })}\n`, { flag: 'a' })
+    } catch {
+      /* 记不下来就算了，不影响回忆本身 */
+    }
+  }
+
+  /**
    * 日志只能成员调用（Cordis 的 logger 是可调用对象，拆出方法会丢 this），
    * 而且失败不许往外抛：插件写日志把宿主弄崩过两次。
    */
@@ -164,9 +180,12 @@ export function apply(ctx, options = {}) {
     return rows
   }
 
-  const compose = (sessionId, raw) => {
+  const compose = (sessionId, raw, report = () => {}) => {
     const settings = config()
-    if (!settings.enabled) return ''
+    if (!settings.enabled) {
+      report({ skip: 'disabled' })
+      return ''
+    }
     if (!sessionId) return ''
     // 长消息（聊天批量合并、粘贴的日志）只取末尾 `matchChars`：越近越算数。
     const text = raw.length > settings.matchChars ? raw.slice(-settings.matchChars) : raw
@@ -179,12 +198,18 @@ export function apply(ctx, options = {}) {
     }
 
     const store = repoNow()
-    if (!store || store.stars.size === 0) return ''
+    if (!store || store.stars.size === 0) {
+      report({ skip: 'no-store', stars: store?.stars?.size ?? 0 })
+      return ''
+    }
     // 通用星：在超过 30% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
     const flicker = flickerStars({ text, stars: [...store.stars.values()], common })
-    if (flicker.size === 0) return ''
+    if (flicker.size === 0) {
+      report({ skip: 'no-flicker', chars: text.length, stars: store.stars.size, rows: rows.length })
+      return ''
+    }
 
     const excluded = coolTurns({ rows, coolChars: settings.coolChars })
     const candidates = candidatesOf({
@@ -195,7 +220,10 @@ export function apply(ctx, options = {}) {
       minStrength: settings.minStrength,
       limit: settings.fragments,
     })
-    if (candidates.length === 0) return ''
+    if (candidates.length === 0) {
+      report({ skip: 'no-candidates', flicker: flicker.size, excluded: excluded.size, rows: rows.length })
+      return ''
+    }
 
     const key = `${sessionId}|${rows.length}|${repoStamp}|${JSON.stringify(settings)}`
     const cached = textCache.get(key)
@@ -229,7 +257,7 @@ export function apply(ctx, options = {}) {
     return true
   }
 
-  const onEvent = createTriggerHandler({ compose, deliver, warn })
+  const onEvent = createTriggerHandler({ compose, deliver, warn, note: noteRun })
 
   ctx.inject(['sessionController'], (serviceCtx) => {
     sessionController = serviceCtx.sessionController ?? null
