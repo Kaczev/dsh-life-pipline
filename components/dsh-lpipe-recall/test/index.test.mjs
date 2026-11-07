@@ -57,11 +57,11 @@ test('触发源：只看谁在说话，自然唤醒不触发回忆', () => {
 
   const natural = triggerOf([
     row('user/message', { kind: 'user' }, '我手动开的头'),
-    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }, '（自己醒来）已经过了两小时'),
+    row('user/message', { kind: 'dsh-lpipe-wake', wake: 'natural', summary: '唤醒管线 · 自主醒来' }, '（自己醒来）已经过了两小时'),
   ])
   assert.equal(natural.skip, 'natural-wake', '自然唤醒醒来时不回忆')
 
-  const active = triggerOf([row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }, '（主动醒来）')])
+  const active = triggerOf([row('user/message', { kind: 'dsh-lpipe-wake', wake: 'planned', summary: '唤醒管线 · 主动醒来' }, '（主动醒来）')])
   assert.equal(active.skip, null)
 
   assert.equal(triggerOf([row('assistant/message', { kind: 'assistant' })]), null)
@@ -85,7 +85,7 @@ test('触发源来了才注入，而且只注入一条带自己来源的消息',
   handler({ id: 's1' }, user(1, '我吃了雪糕'))
   handler({ id: 's1' }, user(1, '我吃了雪糕'))          // 同一事件重复送进来，只投一次
   handler({ id: 's1' }, user(2, '嗯'))                    // 没有回忆可给，不投
-  handler({ id: 's1' }, user(3, '雪糕', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }))
+  handler({ id: 's1' }, user(3, '雪糕', { kind: 'dsh-lpipe-wake', wake: 'natural', summary: '唤醒管线 · 自主醒来' }))
   handler({ id: 's1' }, user(4, '雪糕', { kind: 'time-context' }))
   handler({ id: 's1' }, { seq: 5, type: 'assistant/message', data: { text: '雪糕' } })
 
@@ -103,8 +103,8 @@ test('点亮星星用的是 32K 里所有触发源，不只是最新一条', () 
     row('assistant/message', { kind: 'assistant' }, '我的回复不算触发源'),
     row('tool/result', { kind: 'tool' }, '工具输出也不算'),
     row('user/message', { kind: 'dsh-lpipe-chat' }, '微信发来的那句'),
-    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }, '主动醒来那句'),
-    row('user/message', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自然醒来' }, '自己醒来那句'),
+    row('user/message', { kind: 'dsh-lpipe-wake', wake: 'planned', summary: '唤醒管线 · 主动醒来' }, '主动醒来那句'),
+    row('user/message', { kind: 'dsh-lpipe-wake', wake: 'natural', summary: '唤醒管线 · 自然醒来' }, '自己醒来那句'),
   ]
   const text = matchTextOf(rows, '现在这一句', 1000)
   assert.equal(
@@ -124,8 +124,9 @@ test('自然唤醒看结构化字段，不靠 summary 里的措辞', () => {
   const natural = { kind: 'dsh-lpipe-wake', wake: 'natural', summary: '唤醒管线 · 主动醒来' }
   assert.equal(isNaturalWake(plan), false, '字段说主动，就算措辞写着自主也算主动')
   assert.equal(isNaturalWake(natural), true)
-  // 老记忆没这个字段，退回看措辞
-  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }), true)
-  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 主动醒来' }), false)
+  // 措辞一概不看：文案怎么写都不影响判断
+  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }), false)
+  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自然醒来' }), false)
+  assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake' }), false, '没有字段按主动处理')
   assert.equal(isNaturalWake({ kind: 'user' }), false)
 })

@@ -91,14 +91,13 @@ export function recentText(rows, matchChars) {
 /**
  * 唤醒分两种：自然醒来不该触发回忆，主动安排的要。
  *
- * 认 `source.wake` 这个结构化字段（唤醒管线写的 'planned' / 'natural'）。
- * 老记忆里没有这个字段——那时候只能从 summary 的措辞推，所以留一个兜底。
+ * 只看 `source.wake`（唤醒管线写的 'planned' / 'natural'），不看 summary：
+ * 那是给人看的文案，改一个字不该改变行为。老记忆里没有这个字段，按「主动」
+ * 处理——宁可多回忆一次，也不因为缺字段把主动唤醒的回忆吞掉。
  */
 export function isNaturalWake(source) {
   if (source?.kind !== 'dsh-lpipe-wake') return false
-  if (source.wake === 'natural') return true
-  if (source.wake === 'planned') return false
-  return /自主|自然/.test(String(source?.summary ?? ''))
+  return source.wake === 'natural'
 }
 
 export function matchTextOf(rows, current, matchChars) {
