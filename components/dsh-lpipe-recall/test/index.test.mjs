@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, recentText, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, recentText, textOfEvent, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -129,4 +129,16 @@ test('自然唤醒看结构化字段，不靠 summary 里的措辞', () => {
   assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自然醒来' }), false)
   assert.equal(isNaturalWake({ kind: 'dsh-lpipe-wake' }), false, '没有字段按主动处理')
   assert.equal(isNaturalWake({ kind: 'user' }), false)
+})
+
+
+test('正文在 content 分片里，不在 data.text 上', () => {
+  assert.equal(textOfEvent({ content: [{ type: 'text', text: '我要跟 Ksa 亲亲' }] }), '我要跟 Ksa 亲亲')
+  assert.equal(textOfEvent({ text: '直接的 text 字段' }), '直接的 text 字段')
+  assert.equal(
+    textOfEvent({ content: [{ type: 'text', text: '前半句' }, { type: 'image' }, { type: 'text', text: '后半句' }] }),
+    '前半句\n后半句',
+  )
+  assert.equal(textOfEvent({}), '')
+  assert.equal(textOfEvent(undefined), '')
 })

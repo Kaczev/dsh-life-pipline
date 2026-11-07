@@ -95,6 +95,22 @@ export function recentText(rows, matchChars) {
  * 那是给人看的文案，改一个字不该改变行为。老记忆里没有这个字段，按「主动」
  * 处理——宁可多回忆一次，也不因为缺字段把主动唤醒的回忆吞掉。
  */
+/**
+ * 取一条事件的正文。
+ *
+ * `user/message` 的正文在 `data.content` 的分片里（`[{ type: 'text', text }]`），
+ * 不在 `data.text` 上——以前按 `data.text` 取，结果永远是空串，整条管线静默不动。
+ */
+export function textOfEvent(data) {
+  if (typeof data?.text === 'string' && data.text.trim()) return data.text
+  const content = data?.message?.content ?? data?.content
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('\n')
+}
+
 export function isNaturalWake(source) {
   if (source?.kind !== 'dsh-lpipe-wake') return false
   return source.wake === 'natural'
@@ -134,8 +150,11 @@ export function createTriggerHandler({ compose, deliver, warn = () => {}, note =
     if (seen.has(key)) return
     seen.add(key)
     if (seen.size > 200) seen.clear()
-    const text = event?.data?.text ?? ''
-    if (!text.trim()) return
+    const text = textOfEvent(event?.data)
+    if (!text.trim()) {
+      note({ session: sessionId, skip: 'empty-text' })
+      return
+    }
     let block = ''
     try {
       block = compose(sessionId, text, (diag) => note({ session: sessionId, ...diag, delivered: false }))
