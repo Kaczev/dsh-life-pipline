@@ -312,6 +312,7 @@ export function createExtractor(options = {}) {
     if (typeof llm?.stream !== 'function') return { ok: false, error: 'llm unavailable' }
     if (!source || !source.trim()) return { ok: true, pairs: [], raw: '', usage: null }
     messages.push(messageOf('user', `${source}${TURN_SUFFIX}`))
+    let lastDiag = null
     let attempts = 0
     for (;;) {
       attempts += 1
