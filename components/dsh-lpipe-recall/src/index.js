@@ -434,6 +434,9 @@ export function apply(ctx, options = {}) {
   /** 最近的「说话流水」：你说的话、我的思考与回复、工具结果。匹配窗口就切它。 */
   const HISTORY_CHARS = 64000
   const buffers = new Map()
+  // 记一下这个会话有没有从记忆里播种到东西：全新会话的记忆是空的（记忆按轮落盘，
+  // 这一轮还没结束），缓冲区只能从会话事件本身长出来。
+  const bufferSeeded = new Map()
 
   const bufferOf = (sessionId) => {
     if (buffers.has(sessionId)) return buffers.get(sessionId)
@@ -448,6 +451,7 @@ export function apply(ctx, options = {}) {
     }
     const seeded = text.length > HISTORY_CHARS ? text.slice(-HISTORY_CHARS) : text
     buffers.set(sessionId, seeded)
+    bufferSeeded.set(sessionId, seeded.length > 0)
     return seeded
   }
 
@@ -466,8 +470,9 @@ export function apply(ctx, options = {}) {
     if (!sessionId) return
     const last = bufferSeen.get(sessionId)
     if (!Number.isInteger(last)) {
-      bufferSeen.set(sessionId, session.seq)
-      return
+      // 记忆里没有东西可播种（全新会话）时，从第一条事件开始收——否则缓冲区永远是空的。
+      bufferSeen.set(sessionId, bufferSeeded.get(sessionId) === false ? 0 : session.seq)
+      if (bufferSeeded.get(sessionId) !== false) return
     }
     for (let seq = last; seq < session.seq; seq += 1) {
       const event = session.eventAt?.(seq)
@@ -539,7 +544,8 @@ export function apply(ctx, options = {}) {
     }
 
     // 匹配窗口切的是「最近的说话流水」：你说的话、我的思考与回复、工具结果。
-    const text = bufferOf(sessionId)
+    // 全新会话的缓冲区可能还是空的，这时至少拿这一轮触发源那句话当窗口。
+    const text = bufferOf(sessionId).trim() ? bufferOf(sessionId) : (raw ?? '')
     if (!text.trim()) return ''
     // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
     // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
