@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clockOf, renderRecall, sentenceScore, shortSession } from '../src/render.mjs'
+import { clockOf, looksLikeCode, renderRecall, sentenceScore, shortSession, stripCodeBlocks } from '../src/render.mjs'
 
 const flicker = new Map([
   ['s_a', { id: 's_a', name: '记忆管线', kind: 'exact', score: 1.8, at: 0 }],
@@ -69,4 +69,31 @@ test('会话短号与时刻：只露尾巴，时间按本地时钟', () => {
   const at = new Date(2026, 8, 16, 16, 24).getTime()
   assert.equal(clockOf(at), '09-16 16:24')
   assert.equal(clockOf('nonsense'), '')
+})
+
+
+test('代码块与代码行不进回忆：会念出来的只有话', () => {
+  assert.equal(stripCodeBlocks('前\n```js\nconst a = 1\n```\n后').includes('const a'), false)
+  assert.equal(looksLikeCode('{ "form": "time", "value": "20:46" }'), true)
+  assert.equal(looksLikeCode('记忆管线正在落盘，这一句是话。'), false)
+
+  const reader = readerOf({
+    s: [
+      {
+        seq: 1,
+        turn: 2,
+        kind: 'assistant/message',
+        at: 0,
+        text: '记忆管线开工。\n```js\n记忆管线 = 1\n```\n就这样。',
+      },
+    ],
+  })
+  const block = renderRecall({
+    candidates: [{ key: 's#2', session: 's', turn: 2, at: 0, stars: ['s_a'], strength: 1.5 }],
+    flicker,
+    reader,
+    config: { sentencesPerFragment: 4 },
+  })
+  assert.ok(block.includes('记忆管线开工'))
+  assert.ok(!block.includes('记忆管线 = 1'))
 })

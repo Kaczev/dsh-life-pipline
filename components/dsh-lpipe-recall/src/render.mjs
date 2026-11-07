@@ -19,12 +19,25 @@ export function isSpokenRow(row) {
   return !SKIP_SOURCES.has(row?.source?.kind)
 }
 
+/** 代码块整段不念：回忆里出现一行 `{ "form": "time" }` 只会让人出戏。 */
+export const stripCodeBlocks = (text) =>
+  String(text ?? '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/~~~[\s\S]*?~~~/g, ' ')
+
+/** 符号比字还多的一行多半是代码或表格，不是话。 */
+export function looksLikeCode(sentence) {
+  const value = String(sentence ?? '')
+  const symbols = (value.match(/[{}[\]()<>|\\/=+*_^$#@~`]/g) ?? []).length
+  return value.length > 0 && symbols / value.length > 0.16
+}
+
 const pieces = (text) => {
   const out = []
-  for (const piece of splitSentences(String(text ?? ''))) {
+  for (const piece of splitSentences(stripCodeBlocks(text))) {
     const value = typeof piece === 'string' ? piece : piece?.text
     const trimmed = String(value ?? '').replace(/\s+/g, ' ').trim()
-    if (trimmed) out.push(trimmed)
+    if (trimmed && !looksLikeCode(trimmed)) out.push(trimmed)
   }
   return out
 }
