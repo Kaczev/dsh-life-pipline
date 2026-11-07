@@ -165,9 +165,15 @@ export function keysInContext(messages) {
   for (const message of messages ?? []) {
     if (message?.role === 'assistant') continue
     const content = message?.content
+    // 请求里的 messages 可能已经过一层投影：content 可能是分片数组、整段字符串，
+    // 也可能只剩 message.text。三种都试，别因为形状不同就漏掉。
     const texts = Array.isArray(content)
-      ? content.filter((part) => typeof part?.text === 'string').map((part) => part.text)
-      : [typeof message?.text === 'string' ? message.text : '']
+      ? content
+          .map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : ''))
+          .filter(Boolean)
+      : typeof content === 'string'
+        ? [content]
+        : [typeof message?.text === 'string' ? message.text : '']
     for (const text of texts) {
       if (!text || !text.includes('lpipe_recall_id[')) continue
       pattern.lastIndex = 0
@@ -572,6 +578,15 @@ export function apply(ctx, options = {}) {
         const text = found.text
         // 「摆过没有」不再查账本：把这一次请求的 messages 扫一遍，块头上的记号就是凭据。
         const present = keysInContext(decision.messages)
+        noteRun({
+          session: session.id,
+          event: 'present',
+          turn,
+          step,
+          keys: present.size,
+          sample: [...present].slice(0, 3),
+          messages: decision.messages?.length ?? 0,
+        })
         block = compose(session.id, text, (diag) => noteRun({ session: session.id, ...diag, delivered: false }), present)
       } catch (error) {
         warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)

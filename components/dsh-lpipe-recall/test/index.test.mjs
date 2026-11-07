@@ -152,9 +152,12 @@ test('已经摆在上下文里的片段不再重复摆', () => {
     { role: 'assistant', content: [{ type: 'text', text: '要不要打开 lpipe_recall_id[ddb93dff:430] 看看？' }] },
     // 句子粒度不算数：只认片段
     { role: 'user', content: [{ type: 'text', text: 'lpipe_recall[ddb93dff:431:2]' }] },
+    // 投影成整段字符串的也要认
+    { role: 'user', content: '第 2 段｜lpipe_recall_id[ddb93dff:432], 11-02 17:16' },
   ]
   const candidates = [{ key: 'ddb93dff#429' }, { key: 'ddb93dff#430' }]
   const present = keysInContext(messages)
+  assert.equal(present.has('ddb93dff#432'), true, '投影成字符串的 content 也要认出记号')
   assert.deepEqual(
     candidates.filter((entry) => !present.has(entry.key)).map((entry) => entry.key),
     ['ddb93dff#430'],
