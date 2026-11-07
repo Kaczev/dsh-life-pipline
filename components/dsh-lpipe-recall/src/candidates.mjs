@@ -54,7 +54,7 @@ export function candidatesOf({
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
@@ -68,8 +68,12 @@ export function candidatesOf({
         bucket.common.push(hit.score)
       } else {
         bucket.exact += 1
-        bucket.exactScore += hit.score
-        if (foreground.has(id)) bucket.foreground += 1
+        if (foreground.has(id)) {
+          bucket.foreground += 1
+          bucket.foregroundScore += hit.score
+        } else {
+          bucket.exactScore += hit.score
+        }
       }
       bucket.lines.set(id, entry.seq)
     }
@@ -81,7 +85,8 @@ export function candidatesOf({
     // 模糊星的总和封顶 `fuzzyBudget`（默认 2），单颗封顶 1；片段里模糊星超过一颗时
     // 每颗的上限是 `fuzzyBudget / n`——「感觉」再多，也不该顶掉「说到了」。
     const cap = bucket.fuzzy.length > 1 ? fuzzyBudget / bucket.fuzzy.length : 1
-    bucket.strength = bucket.exactScore
+    // 真文窗口里的星是「你现在真的在说的事」，全额算；背景里的只算半价。
+    bucket.strength = bucket.foregroundScore + bucket.exactScore * 0.5
     for (const score of bucket.fuzzy) bucket.strength += Math.min(score, cap)
     // 通用星的总和也封顶：默认 0.4，等于两颗通用星的份量。
     const commonCap = bucket.common.length > 1 ? commonBudget / bucket.common.length : COMMON_SOURCE
@@ -106,7 +111,7 @@ export function candidatesOf({
       to: record?.to ?? null,
     })
   }
-  // 排序：先看有几颗**准确**星（真的说到了几个共同概念），再比亮度，最后比时间。
-  out.sort((a, b) => b.exact - a.exact || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0))
+  // 排序：先看真文窗口里对上了几颗（你现在在说什么），再比亮度，最后比时间。
+  out.sort((a, b) => b.foreground - a.foreground || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0))
   return out.slice(0, Math.max(1, limit))
 }
