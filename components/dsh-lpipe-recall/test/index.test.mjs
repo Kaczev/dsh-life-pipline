@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, keysInContext, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, keysInSession, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, keysInContext, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -218,3 +218,27 @@ test('触发源从这一次请求的 messages 里认：step 1 时它还没进 se
 })
 
 
+
+
+test('从会话事件里认已经摆过的片段，被 rewind 掉的不算', () => {
+  const recall = (seq, turn) => ({
+    seq,
+    type: 'user/message',
+    data: {
+      content: [{ type: 'text', text: `第 1 段｜lpipe_recall_id[warehouse-a:${turn}], 11-02 17:11, 共 4 句，展示 2 句` }],
+      source: { kind: 'dsh-lpipe-recall' },
+    },
+  })
+  const session = {
+    snapshotEvents: () => [
+      { seq: 1, type: 'user/message', data: { content: [{ type: 'text', text: '我说的话' }], source: { kind: 'user' } } },
+      recall(5, 429),
+      recall(9, 430),
+      recall(12, 431),
+    ],
+    // 9 被 rewind/压缩掉了：模型看不见，也就不算摆过
+    surface: { nodes: [1, 5, 12] },
+  }
+  const present = keysInSession(session)
+  assert.deepEqual([...present].sort(), ['warehouse-a#429', 'warehouse-a#431'])
+})

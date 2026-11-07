@@ -187,6 +187,48 @@ export function keysInContext(messages) {
   return found
 }
 
+/**
+ * 上下文里已经摆过哪些片段——从会话事件里看。
+ *
+ * `agent/pre-step` 那一步的 `decision.messages` 只有这一轮刚说的那两条，历史不在里面
+ * （日志实测 `messages: 2`），所以只扫 messages 永远是 0。真正的「模型看得见什么」
+ * 在 `session.snapshotEvents()` 与 `session.surface.nodes`（rewind/压缩过的会被排除）。
+ */
+export function keysInSession(session) {
+  const found = new Set()
+  let events = []
+  let visible = null
+  try {
+    events = session?.snapshotEvents?.() ?? session?.events ?? []
+    const nodes = session?.surface?.nodes
+    if (Array.isArray(nodes)) visible = new Set(nodes)
+  } catch {
+    return found
+  }
+  if (!Array.isArray(events)) return found
+  const pattern = /lpipe_recall_id\[([^\]:]+):(\d+)\]/g
+  for (const event of events) {
+    if (event?.type !== 'user/message') continue
+    if (event?.data?.source?.kind !== 'dsh-lpipe-recall') continue
+    if (visible && !visible.has(event.seq)) continue
+    const content = event?.data?.content
+    const texts = Array.isArray(content)
+      ? content.map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : '')).filter(Boolean)
+      : typeof event?.data?.text === 'string'
+        ? [event.data.text]
+        : []
+    for (const text of texts) {
+      pattern.lastIndex = 0
+      let hit = pattern.exec(text)
+      while (hit) {
+        found.add(`${hit[1]}#${hit[2]}`)
+        hit = pattern.exec(text)
+      }
+    }
+  }
+  return found
+}
+
 export function splitWindows(text, { backgroundChars, foregroundChars }) {
   if (!text) return { background: '', foreground: '' }
   if (text.length <= foregroundChars) return { background: '', foreground: text }
@@ -592,7 +634,8 @@ export function apply(ctx, options = {}) {
         }
         const text = found.text
         // 「摆过没有」不再查账本：把这一次请求的 messages 扫一遍，块头上的记号就是凭据。
-        const present = keysInContext(decision.messages)
+        const present = keysInSession(session)
+        for (const key of keysInContext(decision.messages)) present.add(key)
         noteRun({
           session: session.id,
           event: 'present',
