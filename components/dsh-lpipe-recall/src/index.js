@@ -305,13 +305,27 @@ export function apply(ctx, options = {}) {
   // 装上就留个记号：没有这一行 = 插件根本没被宿主加载（和「加载了但没回忆」是两回事）。
   noteRun({ event: 'loaded', root: recallDir })
 
-  ctx.inject(['sessions'], (sessionsCtx) => {
-    sessionsCtx.on('session/event', (session, event) => {
-      try {
+  let seenEvents = 0
+
+  try {
+    ctx.inject(['sessions'], (sessionsCtx) => {
+      noteRun({ event: 'subscribed' })
+      sessionsCtx.on('session/event', (session, event) => {
+        // 前 40 条用户消息都记一笔：确认订阅到底有没有把事件送到这里。
+        if (event?.type === 'user/message' && seenEvents < 40) {
+          seenEvents += 1
+          noteRun({ event: 'seen', seq: event?.seq ?? null, source: event?.data?.source?.kind ?? null })
+        }
+        try {
         onEvent(session, event)
-      } catch (error) {
-        warn(`[dsh-lpipe-recall] 事件处理失败：${error?.message ?? error}`)
-      }
+        } catch (error) {
+          warn(`[dsh-lpipe-recall] 事件处理失败：${error?.message ?? error}`)
+          noteRun({ event: 'handler-error', error: String(error?.message ?? error) })
+        }
+      })
     })
-  })
+  } catch (error) {
+    warn(`[dsh-lpipe-recall] 订阅 session/event 失败：${error?.message ?? error}`)
+    noteRun({ event: 'subscribe-failed', error: String(error?.message ?? error) })
+  }
 }
