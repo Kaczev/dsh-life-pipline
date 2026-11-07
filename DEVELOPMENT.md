@@ -228,6 +228,21 @@ else if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
 
 异步任务同理：`setTimeout` / `Promise` 里的异常不会被同步 `try/catch` 接住，必须挂 `.catch`（星图的 `run()` 就是这样做的），否则未处理的拒绝同样会被当成致命加载失败。
 
+## components/dsh-lpipe-recall
+
+M1 只做被动注入：每轮组装请求时，取会话末尾 `matchChars`（默认 32K）字符的原文，
+去点亮星表里的星星，把落在 `coolChars`（默认 1M）之外、至少两颗星点亮且强度 ≥ 1
+的片段挑出来（默认 2 段），每段挑最能点亮的那几句原句，用 `……` 连起来，作为一段
+上下文注入（`systemPrompt.context`，order 95）。不调模型、不写任何东西。
+
+模块：`src/match.mjs`（位置权重 1..2、通用星 0.2、模糊星 ≥0.5、数字 ≥0.8、挡掉两位整数与
+单字母）、`src/candidates.mjs`（冷却窗口、准入、强度排序）、`src/render.mjs`（原句 +
+`……` + 范围信息）、`src/config.mjs`（`~/.dsh/life-recall/config.json`）、`src/index.js`
+（注入钩子，按会话末尾与星表 mtime 缓存）。
+
+M1 的已知粗糙处：32K 窗口横跨多个话题时闪起来的星太多，候选偏长轮；数字型模糊星仍
+偏松。下一步要靠稀有度加权与更紧的星表来压。
+
 ## components/dsh-lpipe-starmap
 
 星图是**索引层**：读记忆层的原文，按轮抽出概念（星星），记下「哪一句同时提到了哪几颗星」。它不存正文、不写摘要、不做向量；删掉能重建。

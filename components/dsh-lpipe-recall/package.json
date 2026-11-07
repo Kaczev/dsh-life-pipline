@@ -8,11 +8,13 @@
     ".": "./src/index.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./icon": "./assets/icon.png"
   },
   "files": [
     "src",
     "locale",
+    "assets",
     "README.md",
     "LICENSE"
   ],
@@ -36,5 +38,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "icon": "assets/icon.png"
 }

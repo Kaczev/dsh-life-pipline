@@ -15,6 +15,7 @@
 - [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖本包。
 - [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖本包。
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
+- [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（M1：看近窗、点亮星星、把旧记忆模糊地摆回来），只读星图与记忆。
 
 ## components/dsh-lpipe-chat
 
