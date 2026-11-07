@@ -4,8 +4,8 @@ import { configFile, recallRoot } from './paths.mjs'
 
 /**
  * M1 的旋钮。数字都按「字符」算，不按轮：
- * - 回忆匹配窗口（32K）拆成两段：`foregroundChars`（8K，真文窗口）与
- *   `backgroundChars`（24K，背景窗口）。真文窗口里亮的星才是「你真在说的事」；
+ * - 真文窗口 = 这一轮的输入源本身（最多 `inputChars` 字）；背景窗口 = 输入源之外
+ *   最近的 `backgroundChars`（16K）流水。真文星权重 3，背景星按位置 0..2；
  * - `coolChars` 是回忆冷却窗口（1M），从会话末尾往前数，落在里面的片段一律不选；
  * - `fragments` 每轮最多摆几个片段；
  * - `minStrength` 是片段的准入强度：候选只由真文准确星建立，所以不再有「至少几颗」。
@@ -13,8 +13,8 @@ import { configFile, recallRoot } from './paths.mjs'
 export const DEFAULT_CONFIG = {
   enabled: true,
   fragments: 2,
-  backgroundChars: 24000,
-  foregroundChars: 8000,
+  backgroundChars: 16000,
+  inputChars: 32000,
   coolChars: 1000000,
   minStrength: 1,
   sentencesPerFragment: 4,

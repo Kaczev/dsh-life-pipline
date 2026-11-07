@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { openRepo } from 'dsh-lpipe-starmap/store'
 import { candidatesOf, coolTurns } from './candidates.mjs'
+import { backgroundWeight, foregroundWeight } from './match.mjs'
 import { loadConfig } from './config.mjs'
 import { flickerStars } from './match.mjs'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
@@ -499,19 +500,23 @@ export function apply(ctx, options = {}) {
       return ''
     }
 
-    // 匹配窗口切的是「最近的说话流水」：你说的话、我的思考与回复、工具结果。
-    // 全新会话的缓冲区可能还是空的，这时至少拿这一轮触发源那句话当窗口。
-    const text = bufferOf(sessionId).trim() ? bufferOf(sessionId) : (raw ?? '')
-    if (!text.trim()) {
+    // 真文窗口 = 这一轮的输入源本身（谁在说话，就只看那句话）。
+    // 背景窗口 = 输入源之外、最近 16K 的流水：我的思考、回复、工具结果都算。
+    const input = (raw ?? '').trim()
+    const foreground = input.length > settings.inputChars ? input.slice(-settings.inputChars) : input
+    let background = ''
+    try {
+      const buffer = bufferOf(sessionId) ?? ''
+      background = buffer.length > settings.backgroundChars ? buffer.slice(-settings.backgroundChars) : buffer
+    } catch {
+      background = ''
+    }
+    if (!background.trim() && !foreground) {
       // 窗口是空的就没法点亮任何星星。以前这里是静默 return，日志里只留下「找不到原因」
       // 的空白——空窗口本身也是一个要记下来的事实。
       report({ skip: 'empty-window', chars: 0 })
       return ''
     }
-    // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
-    // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
-    const { background, foreground } = splitWindows(text, settings)
-    if (!(background + foreground).trim()) return ''
 
     const store = repoNow()
     if (!store || store.stars.size === 0) {
@@ -522,32 +527,18 @@ export function apply(ctx, options = {}) {
     // 来源分数只值 0.2（用户定的口径）。
     const common = commonStars(store)
     const stars = [...store.stars.values()]
-    const span = background.length + foreground.length
-    const behind = flickerStars({ text: background, stars, common, offset: 0, total: span })
-    const ahead = flickerStars({ text: foreground, stars, common, offset: background.length, total: span })
-    // 真文窗口里亮起来的准确星：候选必须至少沾上一颗，否则只是「背景里像」。
-    // 当前这一句单独点一遍：排序要看「你此刻问的是什么」，而不是整段窗口的热度。
-    // 「当前这一句」：一类触发源就是这条消息本身；二类触发源没有单句可指，退回真文窗口末尾。
-    const questionText = raw && raw.trim() ? raw.slice(-settings.foregroundChars) : foreground
-    const question = flickerStars({ text: questionText, stars, common, offset: 0, total: Math.max(1, questionText.length) })
-    const currentExact = new Set([...question.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
-    // 真文星 = 真文窗口里亮的 + 这一句里亮的。后者可能还没进记忆（这一轮刚说的话），
-    // 不算进来就会出现「问的是电磁场，却拿窗口里那些管线词去找回忆」。
-    const foregroundExact = new Set([
-      ...[...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
-      ...currentExact,
-    ])
+    const behind = flickerStars({ text: background, stars, common, weight: backgroundWeight })
+    const ahead = flickerStars({ text: foreground, stars, common, weight: foregroundWeight })
+    // 真文星只有一个来源：这一轮的输入源。它既决定候选，也决定排序的第一顺位。
+    const currentExact = new Set([...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
+    const foregroundExact = new Set(currentExact)
     const flicker = new Map(behind)
     for (const [id, hit] of ahead) {
       const previous = flicker.get(id)
       if (!previous || previous.score < hit.score) flicker.set(id, hit)
     }
-    for (const [id, hit] of question) {
-      const previous = flicker.get(id)
-      if (!previous || previous.score < hit.score) flicker.set(id, hit)
-    }
     if (flicker.size === 0) {
-      report({ skip: 'no-flicker', chars: span, stars: stars.length, rows: rows.length })
+      report({ skip: 'no-flicker', chars: background.length + foreground.length, stars: stars.length, rows: rows.length })
       return ''
     }
 
@@ -639,7 +630,7 @@ export function apply(ctx, options = {}) {
   }
 
   ctx.inject(['tools'], (toolsCtx) => {
-    for (const tool of createRecallTools({ reader })) {
+    for (const tool of createRecallTools({ reader, compose })) {
       // 工具名撞车不该把整个包带下去。
       try {
         toolsCtx.tools.register(tool)

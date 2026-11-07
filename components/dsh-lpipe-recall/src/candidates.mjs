@@ -101,8 +101,8 @@ export function candidatesOf({
     // 模糊星的总和封顶 `fuzzyBudget`（默认 2），单颗封顶 1；片段里模糊星超过一颗时
     // 每颗的上限是 `fuzzyBudget / n`——「感觉」再多，也不该顶掉「说到了」。
     const cap = bucket.fuzzy.length > 1 ? fuzzyBudget / bucket.fuzzy.length : 1
-    // 真文窗口里的星是「你现在真的在说的事」，全额算；背景里的只算半价。
-    bucket.strength = bucket.foregroundScore + bucket.exactScore * 0.5
+    // 权重已经在点亮时算好了：真文星 3，背景星按位置从 0 到 2，这里直接相加。
+    bucket.strength = bucket.foregroundScore + bucket.exactScore
     for (const score of bucket.fuzzy) bucket.strength += Math.min(score, cap)
     // 通用星的总和也封顶：默认 0.4，等于两颗通用星的份量。
     const commonCap = bucket.common.length > 1 ? commonBudget / bucket.common.length : COMMON_SOURCE

@@ -6,8 +6,46 @@ import { MAX_SENTENCES, openRange, parseRecallId } from './open.mjs'
  * 只读：不改记忆、不改星图、不写账本。被翻过的片段靠「返回正文里带着 id」
  * 自动算作已经在上下文里（下一次被动回忆会跳过它），不需要额外的记账。
  */
-export function createRecallTools({ reader }) {
+export function createRecallTools({ reader, compose = null }) {
   return [
+    {
+      name: 'recall_fragments',
+      description:
+        '主动做一次模糊回忆：把 query 当作这一轮的「输入源」去点亮星星，返回几段旧记忆的模糊摘要（每段带 lpipe_recall_id，可用 recall_open 读原文）。用于「我隐约记得有过这件事，让我想一想」。',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            description: '要回忆的内容，用你自己的话写。它就相当于这一轮你说的话，越具体越容易点亮对的星。',
+          },
+        },
+        required: ['query'],
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            text: { type: 'string' },
+            summary: { type: 'string' },
+          },
+          required: ['text', 'summary'],
+        },
+        render: (_args, value) => [{ type: 'text', text: value.text }],
+      },
+      async execute(args, exec) {
+        const query = String(args?.query ?? '').trim()
+        if (!query) throw new Error('query is empty')
+        if (typeof compose !== 'function') throw new Error('recall is not wired up')
+        const sessionId = exec?.agent?.session?.id ?? exec?.session?.id ?? ''
+        const block = compose(sessionId, query) ?? ''
+        if (!block.trim()) return { text: '（没有想起什么：没有够格的候选片段）', summary: '主动回忆：没有候选' }
+        const fragments = (block.match(/lpipe_recall_id\[[^\]]*\]/g) ?? []).length
+        return { text: block, summary: `主动回忆：${fragments} 段` }
+      },
+    },
     {
       name: 'recall_open',
       description:

@@ -16,6 +16,23 @@ export const NUMBER_FLOOR = 0.8
 /** 星对象的折叠名缓存：星表是只读快照，同一颗星的折叠结果不会变。 */
 const foldedCache = new WeakMap()
 
+/** 真文窗口（这一轮的输入源）里的星：上下文权重固定 3。 */
+export const FOREGROUND_WEIGHT = 3
+/** 背景窗口（输入源之外最近的 16K）里的星：0 到 2，越新越大。 */
+export const BACKGROUND_WEIGHT = 2
+
+/** 真文星不看位置：整条输入源就是「此刻」。 */
+export function foregroundWeight() {
+  return FOREGROUND_WEIGHT
+}
+
+/** 背景星的权重：`2 × 位置⁴`，最旧处趋近 0、最新处到 2。 */
+export function backgroundWeight(at, length) {
+  if (!(length > 0)) return 0
+  const ratio = Math.max(0, Math.min(1, at / length))
+  return BACKGROUND_WEIGHT * ratio ** 4
+}
+
 /**
  * 位置权重：眼前这段话里越靠后的内容越算数。
  * 最旧的 1.0、最新的 2.0——这是用户定死的口径（`1 + 位置`），不要改成别的曲线。
@@ -39,12 +56,14 @@ export function positionWeight(at, length) {
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function flickerStars({ text, stars, common = new Set(), offset = 0, total = null }) {
+export function flickerStars({ text, stars, common = new Set(), offset = 0, total = null, weight = null }) {
   const source = String(text ?? '')
   const folded = foldText(source)
   // 背景窗口与真文窗口各自是一次调用，位置要放在整窗（32K）里算：
   // 同样一句话，出现在真文窗口里就比出现在背景窗口里更「近」。
   const span = total ?? folded.length
+  // 两个窗口的权重口径不一样：真文星恒为 3，背景星按 2 × 位置⁴ 从 0 爬到 2。
+  const weigh = typeof weight === 'function' ? weight : (at, totalChars) => positionWeight(at, totalChars)
   const out = new Map()
 
   const keep = (star, score, at) => {
@@ -74,7 +93,7 @@ export function flickerStars({ text, stars, common = new Set(), offset = 0, tota
     const last = folded.lastIndexOf(needle)
     if (last < 0) continue
     const base = common.has(star.id) ? COMMON_SOURCE : EXACT_SOURCE
-    keep(star, base * positionWeight(offset + last, span), last)
+    keep(star, base * weigh(offset + last, span), last)
   }
 
   const fuzzy = (stars ?? []).filter(
@@ -93,7 +112,7 @@ export function flickerStars({ text, stars, common = new Set(), offset = 0, tota
         if (similarity < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
         // 这里只算「像多少」；一颗星能加多少，还要看这个片段里一共有几颗模糊星
         // （片段内的上限在 candidates.mjs 里按 2/n 压）。
-        keep(star, FUZZY_SOURCE * similarity * positionWeight(hit.at ?? 0, source.length), hit.at ?? 0)
+        keep(star, FUZZY_SOURCE * similarity * weigh(hit.at ?? 0, source.length), hit.at ?? 0)
       }
     }
   }

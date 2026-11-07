@@ -64,8 +64,8 @@ test('打开：用句子 id 指定区间，超长会截断并说清楚', () => {
 
 test('recall_open：拿 id 打开原文；跨片段就报错', async () => {
   const reader = readerOf([row(5, 1, '一。二。三。')])
-  const [tool] = createRecallTools({ reader })
-  assert.equal(tool.name, 'recall_open')
+  const tool = createRecallTools({ reader }).find((entry) => entry.name === 'recall_open')
+  assert.ok(tool, 'recall_open 应该注册在工具表里')
 
   const value = await tool.execute({ from: 'lpipe_recall_id[repo:5:2]', count: 2 })
   assert.match(value.text, /二。/)
@@ -79,3 +79,28 @@ test('recall_open：拿 id 打开原文；跨片段就报错', async () => {
 })
 
 
+
+
+test('recall_fragments：把 query 当成输入源，交给同一条回忆链路', async () => {
+  const seen = []
+  const tools = createRecallTools({
+    reader: { rows: () => [] },
+    compose: (sessionId, query) => {
+      seen.push({ sessionId, query })
+      return '第 1 段｜lpipe_recall_id[repo:7], 11-01 09:00, 共 4 句，展示 2 句\n〔1〕嗯。'
+    },
+  })
+  const tool = tools.find((entry) => entry.name === 'recall_fragments')
+  assert.ok(tool)
+  const value = await tool.execute({ query: '雪糕' }, { agent: { session: { id: 's1' } } })
+  assert.deepEqual(seen, [{ sessionId: 's1', query: '雪糕' }])
+  assert.match(value.text, /lpipe_recall_id\[repo:7\]/)
+  assert.match(value.summary, /1 段/)
+
+  const empty = await createRecallTools({ reader: { rows: () => [] }, compose: () => '' }).find(
+    (entry) => entry.name === 'recall_fragments',
+  ).execute({ query: '雪糕' })
+  assert.match(empty.text, /没有想起什么/)
+
+  await assert.rejects(() => tool.execute({ query: '   ' }), /query is empty/)
+})
