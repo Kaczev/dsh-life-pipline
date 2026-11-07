@@ -8,8 +8,39 @@ const KIND = {
 
 export const STORED_KINDS = new Set(Object.values(KIND))
 
-/** 注入进来的上下文（运行期快照）：不是说过的话，不写入。 */
-const INJECTED_SOURCES = new Set(['runtime-context'])
+/**
+ * 注入进来的上下文：不是说过的话，不写入。
+ *
+ * 除了运行期快照，还包括管线自己注入的东西——回忆、联想、想象。它们是程序拼给模型看的，
+ * 写进记忆就等于把管线的加工结果当成原始对话，越滚越多。
+ */
+const INJECTED_SOURCES = new Set([
+  'runtime-context',
+  'dsh-lpipe-recall',
+  'dsh-lpipe-assoc',
+  'dsh-lpipe-imagine',
+])
+
+/** 管线工具的命名约定：recall_* / assoc_* / imagine_*。 */
+const PIPELINE_TOOL = /^(recall_|assoc_|imagine_)/
+
+/** 记下管线工具的 callId，好把它们的「结果」也一并丢掉（结果行本身不带工具名）。 */
+const pipelineCalls = new Set()
+
+function markPipelineCall(callId) {
+  const id = String(callId ?? '')
+  if (!id) return
+  pipelineCalls.add(id)
+  // 只留最近的一批，避免长会话里越攒越多。
+  if (pipelineCalls.size > 512) {
+    const oldest = pipelineCalls.values().next().value
+    pipelineCalls.delete(oldest)
+  }
+}
+
+export function resetPipelineCalls() {
+  pipelineCalls.clear()
+}
 
 /** 把消息里的内容块拆成「给人看的文本」与「结构化块」。 */
 function splitContent(content) {
@@ -77,8 +108,15 @@ export function project(event) {
   }
 
   if (kind === 'tool/call') {
+    // 管线工具的调用不是「对话里发生的事」，连调用带结果一起不要。
+    if (PIPELINE_TOOL.test(String(data.name ?? ''))) {
+      markPipelineCall(data.callId)
+      return null
+    }
     return { kind, turn, step, payload: { callId: data.callId ?? null, name: data.name ?? '', arguments: data.arguments ?? '' } }
   }
+
+  if (kind === 'tool/result' && pipelineCalls.has(String(data.callId ?? ''))) return null
 
   const { text, parts } = splitContent(data.message?.content)
   return {

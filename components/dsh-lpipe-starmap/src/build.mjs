@@ -6,6 +6,7 @@
 import { clockOf } from './extract.mjs'
 import { fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 import { cleanStarName, findInSentences } from './llm.mjs'
+import { PIPELINE_SOURCES, isPipelineTool } from './pipeline.mjs'
 import { splitSentences } from './segment.mjs'
 import { starIdOf } from './store.mjs'
 
@@ -67,8 +68,11 @@ export function groupTurns(rows) {
 const MAX_TOOL_RESULT = 600
 
 export function textsOf(row, toolName = null) {
-  // 运行期注入的上下文（短期上下文、记忆库快照）不是「说过的话」，不抽星。
-  if (row?.kind === 'user/message' && row?.source?.kind === 'runtime-context') return []
+  // 注入的上下文（运行期快照、回忆/联想/想象）不是「说过的话」，不抽星。
+  if (row?.kind === 'user/message' && PIPELINE_SOURCES.has(row?.source?.kind)) return []
+  // 管线工具（回忆/联想/想象）也不参与抽星。
+  if (row?.kind === 'tool/call' && isPipelineTool(row?.name)) return []
+  if (row?.kind === 'tool/result' && isPipelineTool(toolName)) return []
   // 发给人的那段话就是你我说的话，不是「工具输出」：全文参与抽星。
   if (row?.kind === 'tool/call' && String(row?.name) === 'chat_send') {
     try {
@@ -98,6 +102,7 @@ export function sentencesOf(turn) {
   for (const [rowIndex, row] of (turn.rows ?? []).entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
       calledWith = String(row.name)
+      if (isPipelineTool(calledWith)) continue
       out.push({ seq: row.seq, row: rowIndex, text: calledWith })
       // chat_send 的正文要单独成句：它就是我跟人说的话。
       for (const text of textsOf(row)) out.push({ seq: row.seq, row: rowIndex, text })

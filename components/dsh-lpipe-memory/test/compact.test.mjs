@@ -9,6 +9,39 @@ import { project } from '../src/project.mjs'
 import { MemoryReader } from '../src/reader.mjs'
 import { MemoryWriter } from '../src/writer.mjs'
 
+test('回忆、联想、想象注入的内容与工具，一律不进记忆', () => {
+  for (const kind of ['dsh-lpipe-recall', 'dsh-lpipe-assoc', 'dsh-lpipe-imagine']) {
+    assert.equal(
+      project({
+        type: 'user/message',
+        data: { turn: 5, source: { kind }, content: [{ type: 'text', text: '〔回忆 · 模糊〕……' }] },
+      }),
+      null,
+      `${kind} 注入的上下文不该写进记忆`,
+    )
+  }
+
+  // 管线工具的调用与结果一起丢：结果行本身不带工具名，只能靠 callId 认。
+  assert.equal(project({ type: 'tool/call', data: { turn: 5, callId: 'c1', name: 'recall_open' } }), null)
+  assert.equal(
+    project({
+      type: 'tool/result',
+      data: { turn: 5, callId: 'c1', message: { content: [{ type: 'text', text: '片段 #128 的原文……' }] } },
+    }),
+    null,
+    'recall_open 的结果也不该留下',
+  )
+
+  // 普通工具照旧要存。
+  assert.ok(project({ type: 'tool/call', data: { turn: 5, callId: 'c2', name: 'ops_read_files' } }))
+  assert.ok(
+    project({
+      type: 'tool/result',
+      data: { turn: 5, callId: 'c2', message: { content: [{ type: 'text', text: '文件内容' }] } },
+    }),
+  )
+})
+
 function store() {
   return mkdtempSync(join(tmpdir(), 'life-memory-compact-'))
 }
