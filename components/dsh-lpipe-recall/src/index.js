@@ -519,11 +519,15 @@ export function apply(ctx, options = {}) {
    * 钩子是异步的、会被 `await`，返回的 `messages` 直接进这一次请求。所以这里挂上去，
    * 回忆就紧贴着触发源那条消息，而且请求会等我们把检索做完。
    */
-  const triggerEventOf = (session, turn) => {
+  const triggerEventOf = (session) => {
+    // 不能用 `data.turn === turn` 来找：`user/message` 的载荷里根本没有 turn
+    // （轮号只在助手消息上有），按它比会永远找不到——这就是钩子跑起来了却什么都不做的原因。
+    // 改成从末尾往前走，走到本轮的 `turn/start` 为止，取最近的一条触发源。
     for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
       const event = session.eventAt(seq)
-      if (!event || event.type !== 'user/message') continue
-      if (event.data?.turn !== turn) continue
+      if (!event) continue
+      if (event.type === 'turn/start') break
+      if (event.type !== 'user/message') continue
       const source = event.data?.source ?? {}
       if (!TRIGGER_KINDS.has(source.kind)) continue
       if (isNaturalWake(source)) return { skip: 'natural-wake' }
@@ -544,9 +548,9 @@ export function apply(ctx, options = {}) {
       if (!session?.id) return decision
       let block = ''
       try {
-        const found = triggerEventOf(session, turn)
+        const found = triggerEventOf(session)
         if (!found || found.skip) {
-          if (found?.skip) noteRun({ session: session.id, skip: found.skip })
+          noteRun({ session: session.id, skip: found?.skip ?? 'no-trigger', turn, step })
           return decision
         }
         const text = textOfEvent(found.event.data)
