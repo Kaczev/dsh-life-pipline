@@ -438,16 +438,23 @@ export function apply(ctx, options = {}) {
     const behind = flickerStars({ text: background, stars, common, offset: 0, total: span })
     const ahead = flickerStars({ text: foreground, stars, common, offset: background.length, total: span })
     // 真文窗口里亮起来的准确星：候选必须至少沾上一颗，否则只是「背景里像」。
-    const foregroundExact = new Set(
-      [...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
-    )
     // 当前这一句单独点一遍：排序要看「你此刻问的是什么」，而不是整段窗口的热度。
     // 「当前这一句」：一类触发源就是这条消息本身；二类触发源没有单句可指，退回真文窗口末尾。
     const questionText = raw && raw.trim() ? raw.slice(-settings.foregroundChars) : foreground
     const question = flickerStars({ text: questionText, stars, common, offset: 0, total: Math.max(1, questionText.length) })
     const currentExact = new Set([...question.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
+    // 真文星 = 真文窗口里亮的 + 这一句里亮的。后者可能还没进记忆（这一轮刚说的话），
+    // 不算进来就会出现「问的是电磁场，却拿窗口里那些管线词去找回忆」。
+    const foregroundExact = new Set([
+      ...[...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
+      ...currentExact,
+    ])
     const flicker = new Map(behind)
     for (const [id, hit] of ahead) {
+      const previous = flicker.get(id)
+      if (!previous || previous.score < hit.score) flicker.set(id, hit)
+    }
+    for (const [id, hit] of question) {
       const previous = flicker.get(id)
       if (!previous || previous.score < hit.score) flicker.set(id, hit)
     }
@@ -461,7 +468,6 @@ export function apply(ctx, options = {}) {
       repo: store,
       flicker,
       excluded,
-      minStars: settings.minStars,
       minStrength: settings.minStrength,
       common,
       foreground: foregroundExact,

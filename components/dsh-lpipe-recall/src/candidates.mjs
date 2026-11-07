@@ -50,9 +50,11 @@ export function candidatesOf({
   limit = 5,
 }) {
   const buckets = new Map()
-  // 第一遍：只有真文窗口里的星能建候选——背景像的东西不能自己变成一段回忆。
+  // 第一遍：只有「真文窗口里的准确星」能建候选。模糊星、通用星、背景星都只配加权，
+  // 它们不许自己撑出一段回忆——这一步同时也取代了原来的「必须有一颗真文星」准入。
   for (const [id, hit] of flicker) {
-    if (foreground.size > 0 && !foreground.has(id)) continue
+    if (!foreground.has(id)) continue
+    if ((hit.kind ?? 'exact') !== 'exact' || common.has(id)) continue
     for (const entry of repo.byStar.get(id) ?? []) {
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
@@ -63,52 +65,39 @@ export function candidatesOf({
       if (bucket.seen.has(id)) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
-      if (hit.kind === 'fuzzy') {
-        bucket.fuzzy.push(hit.score)
-      } else if (common.has(id)) {
-        // 通用星：和模糊星一样按「感觉」处理——再多也只能凑出一点点分量，
-        // 不许靠「一段里撞上七八个常见词」把一段旧记忆顶上来。
-        bucket.common.push(hit.score)
-      } else {
-        bucket.exact += 1
-        if (foreground.has(id)) {
-          bucket.foreground += 1
-          bucket.foregroundScore += hit.score
-          // 当前这一句自己点亮的星：最像「你正在问的东西」。
-          if (current.has(id)) {
-            bucket.current += 1
-            // 同样都沾上了「当前这一句」，越稀有的那颗越说明问题：「电磁场」只出现在几段里，
-            // 「工程」出现在几百段里——不能让后者顶掉前者。
-            const df = repo.byStar.get(id)?.length ?? 1
-            bucket.currentWeight += hit.score / Math.log2(2 + df)
-          }
-        } else {
-          bucket.exactScore += hit.score
-        }
-      }
+      bucket.exact += 1
+      bucket.foreground += 1
+      bucket.foregroundScore += hit.score
+      // 当前这一句自己点亮的星：最像「你正在问的东西」。
+      if (current.has(id)) bucket.current += 1
       bucket.lines.set(id, entry.seq)
     }
   }
 
-  // 第二遍：背景窗口里的星只给已经存在的候选加权，不自己建候选。
+  // 第二遍：背景窗口里的准确星只给已经存在的候选加权，不自己建候选。
+  // 模糊星与通用星也在这时补分（它们从来不许建候选）。
   for (const [id, hit] of flicker) {
-    if (foreground.size === 0 || foreground.has(id)) continue
-    if (hit.kind !== 'exact' || common.has(id)) continue
+    // 真文里的准确星在第一遍已经算过了；其余（背景准确星、模糊星、通用星）到这里补分。
+    const isExact = (hit.kind ?? 'exact') === 'exact'
+    if (isExact && foreground.has(id)) continue
     for (const entry of repo.byStar.get(id) ?? []) {
       const bucket = buckets.get(entry.key)
       if (!bucket || bucket.seen.has(id)) continue
-      if (excluded.has(entry.key) && !bucket) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
-      bucket.exact += 1
-      bucket.exactScore += hit.score
+      if (hit.kind === 'fuzzy') bucket.fuzzy.push(hit.score)
+      else if (common.has(id)) bucket.common.push(hit.score)
+      else {
+        bucket.exact += 1
+        bucket.exactScore += hit.score
+      }
       bucket.lines.set(id, entry.seq)
     }
   }
 
   const out = []
   for (const bucket of buckets.values()) {
-    if (bucket.stars.length < minStars) continue
+    // 桶是由真文准确星建起来的，「至少几颗」不再需要单独判。
     // 模糊星的总和封顶 `fuzzyBudget`（默认 2），单颗封顶 1；片段里模糊星超过一颗时
     // 每颗的上限是 `fuzzyBudget / n`——「感觉」再多，也不该顶掉「说到了」。
     const cap = bucket.fuzzy.length > 1 ? fuzzyBudget / bucket.fuzzy.length : 1
@@ -119,9 +108,6 @@ export function candidatesOf({
     const commonCap = bucket.common.length > 1 ? commonBudget / bucket.common.length : COMMON_SOURCE
     for (const score of bucket.common) bucket.strength += Math.min(score, commonCap)
     if (bucket.strength < minStrength) continue
-    // 光靠数字对上、或者只在很早的背景里对上，都不叫「想起来了」：
-    // 必须有一颗星亮在真文窗口（最近 8K）里。
-    if (bucket.foreground < minForeground) continue
     const record = repo.turns.get(bucket.key) ?? null
     out.push({
       key: bucket.key,
