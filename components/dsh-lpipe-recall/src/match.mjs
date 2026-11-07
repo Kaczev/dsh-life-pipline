@@ -26,6 +26,9 @@ export const NUMBER_FLOOR = 0.8
 export function isTooShort(name) {
   const text = String(name ?? '').trim()
   if (!text) return true
+  // `_A0`、`V1`、`R2` 这种「自己定义的短代号」是概念，不是公式下标：
+  // 星图抽星时它已经成星了，回忆这边不该再把它挡回去。
+  if (/^_?[A-Za-z]\d+$/.test(text) || text.includes('_')) return false
   const latin = (text.match(/[A-Za-z]/g) ?? []).length
   const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length
   if (cjk === 1 && latin === 0) return true
@@ -33,6 +36,9 @@ export function isTooShort(name) {
   if (/^[a-z]{2}$/.test(text)) return true
   return false
 }
+
+/** 星对象的折叠名缓存：星表是只读快照，同一颗星的折叠结果不会变。 */
+const foldedCache = new WeakMap()
 
 export function positionWeight(at, length) {
   if (!(length > 0)) return 1
@@ -82,7 +88,11 @@ export function flickerStars({ text, stars, common = new Set(), offset = 0, tota
     // 单个拉丁字母（`a`、`E`、`Z`）是公式里的下标，不是概念：它们在任何一段英文里
     // 都能「找到」，留着只会让每一段记忆都亮起来。
     if (isTooShort(star.name)) continue
-    const needle = foldText(star.name)
+    let needle = foldedCache.get(star)
+    if (needle === undefined) {
+      needle = foldText(star.name)
+      foldedCache.set(star, needle)
+    }
     if (!needle) continue
     const last = folded.lastIndexOf(needle)
     if (last < 0) continue
