@@ -28,7 +28,7 @@ export const stripCodeBlocks = (text) =>
 /** 符号比字还多的一行多半是代码或表格，不是话。 */
 export function looksLikeCode(sentence) {
   const value = String(sentence ?? '')
-  const symbols = (value.match(/[{}[\]()<>|\\/=+*_^$#@~`]/g) ?? []).length
+  const symbols = (value.match(/[{}[\]()<>|\\/=+*_^$#@~`"':;,]/g) ?? []).length
   return value.length > 0 && symbols / value.length > 0.16
 }
 

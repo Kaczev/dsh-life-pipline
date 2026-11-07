@@ -17,13 +17,21 @@ export const NUMBER_FLOOR = 0.8
  * 位置权重：眼前这段话里越靠后的内容越算数。
  * 最旧的 1.0、最新的 2.0——这是用户定死的口径（`1 + 位置`），不要改成别的曲线。
  */
-/** 长度不足两个拉丁字母、又没有中文的「名字」，多半是符号残留。 */
+/**
+ * 什么名字不配点亮星星：
+ * - 单个中文（`在`、`是`）都是虚词，抽星时就不该成星；
+ * - 单个拉丁字母、纯符号是公式残留；
+ * - 小写两字母（`ls`、`ds`、`ai`）是命令与碎词，大写的 `AI`、`DS` 不算。
+ */
 export function isTooShort(name) {
   const text = String(name ?? '').trim()
   if (!text) return true
   const latin = (text.match(/[A-Za-z]/g) ?? []).length
   const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length
-  return latin < 2 && cjk < 1
+  if (cjk === 1 && latin === 0) return true
+  if (latin < 2 && cjk < 1) return true
+  if (/^[a-z]{2}$/.test(text)) return true
+  return false
 }
 
 export function positionWeight(at, length) {

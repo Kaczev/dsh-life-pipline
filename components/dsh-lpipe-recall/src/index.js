@@ -6,7 +6,7 @@ import { candidatesOf, coolTurns } from './candidates.mjs'
 import { loadConfig } from './config.mjs'
 import { flickerStars } from './match.mjs'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
-import { renderRecall } from './render.mjs'
+import { isSpokenRow, renderRecall } from './render.mjs'
 
 export const name = 'dsh-lpipe-recall'
 
@@ -26,12 +26,18 @@ export function commonStars(repo) {
 
 const STARS_FILE = 'stars.jsonl'
 
-/** 近窗原文：从会话末尾往前收 `matchChars` 个字符，按原顺序拼回去。 */
+/**
+ * 近窗原文：从会话末尾往前收 `matchChars` 个字符，按原顺序拼回去。
+ *
+ * 只收「说过的话」——和抽星时读到的是同一部分。工具输出、日志、注入的上下文
+ * 那时候就没参与算星，匹配时也不该拿它们来点亮星星。
+ */
 export function recentText(rows, matchChars) {
   const chunks = []
   let size = 0
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     if (size >= matchChars) break
+    if (!isSpokenRow(rows[index])) continue
     const text = typeof rows[index]?.text === 'string' ? rows[index].text : ''
     if (!text) continue
     chunks.push(text)

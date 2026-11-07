@@ -3,11 +3,13 @@ import test from 'node:test'
 import { COMMON_SHARE, commonStars, recentText } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
+  const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
   const rows = [
-    { seq: 0, text: '第一段' },
-    { seq: 1, text: '' },
-    { seq: 2, text: '第二段' },
-    { seq: 3, text: '第三段' },
+    said(0, '第一段'),
+    said(1, ''),
+    { seq: 1.5, kind: 'tool/result', text: '工具输出不该进近窗' },
+    said(2, '第二段'),
+    said(3, '第三段'),
   ]
   assert.equal(recentText(rows, 100), '第一段\n第二段\n第三段')
   assert.equal(recentText(rows, 6), '第二段\n第三段', '收够字数就停，不多收')

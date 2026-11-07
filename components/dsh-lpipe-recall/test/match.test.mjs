@@ -33,7 +33,9 @@ test('单个拉丁字母、纯符号不成星：它们在任何英文里都能�
   assert.equal(isTooShort('a'), true)
   assert.equal(isTooShort('E'), true)
   assert.equal(isTooShort('×'), true)
-  assert.equal(isTooShort('地'), false)
+  assert.equal(isTooShort('地'), true, '单个中文字都是虚词')
+  assert.equal(isTooShort('ls'), true, '小写两字母是命令')
+  assert.equal(isTooShort('AI'), false, '大写两字母是缩写')
   assert.equal(isTooShort('AI'), false)
   const stars = [star('s_a', 'a'), star('s_e', 'E')]
   assert.equal(flickerStars({ text: 'a test for E', stars }).size, 0)
