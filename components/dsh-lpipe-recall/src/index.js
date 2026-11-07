@@ -302,6 +302,9 @@ export function apply(ctx, options = {}) {
     sessionController = serviceCtx.sessionController ?? null
   })
 
+  // 装上就留个记号：没有这一行 = 插件根本没被宿主加载（和「加载了但没回忆」是两回事）。
+  noteRun({ event: 'loaded', root: recallDir })
+
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessionsCtx.on('session/event', (session, event) => {
       try {
