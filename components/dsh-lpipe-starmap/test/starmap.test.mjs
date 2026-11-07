@@ -298,6 +298,37 @@ test('抽星规则升级后，旧星表整库作废、记忆全部退回灰色',
   assert.deepEqual(after.state.built ?? {}, {})
 })
 
+test('抽星规则升级：手里有模型对子时就地重推，不清空、不再花钱', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-rederive-'))
+  const at = Date.parse('2026-11-06T12:40:00+08:00')
+  const repo = openRepo({ root })
+  const rows = [
+    { seq: 0, turn: 3, at, kind: 'user/message', text: '记忆管线的星表要留着重推，别删。' },
+  ]
+  const turn = makeTurn({ turn: 3, at, rows })
+  buildTurn({ repo, turn, sessionId: 'sess-rd', pairs: [['记忆管线', '星表']] })
+  repo.setMemoryFormat(2)
+  repo.setRules(RULES_VERSION - 1)
+  assert.equal(repo.stars.size, 2, '旧规则建出两颗星')
+
+  const logs = []
+  const ctx = { logger: { info: (m) => logs.push(String(m)), warn() {} }, inject() {}, effect() {} }
+  const reader = {
+    state: { version: 2 },
+    sessions: () => [{ sessionId: 'sess-rd', lastSeq: 0 }],
+    rows: (id) => (id === 'sess-rd' ? rows : []),
+    reload() {},
+  }
+  apply(ctx, { root, llm: {}, warmDelay: 0, reader })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+
+  const after = openRepo({ root })
+  assert.equal(after.stars.size, 2, '重推之后星星还在（一颗都没被清空）')
+  assert.equal(after.turns.size, 1, '星源也在')
+  assert.equal(after.state.rules, RULES_VERSION)
+  assert.ok(logs.some((line) => line.includes('就地重推')), '日志里说明是重推而不是清空')
+})
+
 test('没有思考强度可选的模型：强度留空也能抽星，有强度时不选就不抽', () => {
   assert.equal(canExtract({ provider: 'p', model: 'm', reasoningEffort: '', effortFree: true }), true)
   assert.equal(canExtract({ provider: 'p', model: 'm', reasoningEffort: '', effortFree: false }), false)
@@ -573,6 +604,27 @@ test('数字密集成一屏的回合，一个模糊星都不产生', () => {
     ? readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
     : []
   assert.equal(stars.filter((star) => star.kind === 'fuzzy').length, 0, '数字太密，不产生模糊星')
+})
+
+test('数字密集只压那一段：同一轮里别处说的时间照样记住', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starmap-region-'))
+  const repo = openRepo({ root })
+  const at = Date.parse('2026-11-06T15:00:00+08:00')
+  const rows = [
+    {
+      seq: 0,
+      turn: 1,
+      at,
+      kind: 'user/message',
+      text: '这批数据：3.3 5.1 7.9 12 18 24.5 31 40 52.8 66 81 97.2 115 134 154 176 199 223 248 274',
+    },
+    { seq: 1, turn: 1, at, kind: 'user/message', text: '顺便说一句，我今天 20:44 才吃上雪糕。' },
+  ]
+  buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-region', pairs: [] })
+
+  const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  const names = stars.filter((star) => star.kind === 'fuzzy').map((star) => star.name)
+  assert.deepEqual(names, ['20:44'], '一屏数字被压掉，隔壁那句的时间还在')
 })
 
 test('正常说几句话里的时间与数字，仍然成模糊星', () => {

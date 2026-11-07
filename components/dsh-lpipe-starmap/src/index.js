@@ -117,6 +117,42 @@ export function apply(ctx, options = {}) {
     }
   }
 
+  /**
+   * 按当前规则把已有的每一轮重推一遍（不调模型）。
+   *
+   * 星源里存着模型当时给的对子（星 id）；确定性规则（怎么分句、怎么判成星、模糊星怎么抽）
+   * 变了，只需要把 id 还原成名字再走一遍 buildTurn。唯一不能重算的是「模型说了哪几对」。
+   * 少调一次模型，就少丢一次已经付过钱的东西。
+   */
+  const rederiveIndex = () => {
+    const cache = new Map()
+    const turnOf = (sessionId, turnNumber) => {
+      if (!cache.has(sessionId)) {
+        const grouped = new Map()
+        for (const turn of groupTurns(rowsOf(sessionId))) grouped.set(turn.turn, turn)
+        cache.set(sessionId, grouped)
+      }
+      return cache.get(sessionId)?.get(turnNumber) ?? null
+    }
+    let rebuilt = 0
+    let missing = 0
+    for (const record of [...repo.turns.values()]) {
+      const sessionId = record.session ?? record.sessionId
+      const pairs = (record.pairs ?? []).map((pair) => [
+        repo.stars.get(pair[0])?.name ?? pair[0],
+        repo.stars.get(pair[1])?.name ?? pair[1],
+      ])
+      const turn = turnOf(sessionId, record.turn)
+      if (!turn) {
+        missing += 1
+        continue
+      }
+      buildTurn({ repo, turn, sessionId, pairs })
+      rebuilt += 1
+    }
+    return { rebuilt, missing }
+  }
+
   const reconcileFormat = () => {
     const format = Number.isInteger(memory.state?.version) ? memory.state.version : 1
     const builtWith = Number.isInteger(repo.state?.memoryFormat) ? repo.state.memoryFormat : null
@@ -139,6 +175,25 @@ export function apply(ctx, options = {}) {
         repo.setMatch(MATCH_VERSION)
       }
       return false
+    }
+
+    // 记忆格式没变、只是抽星规则变了，而旧记录里还存着模型对子：就地重推，不调模型、不清空。
+    if (builtWith === format && repo.turns.size > 0) {
+      try {
+        const { rebuilt, missing } = rederiveIndex()
+        if (rebuilt > 0) {
+          info(
+            `[dsh-lpipe-starmap] 抽星规则 ${builtRules ?? '未知'} → ${RULES_VERSION}：`
+              + `按新规则就地重推 ${rebuilt} 轮（没调模型）`
+              + (missing > 0 ? `，${missing} 轮原文没找到、仍是灰的` : ''),
+          )
+          repo.setRules(RULES_VERSION)
+          if (Number.isInteger(repo.state?.match) && repo.state.match !== MATCH_VERSION) repo.setMatch(MATCH_VERSION)
+          return false
+        }
+      } catch (error) {
+        warn(`[dsh-lpipe-starmap] 就地重推失败，改为清空重建：${error?.message ?? error}`)
+      }
     }
 
     try {

@@ -549,11 +549,16 @@ function StarmapPanel({ rpcCall }) {
         h(
           'div',
           { style: { display: 'flex', alignItems: 'baseline' } },
-          h('span', { style: mid }, String(Math.max(0, (value?.stars ?? 0) - (value?.fuzzy ?? 0)))),
-          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗准确星'),
-          h('span', { style: { ...small, position: 'relative', top: -2, marginLeft: 6 } }, '·'),
-          h('span', { style: { ...mid, position: 'relative', top: -2, marginLeft: 6 } }, String(value?.fuzzy ?? 0)),
-          h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗模糊星'),
+          h('span', { style: mid }, String(value?.stars ?? 0)),
+          h(
+            'span',
+            {
+              style: { ...small, position: 'relative', top: -2 },
+              // 一行只放得下总数；准确星与模糊星各多少，悬停再看。
+              title: `${Math.max(0, (value?.stars ?? 0) - (value?.fuzzy ?? 0))} 颗准确星，${value?.fuzzy ?? 0} 颗模糊星`,
+            },
+            '颗星',
+          ),
         ),
         grey > 0
           ? h(

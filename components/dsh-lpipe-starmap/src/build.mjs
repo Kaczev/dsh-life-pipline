@@ -14,7 +14,7 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
-export const RULES_VERSION = 11
+export const RULES_VERSION = 12
 
 const SYMBOL_ONLY = /^[^\p{L}\p{N}]+$/u
 const CJK_MAX = 10
@@ -118,13 +118,13 @@ export function sentencesOf(turn) {
  * 返回 { lines, names, pairs, rejects }：rejects 要落日志，方便回头分析模型为什么错。
  */
 /**
- * 数字密集到记不住的回合，不再产生模糊星：列表、表格、一串数值不是「时间感」。
- * 判据是「又密又多」——零星提到几个时间（20:44、648.5 度）本来就是我该记住的；
- * 一到八个以上、还摊不到每 40 字一个，那才是抄了一屏数字。
+ * 数字密集到记不住的那一段，不产生模糊星：列表、表格、一串数值不是「时间感」。
+ * 判的是**句子**而不是整轮——同一轮里别处认真说过的时间，照样该记住。
+ * 「又密又多」才算：零星提到几个时间（20:44、648.5 度）是我该记的；
+ * 一句里八个以上、还摊不到每 40 字一个，那才是抄了一屏数字。
  */
 const FUZZY_DENSE_MIN_COUNT = 8
 const FUZZY_MIN_CHARS_PER_STAR = 40
-const FUZZY_MAX_STARS = 24
 
 export function planTurn(turn, pairs) {
   const sentences = sentencesOf(turn)
@@ -134,12 +134,9 @@ export function planTurn(turn, pairs) {
       || row?.kind === 'assistant/message'
       || (row?.kind === 'tool/call' && String(row?.name) === 'chat_send')
   }
-  const spokenSentences = sentences.filter(spoken)
-  const spokenChars = spokenSentences.reduce((n, sentence) => n + sentence.text.length, 0)
-  const fuzzyCandidates = spokenSentences.reduce((n, sentence) => n + fuzzyStarsIn(sentence.text).length, 0)
-  const tooManyNumbers = fuzzyCandidates > 0
-    && (fuzzyCandidates >= FUZZY_MAX_STARS
-      || (fuzzyCandidates >= FUZZY_DENSE_MIN_COUNT && spokenChars / fuzzyCandidates < FUZZY_MIN_CHARS_PER_STAR))
+  /** 这一句是不是一屏数字：密且多才压制，只有几个数字的句子照常出星。 */
+  const numberSoup = (text, count) =>
+    count >= FUZZY_DENSE_MIN_COUNT && text.length / count < FUZZY_MIN_CHARS_PER_STAR
   const hits = new Map()
   const hitsOf = (name) => {
     const key = name.toLowerCase()
@@ -198,8 +195,9 @@ export function planTurn(turn, pairs) {
       lines.push(clockOnly === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock: clockOnly })
       continue
     }
-    if (!tooManyNumbers) {
-      for (const star of fuzzyStarsIn(sentence.text)) {
+    const numeric = fuzzyStarsIn(sentence.text)
+    if (!numberSoup(sentence.text, numeric.length)) {
+      for (const star of numeric) {
         const id = starIdOf(star.name)
         if (!ids.includes(id)) ids.push(id)
         names.set(id, star.name)
@@ -211,7 +209,7 @@ export function planTurn(turn, pairs) {
     lines.push(clock === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock })
   }
 
-  return { lines, names, fuzzy, pairs: accepted, rejects, tooManyNumbers }
+  return { lines, names, fuzzy, pairs: accepted, rejects }
 }
 
 /** 一轮落进星图：补星表、写星源、抬水位。 */
