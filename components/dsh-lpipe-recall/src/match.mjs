@@ -1,9 +1,9 @@
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
 import { foldText } from 'dsh-lpipe-starmap/llm'
 
-/** 三种星的基础亮度：准确星 1、模糊星最高 0.3、通用星 0.2（用户定的口径）。 */
+/** 三种星的基础亮度：准确星 1、模糊星按相似度（上限在片段里再压）、通用星 0.2。 */
 export const EXACT_SOURCE = 1
-export const FUZZY_SOURCE = 0.3
+export const FUZZY_SOURCE = 1
 export const COMMON_SOURCE = 0.2
 /** 模糊星低于这个相似度就不算「闪了一下」。 */
 export const FUZZY_FLOOR = 0.5
@@ -92,7 +92,8 @@ export function flickerStars({ text, stars, common = new Set() }) {
         if (star.form !== hit.form) continue
         const similarity = fuzzyScore(hit, star)
         if (similarity < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
-        // 模糊星再像也只有 0.3：它是「感觉」，不是「说到了」。
+        // 这里只算「像多少」；一颗星能加多少，还要看这个片段里一共有几颗模糊星
+        // （片段内的上限在 candidates.mjs 里按 2/n 压）。
         keep(star, FUZZY_SOURCE * similarity * positionWeight(hit.at ?? 0, source.length), hit.at ?? 0)
       }
     }

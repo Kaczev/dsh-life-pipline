@@ -33,21 +33,34 @@ export function coolTurns({ rows, coolChars }) {
  * `minStrength`。同一颗星在一个片段里出现十次也只算一次：片段强度衡量的是
  * 「这段记忆和眼前这段话有多少种联系」，不是「重复了多少遍」。
  */
-export function candidatesOf({ repo, flicker, excluded = new Set(), minStars = 2, minStrength = 1, minExact = 1, limit = 5 }) {
+export function candidatesOf({
+  repo,
+  flicker,
+  excluded = new Set(),
+  minStars = 2,
+  minStrength = 1,
+  minExact = 1,
+  fuzzyBudget = 2,
+  limit = 5,
+}) {
   const buckets = new Map()
   for (const [id, hit] of flicker) {
     for (const entry of repo.byStar.get(id) ?? []) {
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, fuzzy: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
-      bucket.strength += hit.score
-      if (hit.kind !== 'fuzzy') bucket.exact += 1
+      if (hit.kind === 'fuzzy') {
+        bucket.fuzzy.push(hit.score)
+      } else {
+        bucket.exact += 1
+        bucket.exactScore += hit.score
+      }
       bucket.lines.set(id, entry.seq)
     }
   }
@@ -55,6 +68,11 @@ export function candidatesOf({ repo, flicker, excluded = new Set(), minStars = 2
   const out = []
   for (const bucket of buckets.values()) {
     if (bucket.stars.length < minStars) continue
+    // 模糊星的总和封顶 `fuzzyBudget`（默认 2），单颗封顶 1；片段里模糊星超过一颗时
+    // 每颗的上限是 `fuzzyBudget / n`——「感觉」再多，也不该顶掉「说到了」。
+    const cap = bucket.fuzzy.length > 1 ? fuzzyBudget / bucket.fuzzy.length : 1
+    bucket.strength = bucket.exactScore
+    for (const score of bucket.fuzzy) bucket.strength += Math.min(score, cap)
     if (bucket.strength < minStrength) continue
     // 光靠数字对上不叫「想起来了」：数字太容易撞，必须有真正的概念连上。
     if (bucket.exact < minExact) continue
@@ -63,6 +81,7 @@ export function candidatesOf({ repo, flicker, excluded = new Set(), minStars = 2
       key: bucket.key,
       stars: bucket.stars,
       strength: bucket.strength,
+      fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
       session: record?.session ?? bucket.key.slice(0, bucket.key.lastIndexOf('#')),
       turn: record?.turn ?? null,
