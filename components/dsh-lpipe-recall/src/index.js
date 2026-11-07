@@ -546,7 +546,12 @@ export function apply(ctx, options = {}) {
     // 匹配窗口切的是「最近的说话流水」：你说的话、我的思考与回复、工具结果。
     // 全新会话的缓冲区可能还是空的，这时至少拿这一轮触发源那句话当窗口。
     const text = bufferOf(sessionId).trim() ? bufferOf(sessionId) : (raw ?? '')
-    if (!text.trim()) return ''
+    if (!text.trim()) {
+      // 窗口是空的就没法点亮任何星星。以前这里是静默 return，日志里只留下「找不到原因」
+      // 的空白——空窗口本身也是一个要记下来的事实。
+      report({ skip: 'empty-window', chars: 0 })
+      return ''
+    }
     // 32K 窗口里所有触发源一起点亮；最近 8K（真文窗口）与更早 24K（背景窗口）
     // 分开算，位置权重放在整窗里，所以真文窗口里的星天然更「近」。
     const { background, foreground } = splitWindows(text, settings)
