@@ -148,7 +148,10 @@ test('正文在 content 分片里，不在 data.text 上', () => {
 test('已经摆在上下文里的片段不再重复摆', () => {
   const messages = [
     { role: 'user', content: [{ type: 'text', text: '第 1 段｜lpipe_recall_id[ddb93dff:429], 10-16 15:54, 共 40 句，展示 4 句' }] },
-    { role: 'assistant', content: [{ type: 'text', text: '嗯。' }] },
+    // 模型自己在思考里写了个 id：不算「已经摆过」
+    { role: 'assistant', content: [{ type: 'text', text: '要不要打开 lpipe_recall_id[ddb93dff:430] 看看？' }] },
+    // 句子粒度不算数：只认片段
+    { role: 'user', content: [{ type: 'text', text: 'lpipe_recall[ddb93dff:431:2]' }] },
   ]
   const candidates = [{ key: 'ddb93dff#429' }, { key: 'ddb93dff#430' }]
   const present = keysInContext(messages)

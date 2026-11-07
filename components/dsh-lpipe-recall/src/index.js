@@ -153,29 +153,23 @@ export function charsOf(rows) {
 }
 
 /**
- * 账本过滤：已经摆到过模型面前的片段，只要还在冷却窗口里就不再重复摆。
+ * 上下文里已经摆过哪些记忆片段。
  *
- * 没有这一步，每一轮都会把同一段旧记忆重新注入一遍——用户看到的就是
- * 「怎么老是这两段」。
- */
-/**
- * 上下文里已经摆过哪些片段。
- *
- * 不再维护账本：模糊回忆的块头写着 `lpipe_recall_id[仓库:片段]`，模型看见的就是这些记号；
- * 把这一次请求的 messages 扫一遍，就能知道「哪些记忆此刻已经在他眼前」。
- * 出了上下文（被压缩掉、或者滑出窗口）自然就不再算「摆过」。
+ * 只认一种字面量：`lpipe_recall_id[仓库:片段]`——粒度到片段，不到句子。
+ * 也只扫两类消息：我们自己注入的回忆块，以及 `recall_open` 的返回。
+ * 助手消息不扫：模型在思考里自己「构思」一个 id，不该被当成摆过。
  */
 export function keysInContext(messages) {
   const found = new Set()
-  // 模糊回忆与 recall_open 的返回都用这个结构；扫到它，就说明这一段此刻在模型眼前。
-  const pattern = /lpipe_recall(?:_id)?\[([^\]:]+):(\d+)(?::\d+)?\]/g
+  const pattern = /lpipe_recall_id\[([^\]:]+):(\d+)\]/g
   for (const message of messages ?? []) {
+    if (message?.role === 'assistant') continue
     const content = message?.content
     const texts = Array.isArray(content)
       ? content.filter((part) => typeof part?.text === 'string').map((part) => part.text)
       : [typeof message?.text === 'string' ? message.text : '']
     for (const text of texts) {
-      if (!text) continue
+      if (!text || !text.includes('lpipe_recall_id[')) continue
       pattern.lastIndex = 0
       let hit = pattern.exec(text)
       while (hit) {

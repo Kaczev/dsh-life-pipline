@@ -45,9 +45,6 @@ const pieces = (text) => {
 /** 片段 id：`lpipe_recall_id[仓库 id:片段 id]`。格式固定，好认也好喂给工具。 */
 export const fragmentId = (sessionId, turn) => `lpipe_recall_id[${sessionId}:${turn}]`
 
-/** 句子 id：`lpipe_recall[仓库 id:片段 id:句子 id]`。只在准确回忆里出现。 */
-export const sentenceId = (sessionId, turn, sentence) => `lpipe_recall[${sessionId}:${turn}:${sentence}]`
-
 export const shortSession = (sessionId) => {
   const text = String(sessionId ?? '')
   const tail = text.slice(text.lastIndexOf('-') + 1)
