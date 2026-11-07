@@ -128,7 +128,9 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
     // 「这一段已经摆过了」，模型复制它去喂 recall_open。句子的 id 不在这里给——
     // 模糊回忆本来就只摆几句，位置靠前、靠后的信息足够，精确定位是准确回忆的事。
     const head = `第 ${index + 1} 段｜${fragmentId(candidate.session, candidate.turn)}${when ? `, ${when}` : ''}, 共 ${total} 句，展示 ${lines.length} 句`
-    blocks.push(`${head}\n……${lines.map((line) => line.text).join('……')}……`)
+    // 每一句前面挂它的句子 id：`recall_open` 要的是「片段 id + 句子 id」，
+    // 只给片段，模型没法指定从哪句开始翻。
+    blocks.push(`${head}\n……${lines.map((line) => `〔${line.id}〕${line.text}`).join('……')}……`)
   }
   if (blocks.length === 0) return ''
   const opening = '〔回忆 · 模糊〕下面几段来自更早的记忆，不是这次对话里说过的话。也许相关，也许只是像。'
