@@ -451,6 +451,56 @@ export function apply(ctx, options = {}) {
     return seeded
   }
 
+  /** 每个会话已经收进缓冲区的最后一个 seq。 */
+  const bufferSeen = new Map()
+
+  /**
+   * 把缓冲区推到会话末尾。
+   *
+   * 缓冲区一开始从记忆里播种（装着插件最先看到的那一段），之后每一轮说的话、
+   * 我的回复与工具结果都得自己接上去——否则「最近的说话流水」永远停在第一次
+   * 播种的那一刻，匹配窗口其实是冻住的。
+   */
+  const syncBuffer = (session) => {
+    const sessionId = session?.id
+    if (!sessionId) return
+    const last = bufferSeen.get(sessionId)
+    if (!Number.isInteger(last)) {
+      bufferSeen.set(sessionId, session.seq)
+      return
+    }
+    for (let seq = last; seq < session.seq; seq += 1) {
+      const event = session.eventAt?.(seq)
+      if (!event) continue
+      const text = activityTextOf(event)
+      if (text) appendActivity(sessionId, text)
+    }
+    bufferSeen.set(sessionId, session.seq)
+  }
+
+  /** 二类触发源：本轮内攒了几次「我的思考 / 中途回复 / 工具结果」。 */
+  const secondCounts = new Map()
+  const secondSeen = new Map()
+
+  const countSecond = (session) => {
+    const sessionId = session?.id
+    if (!sessionId) return 0
+    let total = secondCounts.get(sessionId) ?? 0
+    const last = secondSeen.get(sessionId)
+    if (!Number.isInteger(last)) {
+      secondSeen.set(sessionId, session.seq)
+      return total
+    }
+    for (let seq = last; seq < session.seq; seq += 1) {
+      const event = session.eventAt?.(seq)
+      if (!event) continue
+      if (event.type === 'assistant/message' || event.type === 'tool/result') total += 1
+    }
+    secondSeen.set(sessionId, session.seq)
+    secondCounts.set(sessionId, total)
+    return total
+  }
+
   const appendActivity = (sessionId, text) => {
     const next = `${bufferOf(sessionId)}\n${text}`
     buffers.set(sessionId, next.length > HISTORY_CHARS ? next.slice(-HISTORY_CHARS) : next)
@@ -609,10 +659,53 @@ export function apply(ctx, options = {}) {
       noteRun({ event: 'pre-step', turn, step })
       const decision = await next()
       if (decision?.kind === 'reject' || signal?.aborted) return decision
-      // 一轮只有第一次请求需要回忆：后面几步眼前已经有它了。
-      if (step !== 1) return decision
       const session = agent?.session
       if (!session?.id) return decision
+      // 先把「最近说过什么」推到眼前：一类触发源用它做窗口，二类触发源用它计数。
+      try {
+        syncBuffer(session)
+      } catch (error) {
+        warn(`[dsh-lpipe-recall] 同步近窗失败：${error?.message ?? error}`)
+      }
+
+      // 不是第一步：这里是二类触发源的地盘——我的思考、中途回复、工具结果。
+      // 它们不该每出现一次就回忆一次，所以攒够 `secondEvery` 次才评估一次。
+      if (step !== 1) {
+        let block = ''
+        try {
+          const settings = config()
+          if (!settings.enabled) return decision
+          const every = Math.max(1, Number(settings.secondEvery) || 16)
+          const count = countSecond(session)
+          if (count === 0 || count < every) return decision
+          secondCounts.set(session.id, 0)
+          const present = keysInSession(session)
+          for (const key of keysInContext(decision.messages)) present.add(key)
+          noteRun({ session: session.id, event: 'second-class', turn, step, count, every, keys: present.size })
+          // 二类触发源没有「哪一句」可指，窗口末尾就是此刻的上下文。
+          block = compose(session.id, '', (diag) => noteRun({ session: session.id, ...diag }), present)
+        } catch (error) {
+          warn(`[dsh-lpipe-recall] 二类触发源评估失败：${error?.message ?? error}`)
+          return decision
+        }
+        if (!block) return decision
+        return {
+          ...decision,
+          messages: [
+            ...(decision.messages ?? []),
+            {
+              id: randomUUID(),
+              role: 'user',
+              content: [Object.freeze({ type: 'text', text: block })],
+              source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
+            },
+          ],
+        }
+      }
+
+      // 一类触发源：这一轮刚有人说话，出现就评估，没有冷却。
+      // 新的一轮从零开始数二类活动——「16」说的是这一轮里我自己折腾了多少下。
+      secondCounts.set(session.id, 0)
       let block = ''
       try {
         // 先看这一次请求自己带的 messages：step 1 的用户消息这时还没写进 session 事件，
