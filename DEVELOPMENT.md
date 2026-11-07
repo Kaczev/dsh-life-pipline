@@ -90,7 +90,8 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | 唤醒 | `dsh-lpipe-wake` | 已实现 |
 | 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验 / 按天媒体包 / 冷日打包） |
 | 星图 | `dsh-lpipe-starmap` | 已实现（模型抽星 / 星表与星源 / 水位 / 准确星与模糊星 / 只读查询 / 设置块） |
-| 回忆、联想、想象、B站 | — | 未开始 |
+| 回忆 | dsh-lpipe-recall | M1 已实现（触发源匹配 → 点亮星星 → 挑片段 → 注入一条自己的消息） |
+| 联想、想象、B站 | — | 未开始 |
 
 ### dsh-lpipe-chat
 
@@ -208,6 +209,16 @@ node --test "test/*.test.mjs" "components/*/test/*.test.mjs"
 ### 记忆大小的显示
 
 `components/dsh-lpipe-memory/src/stats.mjs` 逐轮累计字节（行 JSON + 去重后的 media），`createStatsCache` 按 `state.seq` 缓存；`src/rpc.mjs` 在 `/api/dsh-lpipe-memory` 上暴露只读的 `memory.stats`；`client/panel.js` 往 `lpipe.settings.panel` 注册一块（id `memory`、order 30），画总量、最近一轮增量与最近 30 轮的累计曲线，纵横轴都按数据自适应。落盘后 `index.js` 会 `reader.reload()` 并清缓存，页面下一次轮询就看得见新的一轮。
+
+### 回忆管线怎么把内容递进去
+
+`dsh-lpipe-recall` 不碰 system prompt。它监听 `sessions` 的 `session/event`，遇到 `user/message` 且来源是
+`user` / `dsh-lpipe-chat` / 主动唤醒（自然唤醒不算）时，拿这条消息的原文去点亮星星，挑出该想起的旧片段，
+组装成一条 `role: 'user'` 的消息，用 `agent.inject(...)` 投进去——`source.kind = 'dsh-lpipe-recall'`，
+`form: 'notice'`。只 inject、绝不 followup：回忆不该自己开一轮。
+
+记忆层（`project.mjs` 的 `INJECTED_SOURCES`）与星图（`build.mjs` 的 `PIPELINE_SOURCES`）都把这一来源整体丢掉，
+所以回忆不会被喂回给自己，也不会变成下一轮的星星。
 
 ### 记忆行的格式（v2）
 

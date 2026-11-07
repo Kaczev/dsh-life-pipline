@@ -76,6 +76,41 @@ export function recentText(rows, matchChars) {
  * 每轮组装请求时，拿近窗原文去点亮星星，把亮起来的那几段旧记忆摆进上下文。
  * 不调模型、不写任何东西——星表与记忆都是只读的，算错了最多是这次没想起来。
  */
+/**
+ * 事件闸门：什么样的消息才值得回忆。
+ *
+ * 单独抽出来是为了能测——真正的组装与投递都被换成参数，这里只管「该不该、投什么」。
+ */
+export function createTriggerHandler({ compose, deliver, warn = () => {} }) {
+  const seen = new Set()
+  return (session, event) => {
+    if (!event || event.type !== 'user/message') return
+    const source = event?.data?.source ?? {}
+    if (!TRIGGER_KINDS.has(source.kind)) return
+    // 自然唤醒不触发回忆：醒来的那一下本来就是自己想想。
+    if (source.kind === 'dsh-lpipe-wake' && String(source.summary ?? '').includes('自主')) return
+    const sessionId = session?.id ?? ''
+    if (!sessionId) return
+    const key = `${sessionId}#${event.seq ?? event.id ?? ''}`
+    if (seen.has(key)) return
+    seen.add(key)
+    if (seen.size > 200) seen.clear()
+    const text = event?.data?.text ?? ''
+    if (!text.trim()) return
+    let block = ''
+    try {
+      block = compose(sessionId, text)
+    } catch (error) {
+      warn(`[dsh-lpipe-recall] 组装回忆失败：${error?.message ?? error}`)
+      return
+    }
+    if (!block) return
+    Promise.resolve()
+      .then(() => deliver(sessionId, block))
+      .catch((error) => warn(`[dsh-lpipe-recall] 注入回忆失败：${error?.message ?? error}`))
+  }
+}
+
 export function apply(ctx, options = {}) {
   const recallDir = options.root || recallRoot()
   const memoryDir = options.memoryRoot || memoryRoot()
@@ -103,6 +138,21 @@ export function apply(ctx, options = {}) {
     return repo
   }
 
+  let sessionController = null
+
+  /**
+   * 日志只能成员调用（Cordis 的 logger 是可调用对象，拆出方法会丢 this），
+   * 而且失败不许往外抛：插件写日志把宿主弄崩过两次。
+   */
+  const warn = (message) => {
+    try {
+      if (typeof ctx.logger?.warn === 'function') ctx.logger.warn(message)
+      else if (typeof ctx.logger?.info === 'function') ctx.logger.info(message)
+    } catch {
+      /* 日志失败就算了，不能让回忆把一轮弄坏 */
+    }
+  }
+
   const rowsNow = (sessionId) => {
     const info = reader.sessions().find((entry) => entry.sessionId === sessionId)
     const lastSeq = info?.lastSeq ?? -1
@@ -114,24 +164,19 @@ export function apply(ctx, options = {}) {
     return rows
   }
 
-  const compose = (promptCtx) => {
+  const compose = (sessionId, raw) => {
     const settings = config()
     if (!settings.enabled) return ''
-    const sessionId = promptCtx?.agent?.session?.id ?? promptCtx?.session?.id ?? null
     if (!sessionId) return ''
+    // 长消息（聊天批量合并、粘贴的日志）只取末尾 `matchChars`：越近越算数。
+    const text = raw.length > settings.matchChars ? raw.slice(-settings.matchChars) : raw
+    if (!text.trim()) return ''
     let rows = []
     try {
       rows = rowsNow(sessionId)
     } catch {
       return ''
     }
-    if (rows.length === 0) return ''
-    const trigger = triggerOf(rows)
-    if (!trigger || trigger.skip) return ''
-    const raw = typeof trigger.row?.text === 'string' ? trigger.row.text : ''
-    // 长消息（聊天批量合并、粘贴的日志）只取末尾 `matchChars`：越近越算数。
-    const text = raw.length > settings.matchChars ? raw.slice(-settings.matchChars) : raw
-    if (!text.trim()) return ''
 
     const store = repoNow()
     if (!store || store.stars.size === 0) return ''
@@ -161,25 +206,42 @@ export function apply(ctx, options = {}) {
     return block
   }
 
-  const disposers = []
-  ctx.inject(['systemPrompt'], (promptCtx) => {
-    if (typeof promptCtx.systemPrompt?.context !== 'function') return
-    disposers.push(
-      promptCtx.systemPrompt.context({
-        name: 'dsh-lpipe-recall',
-        order: 95,
-        text: (inner) => compose(inner ?? promptCtx),
-      }),
-    )
+  /**
+   * 投递一条「回忆」消息。
+   *
+   * 不走 systemPrompt.context：那会把内容并进宿主的 runtime context 块里，和
+   * 时间戳混在一起、看不出是哪来的。这里和 dsh-lpipe-chat 的入站通知一样，
+   * 注入一条 source.kind = 'dsh-lpipe-recall' 的用户消息——它是独立的一块，
+   * 来源写在消息上；记忆层与星图都会把这类来源整体丢掉，不会自我消化。
+   */
+  const deliver = async (sessionId, text) => {
+    if (!sessionController || typeof sessionController.resolveAgent !== 'function') return false
+    const result = await sessionController.resolveAgent(sessionId)
+    const agent = result?.agent
+    if (!agent || typeof agent.inject !== 'function') return false
+    // 只注入，绝不 followup：回忆不该自己开一轮。
+    agent.inject({
+      id: randomUUID(),
+      role: 'user',
+      content: [Object.freeze({ type: 'text', text })],
+      source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
+    })
+    return true
+  }
+
+  const onEvent = createTriggerHandler({ compose, deliver, warn })
+
+  ctx.inject(['sessionController'], (serviceCtx) => {
+    sessionController = serviceCtx.sessionController ?? null
   })
 
-  return () => {
-    for (const dispose of disposers) {
+  ctx.inject(['sessions'], (sessionsCtx) => {
+    sessionsCtx.on('session/event', (session, event) => {
       try {
-        dispose?.()
-      } catch {
-        /* 卸下的时候不要因为一个注销失败把宿主带崩 */
+        onEvent(session, event)
+      } catch (error) {
+        warn(`[dsh-lpipe-recall] 事件处理失败：${error?.message ?? error}`)
       }
-    }
-  }
+    })
+  })
 }

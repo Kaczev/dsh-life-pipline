@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMON_SHARE, commonStars, recentText, triggerOf } from '../src/index.js'
+import { COMMON_SHARE, commonStars, createTriggerHandler, recentText, triggerOf } from '../src/index.js'
 
 test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
   const said = (seq, text) => ({ seq, kind: 'user/message', source: { kind: 'user' }, text })
@@ -65,4 +65,31 @@ test('触发源：只看谁在说话，自然唤醒不触发回忆', () => {
   assert.equal(active.skip, null)
 
   assert.equal(triggerOf([row('assistant/message', { kind: 'assistant' })]), null)
+})
+
+
+test('触发源来了才注入，而且只注入一条带自己来源的消息', async () => {
+  const delivered = []
+  const handler = createTriggerHandler({
+    compose: (sessionId, text) => (text.includes('雪糕') ? `〔回忆 · 模糊〕${sessionId} 记得雪糕` : ''),
+    deliver: (sessionId, block) => {
+      delivered.push({ sessionId, block })
+    },
+  })
+  const user = (seq, text, source = { kind: 'user' }) => ({
+    seq,
+    type: 'user/message',
+    data: { text, source },
+  })
+
+  handler({ id: 's1' }, user(1, '我吃了雪糕'))
+  handler({ id: 's1' }, user(1, '我吃了雪糕'))          // 同一事件重复送进来，只投一次
+  handler({ id: 's1' }, user(2, '嗯'))                    // 没有回忆可给，不投
+  handler({ id: 's1' }, user(3, '雪糕', { kind: 'dsh-lpipe-wake', summary: '唤醒管线 · 自主醒来' }))
+  handler({ id: 's1' }, user(4, '雪糕', { kind: 'time-context' }))
+  handler({ id: 's1' }, { seq: 5, type: 'assistant/message', data: { text: '雪糕' } })
+
+  await Promise.resolve()
+  assert.equal(delivered.length, 1)
+  assert.deepEqual(delivered[0], { sessionId: 's1', block: '〔回忆 · 模糊〕s1 记得雪糕' })
 })
