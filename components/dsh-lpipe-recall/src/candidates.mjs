@@ -46,6 +46,7 @@ export function candidatesOf({
   common = new Set(),
   commonBudget = 0.4,
   foreground = new Set(),
+  current = new Set(),
   limit = 5,
 }) {
   const buckets = new Map()
@@ -56,7 +57,7 @@ export function candidatesOf({
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, current: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
@@ -73,6 +74,8 @@ export function candidatesOf({
         if (foreground.has(id)) {
           bucket.foreground += 1
           bucket.foregroundScore += hit.score
+          // 当前这一句自己点亮的星：最像「你正在问的东西」。
+          if (current.has(id)) bucket.current += 1
         } else {
           bucket.exactScore += hit.score
         }
@@ -119,6 +122,7 @@ export function candidatesOf({
       stars: bucket.stars,
       exact: bucket.exact,
       foreground: bucket.foreground,
+      current: bucket.current,
       strength: bucket.strength,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
@@ -129,7 +133,10 @@ export function candidatesOf({
       to: record?.to ?? null,
     })
   }
-  // 排序：先看真文窗口里对上了几颗（你现在在说什么），再比亮度，最后比时间。
-  out.sort((a, b) => b.foreground - a.foreground || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0))
+  // 排序：先看「当前这一句」对上了几颗（你此刻问的是什么），再看真文窗口，
+  // 再比亮度，最后比时间。不这么排，话题热度会盖过问题本身。
+  out.sort(
+    (a, b) => b.current - a.current || b.foreground - a.foreground || b.strength - a.strength || (b.at ?? 0) - (a.at ?? 0),
+  )
   return out.slice(0, Math.max(1, limit))
 }

@@ -346,6 +346,9 @@ export function apply(ctx, options = {}) {
     const foregroundExact = new Set(
       [...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id),
     )
+    // 当前这一句单独点一遍：排序要看「你此刻问的是什么」，而不是整段窗口的热度。
+    const question = flickerStars({ text: raw.slice(-settings.foregroundChars), stars, common, offset: 0, total: Math.max(1, raw.length) })
+    const currentExact = new Set([...question.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const flicker = new Map(behind)
     for (const [id, hit] of ahead) {
       const previous = flicker.get(id)
@@ -365,6 +368,7 @@ export function apply(ctx, options = {}) {
       minStrength: settings.minStrength,
       common,
       foreground: foregroundExact,
+      current: currentExact,
       limit: settings.fragments,
     })
     if (candidates.length === 0) {
