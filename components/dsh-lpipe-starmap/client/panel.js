@@ -13,7 +13,7 @@ const h = React.createElement;
 
 const RPC_ENDPOINT = 'dsh-lpipe-starmap';
 const PANEL_SLOT = 'lpipe.settings.panel';
-const POLL_MS = 20000;
+const POLL_MS = 4000;
 
 /** 失败发生的那一秒比「失败了」三个字有用得多：带上时刻，才知道是不是刚刚那阵网络抽风。 */
 const clockText = (at) => {
@@ -292,6 +292,8 @@ function StarmapPanel({ rpcCall }) {
   // 我按过暂停、还没再点开始：状态行据此显示「已暂停」，哪怕宿主那边还在收尾。
   const [held, setHeld] = React.useState(false);
   const [openProblems, setOpenProblems] = React.useState(false);
+  // 点「看看」才去读那一轮的原文，读到的按 `session#turn` 缓存。
+  const [peeks, setPeeks] = React.useState({});
   // 已经提交给宿主的配置；草稿改了但没保存时，抽星按钮不该亮。
   const [committed, setCommitted] = React.useState({ provider: '', model: '', reasoningEffort: '', maxTokens: 32000, concurrency: 3 });
   // 宿主里真实存在的提供者与模型：选择框只列这些，不让手打。
@@ -472,6 +474,18 @@ function StarmapPanel({ rpcCall }) {
   };
 
   // 跳过的那一轮放回队列：不立刻抽星，等下次点「现在抽星」再试。
+  const peekTurn = (entry) => {
+    const key = `${entry.session}#${entry.turn}`
+    setPeeks((current) => ({ ...current, [key]: { loading: true } }))
+    Promise.resolve()
+      .then(() => rpcCall('starmap.peek', { session: entry.session, turn: entry.turn }))
+      .then((reply) => {
+        const value = reply?.ok ? reply.value : null
+        setPeeks((current) => ({ ...current, [key]: value && value.ok ? value : { error: value?.error || reply?.error?.message || '读不出来' } }))
+      })
+      .catch((error) => setPeeks((current) => ({ ...current, [key]: { error: String(error?.message || error) } })))
+  }
+
   const retryTurn = (entry) => {
     Promise.resolve()
       .then(() => rpcCall('starmap.retry', { session: entry.session, turn: entry.turn }))
@@ -608,57 +622,75 @@ function StarmapPanel({ rpcCall }) {
       ),
       usageBars(usage.daily),
       state.error ? h('div', { style: { fontSize: 11, color: COLORS.danger, marginTop: 6 } }, state.error) : null,
-    ),
-    // 坏掉的轮次：默认折叠。不是每个人都需要知道「哪一轮卡住了」，但需要的人会非常需要。
-    problems.length > 0
-      ? h(
-          'div',
-          { style: { ...card, paddingTop: 10, paddingBottom: 10 } },
-          h(
-            'details',
-            // 宿主样式会把 details 自带的三角藏掉，所以自己画一个，展开时转向下。
-            { onToggle: (event) => setOpenProblems(Boolean(event?.currentTarget?.open)) },
-            h(
-              'summary',
-              {
-                style: {
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  color: COLORS.muted,
-                  lineHeight: '18px',
-                  listStyle: 'none',
-                },
-              },
-              h('span', { style: { display: 'inline-block', width: 12 } }, openProblems ? '▾' : '▸'),
-              `坏掉的轮次（${problems.length}）— 连试三次没成，已跳过`,
-            ),
-            h(
+      // 坏掉的轮次：始终在卡片里，折叠着不占地方，但要找得到。
+      h(
+        'div',
+        { style: { marginTop: 12, fontSize: 11, color: COLORS.muted } },
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick: () => setOpenProblems((current) => !current),
+            style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, border: 'none', background: 'transparent', color: COLORS.muted, font: 'inherit', cursor: 'pointer' },
+          },
+          h('span', { style: { width: 10, display: 'inline-block' } }, openProblems ? '▾' : '▸'),
+          problems.length ? `坏掉的轮次（${problems.length}）— 连试三次没成，已跳过` : '坏掉的轮次（0）— 目前没有',
+        ),
+        openProblems
+          ? problems.length
+            ? h(
               'div',
               { style: { marginTop: 8, display: 'grid', gap: 6 } },
-              problems.map((entry) =>
-                h(
+              problems.map((entry) => {
+                const key = `${entry.session}#${entry.turn}`
+                const seen = peeks[key]
+                return h(
                   'div',
-                  {
-                    key: `${entry.session}#${entry.turn}`,
-                    style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', fontSize: 11, lineHeight: '17px' },
-                  },
-                  h('span', { style: { color: COLORS.text } }, `第 ${entry.turn} 轮`),
-                  h('span', { style: { color: COLORS.faint, fontFamily: 'ui-monospace, monospace' } }, String(entry.session ?? '').slice(-8)),
-                  h('span', { style: { color: COLORS.danger, flex: '1 1 auto', minWidth: 0 } }, String(entry.error ?? '').slice(0, 80)),
+                  { key, style: { display: 'grid', gap: 6 } },
                   h(
-                    'button',
-                    {
-                      style: { ...button(null), padding: '2px 8px', fontSize: 11 },
-                      onClick: () => retryTurn(entry),
-                    },
-                    '放回',
+                    'div',
+                    { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', fontSize: 11, lineHeight: '17px' } },
+                    h('span', { style: { color: COLORS.text } }, `第 ${entry.turn} 轮`),
+                    h('span', { style: { color: COLORS.faint, fontFamily: 'ui-monospace, monospace' } }, String(entry.session ?? '').slice(-8)),
+                    h('span', { style: { color: COLORS.danger, flex: '1 1 auto', minWidth: 0 } }, String(entry.error ?? '').slice(0, 80)),
+                    h(
+                      'button',
+                      { style: { ...button(null), padding: '2px 8px', fontSize: 11 }, onClick: () => peekTurn(entry) },
+                      seen?.loading ? '读取中…' : seen && !seen.error ? '收起' : '看看',
+                    ),
+                    h(
+                      'button',
+                      { style: { ...button(null), padding: '2px 8px', fontSize: 11 }, onClick: () => retryTurn(entry) },
+                      '放回',
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ),
-        )
-      : null,
+                  seen && !seen.loading
+                    ? seen.error
+                      ? h('div', { style: { fontSize: 11, color: COLORS.danger } }, `读不出来：${seen.error}`)
+                      : h(
+                        'div',
+                        { style: { display: 'grid', gap: 6 } },
+                        h(
+                          'div',
+                          { style: { fontSize: 10.5, color: COLORS.faint, fontFamily: 'ui-monospace, monospace', lineHeight: '15px', wordBreak: 'break-all' } },
+                          `记忆 seq ${seen.from}–${seen.to} · ${seen.rows} 行 · 原文 ${seen.chars} 字 · ${seen.root}`,
+                        ),
+                        h(
+                          'div',
+                          { style: { fontFamily: 'ui-monospace, monospace', fontSize: 10.5, lineHeight: '15px', color: COLORS.muted, background: 'rgba(255,255,255,0.03)', border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: '8px 10px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 190, overflow: 'auto' } },
+                          seen.head,
+                          seen.tail ? `\n……（中间省略 ${Math.max(0, seen.chars - seen.head.length - seen.tail.length)} 字）……\n${seen.tail}` : '',
+                        ),
+                      )
+                    : null,
+                )
+              }),
+            )
+            : h('div', { style: { fontSize: 11, color: COLORS.faint } }, '每一轮都抽到了，没有坏轮。')
+          : null,
+      ),
+    ),
+
     h(
       'div',
       { style: card },

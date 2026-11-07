@@ -6,7 +6,7 @@ import { fuzzyScore, fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
-export function createQueries({ repo, memoryStatus, progressState, usageStats, problems = () => [], retrySkipped = null }) {
+export function createQueries({ repo, memoryStatus, progressState, usageStats, problems = () => [], retrySkipped = null, peek = null }) {
   const find = (key) => {
     if (!key) return null
     const direct = repo.stars.get(key)
@@ -210,6 +210,12 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats, p
     }
   }
 
+  /** 这一轮到底写了什么：只给首尾，够看出「这是人话还是乱码」。 */
+  function peekTurn(payload) {
+    if (typeof peek !== 'function') return { ok: false, error: 'starmap/unavailable' }
+    return peek(String(payload?.session ?? ''), Number(payload?.turn))
+  }
+
   /** 把跳过的那一轮放回队列（下次点「现在抽星」会再试一次）。 */
   function retry(key) {
     if (typeof retrySkipped !== 'function') return { ok: false, reason: 'unavailable' }
@@ -219,5 +225,5 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats, p
     return { ok: retrySkipped(sessionId, turnNo) === true }
   }
 
-  return { star, turn, links, near, progress, retry }
+  return { star, turn, links, near, progress, retry, peek: peekTurn }
 }

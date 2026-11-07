@@ -63,3 +63,36 @@ test('没接上 retry 时如实说不支持，而不是假装成功', async () =
   assert.equal(reply.ok, false);
   assert.equal(reply.error.code, 'starmap/unavailable');
 });
+
+test('starmap.peek 读那一轮原文的首尾', async () => {
+  const seen = [];
+  const queries = createQueries({
+    repo,
+    memoryStatus: () => ({ turns: 1, lit: 0, skipped: 1, sessions: [] }),
+    progressState: null,
+    usageStats: () => ({ calls: 0, tokens: 0, tokens7d: 0, daily: [] }),
+    peek: (sessionId, turn) => {
+      seen.push([sessionId, turn]);
+      return { ok: true, chars: 1136, rows: 3, from: 10, to: 12, head: '开头', tail: '结尾' };
+    },
+  });
+  const handle = createStarmapRpcHandler({ queries });
+  const reply = await handle('starmap.peek', { session: 'session-a', turn: 557 });
+  assert.equal(reply.ok, true);
+  assert.equal(reply.value.chars, 1136);
+  assert.equal(reply.value.head, '开头');
+  assert.deepEqual(seen, [['session-a', 557]]);
+});
+
+test('没接上 peek 时如实说读不出来，而不是编一段原文', async () => {
+  const queries = createQueries({
+    repo,
+    memoryStatus: () => ({ turns: 0, lit: 0, skipped: 0, sessions: [] }),
+    progressState: null,
+    usageStats: () => ({ calls: 0, tokens: 0, tokens7d: 0, daily: [] }),
+  });
+  const handle = createStarmapRpcHandler({ queries });
+  const reply = await handle('starmap.peek', { session: 'session-a', turn: 1 });
+  assert.equal(reply.value.ok, false);
+  assert.equal(reply.value.error, 'starmap/unavailable');
+});

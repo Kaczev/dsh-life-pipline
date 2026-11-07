@@ -484,6 +484,30 @@ export function apply(ctx, options = {}) {
 
   loadProblems()
 
+  /** 给人看的：这一轮到底写了什么。模型读到的原文，只露首尾。 */
+  const peek = (sessionId, turnNumber) => {
+    try {
+      const turn = groupTurns(rowsOf(sessionId)).find((item) => item.turn === turnNumber)
+      if (!turn) return { ok: false, error: '记忆里没有这一轮' }
+      const source = turnSource(turn, textsOf)
+      const seqs = turn.rows.map((row) => row.seq)
+      return {
+        ok: true,
+        session: sessionId,
+        turn: turnNumber,
+        chars: source.length,
+        rows: turn.rows.length,
+        from: seqs[0] ?? null,
+        to: seqs[seqs.length - 1] ?? null,
+        root: memoryRoot(),
+        head: source.slice(0, 700),
+        tail: source.length > 900 ? source.slice(-400) : '',
+      }
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error) }
+    }
+  }
+
   const queries = createQueries({
     repo,
     memoryStatus: status,
@@ -491,6 +515,7 @@ export function apply(ctx, options = {}) {
     usageStats: () => usageStats(root),
     debug,
     problems: () => [...skipped.values()].slice(-50).reverse(),
+    peek,
     retrySkipped: (sessionId, turn) => {
       const key = turnKey(sessionId, turn)
       skipped.delete(key)
@@ -719,7 +744,23 @@ export function apply(ctx, options = {}) {
             info(`[dsh-lpipe-starmap] 灰记忆 ${mine?.grey ?? 0} 轮，超过 ${MAX_AUTO_GREY} 轮，等你手动开始`)
             return
           }
-          await buildSession(sessionId)
+          // 自然构建也要在面板上露面：占一路、进度条动一下，四点几秒的轮询才看得出来。
+          const own = !jobActive
+          if (own) {
+            progressState.running = true
+            progressState.done = 0
+            progressState.total = 1
+            progressState.updatedAt = Date.now()
+          }
+          try {
+            await buildSession(sessionId)
+          } finally {
+            if (own) {
+              progressState.running = false
+              progressState.done = 1
+              progressState.updatedAt = Date.now()
+            }
+          }
         })
       }, delay)
       timer.unref?.()
