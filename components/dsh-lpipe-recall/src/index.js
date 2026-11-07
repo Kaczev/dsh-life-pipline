@@ -246,10 +246,10 @@ export function windowsOf(rows, current, { backgroundChars, foregroundChars }) {
 }
 
 /**
- * 二类触发源（我的思考、中途回复、工具结果）的正文。
+ * 我的思考、中途回复、工具结果的正文。
  *
- * 这些活动不会自己开一轮，但会让「刚才在说什么」往前挪——所以它们既进匹配窗口，
- * 也按冷却计数，攒够 `secondEvery` 次才评估一次回忆。
+ * 它们不触发回忆（二类触发源已取消：会在半路打断思考），但要进匹配窗口——
+ * 「刚才在说什么」本来就包括我自己说的话。
  */
 export function activityTextOf(event) {
   const data = event?.data
@@ -271,16 +271,8 @@ export function activityTextOf(event) {
   return ''
 }
 
-export function createTriggerHandler({
-  compose,
-  deliver,
-  warn = () => {},
-  note = () => {},
-  activity = () => {},
-  secondEvery = 16,
-}) {
+export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {}, activity = () => {} }) {
   const seen = new Set()
-  const secondCount = new Map()
 
   const evaluate = (sessionId, text) => {
     let block = ''
@@ -316,22 +308,9 @@ export function createTriggerHandler({
     seen.add(key)
     if (seen.size > 400) seen.clear()
 
-    // 二类触发源：我的思考、中途回复、工具结果。攒够 `secondEvery` 次才评估一次，
-    // 免得每一步都往对话里塞回忆。
-    if (event.type === 'assistant/message' || event.type === 'tool/result') {
-      const text = activityTextOf(event)
-      if (!text.trim()) return
-      activity(sessionId, text)
-      const every = typeof secondEvery === 'function' ? Number(secondEvery()) || 16 : secondEvery
-      const count = (secondCount.get(sessionId) ?? 0) + 1
-      if (count < Math.max(1, every)) {
-        secondCount.set(sessionId, count)
-        return
-      }
-      secondCount.set(sessionId, 0)
-      evaluate(sessionId, '')
-      return
-    }
+    // 二类触发源（我的思考、中途回复、工具结果）已经取消：它会在半路往对话里塞回忆，
+    // 打断正在进行的思考。现在只有一类触发源会唤起回忆。
+    if (event.type === 'assistant/message' || event.type === 'tool/result') return
 
     if (event.type !== 'user/message') return
     const source = event?.data?.source ?? {}
@@ -499,29 +478,6 @@ export function apply(ctx, options = {}) {
       set.add(key.replace(/^lpipe_recall_id\[|\]$/g, ''))
     }
     deliveredKeys.set(sessionId, set)
-  }
-
-  /** 二类触发源：本轮内攒了几次「我的思考 / 中途回复 / 工具结果」。 */
-  const secondCounts = new Map()
-  const secondSeen = new Map()
-
-  const countSecond = (session) => {
-    const sessionId = session?.id
-    if (!sessionId) return 0
-    let total = secondCounts.get(sessionId) ?? 0
-    const last = secondSeen.get(sessionId)
-    if (!Number.isInteger(last)) {
-      secondSeen.set(sessionId, session.seq)
-      return total
-    }
-    for (let seq = last; seq < session.seq; seq += 1) {
-      const event = session.eventAt?.(seq)
-      if (!event) continue
-      if (event.type === 'assistant/message' || event.type === 'tool/result') total += 1
-    }
-    secondSeen.set(sessionId, session.seq)
-    secondCounts.set(sessionId, total)
-    return total
   }
 
   const appendActivity = (sessionId, text) => {
@@ -708,46 +664,7 @@ export function apply(ctx, options = {}) {
         warn(`[dsh-lpipe-recall] 同步近窗失败：${error?.message ?? error}`)
       }
 
-      // 不是第一步：这里是二类触发源的地盘——我的思考、中途回复、工具结果。
-      // 它们不该每出现一次就回忆一次，所以攒够 `secondEvery` 次才评估一次。
-      if (step !== 1) {
-        let block = ''
-        try {
-          const settings = config()
-          if (!settings.enabled) return decision
-          const every = Math.max(1, Number(settings.secondEvery) || 16)
-          const count = countSecond(session)
-          if (count === 0 || count < every) return decision
-          secondCounts.set(session.id, 0)
-          const present = keysInSession(session)
-          for (const key of keysInContext(decision.messages)) present.add(key)
-          for (const key of deliveredKeys.get(session.id) ?? []) present.add(key)
-          noteRun({ session: session.id, event: 'second-class', turn, step, count, every, keys: present.size })
-          // 二类触发源没有「哪一句」可指，窗口末尾就是此刻的上下文。
-          block = compose(session.id, '', (diag) => noteRun({ session: session.id, ...diag }), present)
-        } catch (error) {
-          warn(`[dsh-lpipe-recall] 二类触发源评估失败：${error?.message ?? error}`)
-          return decision
-        }
-        if (!block) return decision
-        rememberBlock(session.id, block)
-        return {
-          ...decision,
-          messages: [
-            ...(decision.messages ?? []),
-            {
-              id: randomUUID(),
-              role: 'user',
-              content: [Object.freeze({ type: 'text', text: block })],
-              source: Object.freeze({ kind: 'dsh-lpipe-recall', form: 'notice', summary: '回忆 · 模糊' }),
-            },
-          ],
-        }
-      }
-
       // 一类触发源：这一轮刚有人说话，出现就评估，没有冷却。
-      // 新的一轮从零开始数二类活动——「16」说的是这一轮里我自己折腾了多少下。
-      secondCounts.set(session.id, 0)
       let block = ''
       try {
         // 先看这一次请求自己带的 messages：step 1 的用户消息这时还没写进 session 事件，

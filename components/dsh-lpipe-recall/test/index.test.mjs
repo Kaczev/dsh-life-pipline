@@ -167,27 +167,27 @@ test('已经摆在上下文里的片段不再重复摆', () => {
 })
 
 
-test('二类触发源：每 16 次思考/回复/工具结果才评估一次回忆', async () => {
+test('二类触发源取消：思考、中途回复、工具结果都不再唤起回忆', async () => {
   const delivered = []
   const seenActivity = []
   const handler = createTriggerHandler({
     compose: () => '〔回忆 · 模糊〕找到一段',
     deliver: (sessionId, block) => delivered.push({ sessionId, block }),
     activity: (sessionId, text) => seenActivity.push(text),
-    secondEvery: 16,
   })
   const thought = (seq) => ({
     seq,
     type: 'assistant/message',
     data: { message: { content: [{ type: 'reasoning', text: '想一想' }, { type: 'text', text: '说一句' }] } },
   })
-  for (let index = 1; index <= 15; index += 1) handler({ id: 's1' }, thought(index))
+  // 二十次思考 + 二十次工具结果：一次都不该触发。
+  for (let index = 1; index <= 20; index += 1) handler({ id: 's1' }, thought(index))
+  for (let index = 21; index <= 40; index += 1) {
+    handler({ id: 's1' }, { seq: index, type: 'tool/result', data: { text: '命令输出' } })
+  }
   await Promise.resolve()
-  assert.equal(delivered.length, 0, '15 次还不该触发')
-  handler({ id: 's1' }, thought(16))
-  await Promise.resolve()
-  assert.equal(delivered.length, 1, '第 16 次触发一次')
-  assert.equal(seenActivity[0], '想一想\n说一句', '思考与正文都进匹配窗口')
+  assert.equal(delivered.length, 0, '二类触发源不该再投递回忆')
+  assert.equal(seenActivity.length, 0, '也不再走 activity 回调')
 })
 
 test('工具结果也算二类触发源', () => {
