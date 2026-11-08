@@ -14,20 +14,24 @@ export function exactMatch(source, name) {
 function matchFolded(folded, needle) {
   if (!needle) return null
   const at = folded.lastIndexOf(needle)
-  if (at >= 0) return { similarity: 1, at }
   const chars = [...needle]
-  if (chars.length < 4 || chars.length > 64 || !/\p{L}/u.test(needle)) return null
+  let similarity = at >= 0 ? 1 : 0
+  let last = at
+  if (chars.length < 4 || chars.length > 64 || !/\p{L}/u.test(needle)) return similarity ? { similarity, at: last } : null
   const minimum = Math.max(/[\u3400-\u9fff]/u.test(needle) ? 3 : 5, Math.ceil(chars.length * 0.65))
   for (let size = chars.length - 1; size >= minimum; size -= 1) {
-    let last = -1
     for (let start = 0; start + size <= chars.length; start += 1) {
       const part = chars.slice(start, start + size).join('')
       if (!/\p{L}/u.test(part)) continue
-      last = Math.max(last, folded.lastIndexOf(part))
+      const position = folded.lastIndexOf(part)
+      if (position < 0) continue
+      // 完整命中内部的子串不另算一次命中。
+      if (at >= 0 && position >= at && position < at + needle.length) continue
+      last = Math.max(last, position)
+      similarity = Math.max(similarity, 0.5 * (size / chars.length) ** 2)
     }
-    if (last >= 0) return { similarity: 0.5 * (size / chars.length) ** 2, at: last }
   }
-  return null
+  return similarity ? { similarity, at: last } : null
 }
 
 /** 星对象的折叠名缓存：星表是只读快照，同一颗星的折叠结果不会变。 */
@@ -37,7 +41,7 @@ const foldedCache = new WeakMap()
  * 找出这段话里「闪起来的星」。
  *
  * 一颗星只留最强的一次点亮：同一个词在一句话里出现十遍，也不会让这段记忆显得
- * 重要十倍——亮度衡量的是「这段记忆多该被想起来」，不是词频。
+ * 重要十倍。基础亮度包含最强匹配程度，at 独立记录最后有效命中位置；不施加环境权重。
  *
  * @param {object} input
  * @param {string} input.text 眼前这段话（近窗里的原文）
@@ -45,19 +49,15 @@ const foldedCache = new WeakMap()
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function matchStars({ text, stars, common = new Set(), rarity = new Map(), offset = 0, total = null, weight = null, brightness = null }) {
+export function matchStars({ text, stars, common = new Set(), rarity = new Map(), brightness = null }) {
   const source = String(text ?? '')
   const folded = foldText(source)
-  const span = total ?? folded.length
-  // 调用方可提供环境权重；星图自身默认不施加环境影响。
-  const weigh = typeof weight === 'function' ? weight : () => 1
   const intrinsic = star => brightness?.get(star.id) ?? baseBrightness(star, { common, rarity })
   const out = new Map()
 
   const keep = (star, score, at) => {
     if (!(score > 0)) return
     const previous = out.get(star.id)
-    if (previous && previous.score >= score) return
     out.set(star.id, {
       id: star.id,
       name: star.name,
@@ -65,8 +65,8 @@ export function matchStars({ text, stars, common = new Set(), rarity = new Map()
       // form/value 要带上：句子打分时还要拿它算模糊星的感觉。
       form: star.form ?? null,
       value: Number.isFinite(star.value) ? star.value : null,
-      score,
-      at,
+      score: Math.max(previous?.score ?? 0, score),
+      at: Math.max(previous?.at ?? -1, at),
     })
   }
 
@@ -81,7 +81,7 @@ export function matchStars({ text, stars, common = new Set(), rarity = new Map()
     const match = matchFolded(folded, needle)
     if (!match) continue
     const isCommon = common.has(star.id) || star.kind === 'common'
-    keep({ ...star, kind: isCommon ? 'common' : 'exact' }, intrinsic(star) * match.similarity * weigh(offset + match.at, span), match.at)
+    keep({ ...star, kind: isCommon ? 'common' : 'exact' }, intrinsic(star) * match.similarity, match.at)
   }
 
   const fuzzy = (stars ?? []).filter(
@@ -98,7 +98,7 @@ export function matchStars({ text, stars, common = new Set(), rarity = new Map()
         if (star.form !== hit.form) continue
         const similarity = fuzzyScore(hit, star)
         if (similarity < (star.form === 'number' ? NUMBER_FLOOR : FUZZY_FLOOR)) continue
-        keep(star, intrinsic(star) * similarity * weigh(offset + (hit.at ?? 0), span), hit.at ?? 0)
+        keep(star, intrinsic(star) * similarity, hit.at ?? 0)
       }
     }
   }

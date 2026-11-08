@@ -1,4 +1,5 @@
 import { matchStars } from 'dsh-lpipe-starmap/match'
+import { foldText } from 'dsh-lpipe-starmap/llm'
 
 // 兼容既有纯函数调用者；实现与属性计算均归星图所有。
 export { lengthWeight, rarityWeights, EXACT_SOURCE, FUZZY_SOURCE, COMMON_SOURCE, FUZZY_FLOOR, NUMBER_FLOOR } from 'dsh-lpipe-starmap/brightness'
@@ -45,7 +46,25 @@ export function positionWeight(at, length) {
   return 1 + ratio ** 4
 }
 
-/** 回忆只提供环境权重，星的基础亮度与匹配由星图计算。 */
+/** 只施加环境，不改写星图给出的基础亮度与位置。 */
+export function weightFlicker(hits, { weight, length, offset = 0 }) {
+  return new Map([...hits].map(([id, hit]) => [id, { ...hit, score: hit.score * weight(offset + hit.at, length) }]))
+}
+
+/** A 与 B0 先做差集得到 B，再施加环境权重，最后分配背景预算。 */
+export function environmentFlicker(ahead, backgroundCandidates, { foregroundLength, backgroundLength }) {
+  const background = new Map([...backgroundCandidates].filter(([id]) => !ahead.has(id)))
+  const weightedAhead = weightFlicker(ahead, { weight: foregroundWeight, length: foregroundLength })
+  const weightedBackground = weightFlicker(background, { weight: backgroundWeight, length: backgroundLength })
+  return { ...balanceFlicker(weightedAhead, weightedBackground), background }
+}
+
+/** 兼容既有调用；环境加权在回忆侧完成，星图只返回基础亮度与最后位置。 */
 export function flickerStars(options) {
-  return matchStars({ ...options, weight: typeof options.weight === 'function' ? options.weight : positionWeight })
+  const hits = matchStars(options)
+  return weightFlicker(hits, {
+    weight: typeof options.weight === 'function' ? options.weight : positionWeight,
+    length: options.total ?? foldText(String(options.text ?? '')).length,
+    offset: options.offset ?? 0,
+  })
 }

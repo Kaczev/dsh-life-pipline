@@ -6,10 +6,11 @@ import { openRepo } from 'dsh-lpipe-starmap/store'
 import { starProfile } from 'dsh-lpipe-starmap/brightness'
 export { COMMON_SHARE, commonStars } from 'dsh-lpipe-starmap/brightness'
 import { candidatesOf, coolTurns } from './candidates.mjs'
-import { backgroundWeight, foregroundWeight, balanceFlicker } from './match.mjs'
+import { environmentFlicker } from './match.mjs'
 import { loadConfig, panelConfigOf, savePanelConfig } from './config.mjs'
 import { createRecallRpcHandler, registerRecallRpc } from './rpc.mjs'
-import { flickerStars } from './match.mjs'
+import { matchStars } from 'dsh-lpipe-starmap/match'
+import { foldText } from 'dsh-lpipe-starmap/llm'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
 import { isSpokenRow, renderRecall } from './render.mjs'
 import { createRecallTools } from './tools.mjs'
@@ -576,12 +577,14 @@ export function apply(ctx, options = {}) {
     // 来源分数只值 0.2（用户定的口径）。
     const { common, brightness } = starProfile(store)
     const stars = [...store.stars.values()]
-    const behind = flickerStars({ text: background, stars, common, brightness, weight: backgroundWeight })
-    const ahead = flickerStars({ text: foreground, stars, common, brightness, weight: foregroundWeight })
+    const backgroundCandidates = matchStars({ text: background, stars, common, brightness })
+    const ahead = matchStars({ text: foreground, stars, common, brightness })
     // 真文星只有一个来源：这一轮的输入源。它既决定候选，也决定排序的第一顺位。
     const currentExact = new Set([...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const foregroundExact = new Set(currentExact)
-    const { flicker, foregroundSum, backgroundSum, factor } = balanceFlicker(ahead, behind)
+    const { flicker, foregroundSum, backgroundSum, factor } = environmentFlicker(ahead, backgroundCandidates, {
+      foregroundLength: foldText(foreground).length, backgroundLength: foldText(background).length,
+    })
     report({ event: 'balance', foregroundSum, backgroundSum, backgroundFactor: factor })
     if (flicker.size === 0) {
       report({ skip: 'no-flicker', chars: background.length + foreground.length, stars: stars.length, rows: rows.length })

@@ -12,7 +12,7 @@ const repo = () => ({ stars: new Map(stars.map(s => [s.id, s])),
   turns: new Map(Array.from({ length: 100 }, (_, i) => [i, {}])),
   byStar: new Map([['a', [{ key: 1 }, { key: 1 }]], ['c', Array.from({ length: 6 }, (_, key) => ({ key }))], ['f', [{ key: 2 }]]]) })
 
-test('星基础亮度聚合基础值、长度和全库稀有度，不含环境或模糊相似度', () => {
+test('星固有属性聚合基础值、长度和全库稀有度，不含输入匹配', () => {
   const store = repo(), before = JSON.stringify([...store.stars])
   const { common, rarity, brightness } = starProfile(store)
   assert.equal(brightness.get('a'), 1.2 * rarity.get('a'))
@@ -44,8 +44,25 @@ test('星图匹配默认无环境权重；属性快照与旧参数路径的结�
   assert.equal(plain.get('c').kind, 'common')
   assert.ok(plain.get('f').score < profile.brightness.get('f'))
   assert.ok(exactMatch('回忆匹配的规则', '回忆匹配窗口').similarity < 0.5)
-  for (const weight of [() => 3, (at, n) => 2 * (at / n) ** 4]) {
-    assert.deepEqual(matchStars({ text, stars, ...profile, weight }),
-      matchStars({ text, stars, common: commonStars(store), rarity: rarityWeights(store), weight }))
-  }
+  assert.deepEqual(plain, matchStars({ text, stars, common: commonStars(store), rarity: rarityWeights(store) }))
+  assert.deepEqual(matchStars({ text, stars, ...profile, weight: () => { throw Error('环境不得进入星图') } }), plain)
+})
+
+test('准确星基础亮度不受位置影响，最后位置可来自较弱的后续匹配', () => {
+  const stars = [{ id: 'a', name: '回忆匹配窗口', kind: 'exact' }]
+  const full = matchStars({ text: '回忆匹配窗口', stars }).get('a')
+  const text = '回忆匹配窗口' + '。'.repeat(20) + '回忆匹配'
+  const hit = matchStars({ text, stars }).get('a')
+  assert.equal(hit.score, full.score)
+  assert.equal(hit.at, 26)
+  assert.equal(matchStars({ text: '。'.repeat(20) + '回忆匹配窗口', stars }).get('a').score, full.score)
+})
+
+test('模糊星以最强匹配计算基础亮度，位置独立取最后有效匹配', () => {
+  const stars = [{ id: 'f', name: '20:44', kind: 'fuzzy', form: 'time', value: 1244 }]
+  const full = matchStars({ text: '20:44', stars }).get('f')
+  const text = '20:44 然后 20:46 最后 23:50'
+  const hit = matchStars({ text, stars }).get('f')
+  assert.equal(hit.score, full.score)
+  assert.equal(hit.at, text.indexOf('20:46'))
 })

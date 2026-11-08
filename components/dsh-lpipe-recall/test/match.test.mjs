@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { balanceFlicker, flickerStars, positionWeight, lengthWeight, rarityWeights, exactMatch } from '../src/match.mjs'
+import { balanceFlicker, environmentFlicker, flickerStars, positionWeight, lengthWeight, rarityWeights, exactMatch } from '../src/match.mjs'
+
+test('背景候选先减真文，再按最后位置施加环境并归一化预算', () => {
+  const ahead = new Map([['a', { score: 2, at: 0 }]])
+  const candidates = new Map([['a', { score: 100, at: 100 }], ['b', { score: 4, at: 50 }], ['c', { score: 2, at: 100 }]])
+  const result = environmentFlicker(ahead, candidates, { foregroundLength: 10, backgroundLength: 100 })
+  assert.deepEqual([...result.background.keys()], ['b', 'c'])
+  assert.equal(result.foregroundSum, 6)
+  assert.equal(result.backgroundSum, 4.5)
+  assert.equal(result.flicker.get('a').score, 6)
+  assert.equal(result.flicker.get('c').score / result.flicker.get('b').score, 8)
+  assert.equal(candidates.size, 3)
+  assert.equal(ahead.get('a').score, 2)
+  assert.equal(environmentFlicker(new Map(), candidates, { foregroundLength: 0, backgroundLength: 100 }).flicker.size, 0)
+})
 
 test('背景预算全局归一：保留相对强弱、真文优先、没有真文就没有背景', () => {
   const ahead = new Map([['a', { score: 6 }], ['b', { score: 4 }]])
