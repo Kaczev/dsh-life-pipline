@@ -243,6 +243,18 @@ function markConnected(status, channel) {
   };
 }
 
+function draftPatch(values) {
+  const bytes = (value) => {
+    const match = String(value).trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|G|GB)?$/i);
+    if (!match) return NaN;
+    return Number(match[1]) * ({ B: 1, KB: 1024, MB: 1024 ** 2, G: 1024 ** 3, GB: 1024 ** 3 }[(match[2] || 'B').toUpperCase()]);
+  };
+  const [quiet, window, output, download, retention] = values;
+  const q = Number(quiet), w = Number(window), o = bytes(output), d = bytes(download), r = Number(retention);
+  if (!Number.isFinite(q) || q < 0.2 || q > 60 || !Number.isFinite(w) || w < 3 || w > 120 || !Number.isSafeInteger(o) || o < 1024 || !Number.isSafeInteger(d) || d < 1 || !Number.isSafeInteger(r) || r < 1 || r > 36500) return null;
+  return { quietSeconds: Math.round(q * 10) / 10, windowSeconds: Math.round(w), outputBytes: o, downloadBytes: d, downloadRetentionDays: r };
+}
+
 function ChatSettingsPanel({ rpcCall }) {
   const [status, setStatus] = React.useState(null);
   const [error, setError] = React.useState('');
@@ -358,7 +370,10 @@ function ChatSettingsPanel({ rpcCall }) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [reload]);
 
+  const pendingPatch = draftPatch([quietDraft, windowDraft, outputDraft, downloadDraft, retentionDraft]);
+  const canSave = Boolean(status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
   const save = async (patch) => {
+    if (!canSave) return;
     setBusy(true);
     try {
       const value = await call('chat.config.save', patch);
@@ -428,7 +443,7 @@ function ChatSettingsPanel({ rpcCall }) {
 
   const header = h('div', { style: head },
     h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
-    h('span', { style: badge }, '社交管线'));
+    h('span', { style: badge }, '聊天管线'));
 
   if (!status) {
     return h('section', null,
@@ -442,7 +457,7 @@ function ChatSettingsPanel({ rpcCall }) {
             lineHeight: 1.7,
             color: error ? COLORS.danger : COLORS.muted,
           },
-        }, error ? `社交管线读取失败：${error}` : '正在读取社交管线状态…')));
+        }, error ? `聊天管线读取失败：${error}` : '正在读取聊天管线状态…')));
   }
 
   return h('section', null,
@@ -501,8 +516,8 @@ function ChatSettingsPanel({ rpcCall }) {
       h('div', { style: foot },
         h('button', {
           type: 'button',
-          style: { ...button(), background: COLORS.soft },
-          disabled: busy,
+          style: { ...button(canSave ? COLORS.accent : null), opacity: canSave ? 1 : 0.42 },
+          disabled: !canSave,
           onClick: () => save({
             quietSeconds: Number(quietDraft),
             windowSeconds: Number(windowDraft),
@@ -576,5 +591,5 @@ module.exports = {
   name,
   inject,
   apply,
-  __test__: { markConnected, PANEL_SLOT, ChannelCard },
+  __test__: { ChatSettingsPanel, draftPatch, markConnected, PANEL_SLOT, ChannelCard },
 };

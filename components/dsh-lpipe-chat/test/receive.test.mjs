@@ -106,7 +106,7 @@ test('a WeChat message reaches the main session as a labelled prompt', async () 
     assert.equal(prompts[0].sessionId, 'session-main');
     assert.equal(prompts[0].message.source.form, 'notice');
     // The notice may open with a timestamp line; the message itself is last.
-    assert.equal(prompts[0].message.content[0].text.split(String.fromCharCode(10)).pop(), '[微信 · Kaczev] 在吗');
+    assert.equal(prompts[0].message.content[0].text.split(String.fromCharCode(10)).pop(), '(Owner)[微信 · Kaczev] 在吗');
     assert.equal(prompts[0].message.source.kind, 'dsh-lpipe-chat');
 
     // And the answer goes back out over the same stubbed transport.

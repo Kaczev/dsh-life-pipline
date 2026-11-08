@@ -75,6 +75,67 @@ test('apply only claims the memory block, never the page itself', () => {
   assert.equal(typeof entry.options.inject, 'function')
 })
 
+function textOf(node) {
+  if (node == null) return ''
+  if (typeof node === 'string') return node
+  const children = Array.isArray(node.children) ? node.children : []
+  return children.map(textOf).join('')
+}
+
+function findNode(node, predicate) {
+  if (node == null || typeof node !== 'object') return null
+  if (predicate(node)) return node
+  const children = Array.isArray(node.children) ? node.children : []
+  for (const child of children) {
+    const found = findNode(child, predicate)
+    if (found) return found
+  }
+  return null
+}
+
+test('scope switch exposes a loading state before it claims a value', () => {
+  const { ScopeBar } = loadBundle().exported.__test__
+  const loading = ScopeBar({
+    scope: null, loading: true, saving: false, saved: false, error: '',
+    onToggle() {}, onRetry() {},
+  })
+  assert.match(textOf(loading), /所有对话生效/)
+  assert.match(textOf(loading), /读取中/)
+  assert.equal(findNode(loading, (node) => node.props?.role === 'switch'), null)
+
+  const failed = ScopeBar({
+    scope: null, loading: false, saving: false, saved: false, error: '连接超时',
+    onToggle() {}, onRetry() {},
+  })
+  assert.match(textOf(failed), /读取设置失败：连接超时/)
+  assert.equal(findNode(failed, (node) => node.props?.role === 'switch'), null)
+  assert.ok(findNode(failed, (node) => node.children?.includes('重试')))
+})
+
+test('scope switch reflects the saved boolean and keeps failure visible', () => {
+  const { ScopeBar } = loadBundle().exported.__test__
+  const off = ScopeBar({
+    scope: false, loading: false, saving: false, saved: false, error: '',
+    onToggle() {}, onRetry() {},
+  })
+  const offSwitch = findNode(off, (node) => node.props?.role === 'switch')
+  assert.equal(offSwitch.props['aria-checked'], false)
+  assert.match(textOf(off), /同时控制记忆、星图、回忆/)
+
+  const on = ScopeBar({
+    scope: true, loading: false, saving: false, saved: false, error: '',
+    onToggle() {}, onRetry() {},
+  })
+  assert.equal(findNode(on, (node) => node.props?.role === 'switch').props['aria-checked'], true)
+
+  const failed = ScopeBar({
+    scope: false, loading: false, saving: false, saved: false, error: '请求超时',
+    onToggle() {}, onRetry() {},
+  })
+  assert.match(textOf(failed), /保存失败：请求超时/)
+  assert.equal(findNode(failed, (node) => node.props?.role === 'switch').props['aria-checked'], false)
+})
+
 test('sizes are printed human-first', () => {
   const { formatBytes, plotOf, formatClock } = loadBundle().exported.__test__
   assert.equal(formatBytes(0), '0 B')

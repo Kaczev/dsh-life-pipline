@@ -2,6 +2,7 @@
 //
 // 抽星只问模型一次（哪两个概念一起出现过），落到哪一句、连多粗由我们自己算。
 // 模型不可用时什么都不点亮，灰记忆就一直是灰的——不猜、不用规则兜底。
+import { isMemorySession } from 'dsh-lpipe-memory/scope'
 import { renameSync, rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
 import { join } from 'node:path'
@@ -127,7 +128,7 @@ export function apply(ctx, options = {}) {
     const turnOf = (sessionId, turnNumber) => {
       if (!cache.has(sessionId)) {
         const grouped = new Map()
-        for (const turn of groupTurns(rowsOf(sessionId))) grouped.set(turn.turn, turn)
+        for (const turn of groupTurns(rowsOf(sessionId, true))) grouped.set(turn.turn, turn)
         cache.set(sessionId, grouped)
       }
       return cache.get(sessionId)?.get(turnNumber) ?? null
@@ -307,16 +308,17 @@ export function apply(ctx, options = {}) {
   /** 「会话#lastSeq」-> 这个会话一共有多少轮（跳号不算重） */
   const turnCount = new Map()
 
-  const sessions = () => {
+  const sessions = (historical = false) => {
     try {
-      return memory.sessions()
+      return memory.sessions().filter(entry => historical || isMemorySession(entry.sessionId))
     } catch (error) {
       warn(`[dsh-lpipe-starmap] 读不到记忆：${error?.message ?? error}`)
       return []
     }
   }
 
-  const rowsOf = (sessionId) => {
+  const rowsOf = (sessionId, historical = false) => {
+    if (!historical && !isMemorySession(sessionId)) return []
     // 记忆层能一次给整个会话（已解析、已补轮号）就别逐 seq 取：逐行读会把同一帧反复解码，
     // 冷日打包后一天就是一个几兆的大帧，一千多行就是几十秒。
     if (typeof memory.rows === 'function') {
@@ -327,7 +329,7 @@ export function apply(ctx, options = {}) {
         warn(`[dsh-lpipe-starmap] 整段读行失败，退回逐行：${error?.message ?? error}`)
       }
     }
-    const info_ = sessions().find((entry) => entry.sessionId === sessionId)
+    const info_ = (historical ? memory.sessions() : sessions()).find((entry) => entry.sessionId === sessionId)
     if (!info_) return []
     const rows = []
     for (let seq = info_.firstSeq; seq <= info_.lastSeq; seq += 1) {
@@ -351,7 +353,7 @@ export function apply(ctx, options = {}) {
 
   /** 一轮：问模型 → 落星源。模型挂了就记一笔，这一轮保持灰。 */
   const buildOne = async (sessionId, turn, extractor) => {
-    if (!llm) return false
+    if (!isMemorySession(sessionId) || !llm) return false
     const startedAt = Date.now()
     const source = turnSource(turn, textsOf)
     if (!source.trim()) {
@@ -359,6 +361,7 @@ export function apply(ctx, options = {}) {
       return true
     }
     const reply = await extractor.ask(source)
+    if (!isMemorySession(sessionId)) return 'stopped'
     if (reply.usage) {
       noteUsage(root, {
         at: new Date().toISOString(),
@@ -484,13 +487,14 @@ export function apply(ctx, options = {}) {
     let lit = 0
     let lastBuiltAt = null
     let lastTurn = null
-    for (const session of sessions()) {
+    // 面板展示全库历史，与文星／时星总数一致；当前作用域仅限制新增处理。
+    for (const session of sessions(true)) {
       // 数「确实有几轮」，不拿最大轮号当总数：轮号会跳号，1543 里其实只有 1444 轮。
       const countKey = `${session.sessionId}#${session.lastSeq}`
       let max = turnCount.get(countKey)
       if (!Number.isInteger(max)) {
         const seen = new Set()
-        for (const row of rowsOf(session.sessionId)) {
+        for (const row of rowsOf(session.sessionId, true)) {
           if (Number.isInteger(row?.turn)) seen.add(row.turn)
         }
         max = seen.size
@@ -803,10 +807,11 @@ export function apply(ctx, options = {}) {
     sessionsCtx.on('session/event', (session, event) => {
       if (event?.type !== TURN_END) return
       const sessionId = session?.id ?? ''
-      if (!sessionId) return
+      if (!isMemorySession(sessionId)) return
       // 记忆层也在 turn/end 落盘：等它写完再读，否则会读到上一轮的磁盘状态。
       const delay = Number.isFinite(options.turnDelay) ? options.turnDelay : 1500
       const timer = setTimeout(() => {
+        if (!isMemorySession(sessionId)) return
         // 用户按过暂停：新的轮次也不要偷偷接着抽，等他点「现在抽星」。
         if (pausedByUser) {
           runLog('turn-skip-paused')

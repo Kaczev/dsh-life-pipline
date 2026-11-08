@@ -7,6 +7,8 @@ import { join } from 'node:path';
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'life-chat-component-'));
 
 const { apply, name } = await import('../src/index.js');
+const { saveConfig: saveMainConfig } = await import('../../../src/config.mjs');
+saveMainConfig({ mainSessionId: 'main-test' });
 const { saveConfig, loadConfig } = await import('../src/config.mjs');
 
 function fakeCtx(registrations) {
@@ -37,14 +39,52 @@ test('component loads, registers four tools and the prompt guidance', () => {
   assert.equal(registrations.promptsSection[0].name, 'dsh-lpipe-chat');
   const guidance = registrations.promptsSection[0];
   assert.equal(guidance.interpolate, false);
-  assert.ok(guidance.text.startsWith('## WeChat and QQ conversations\n\n'));
-  assert.match(guidance.text, /do not call chat_send unless the user explicitly asks/);
-  assert.match(guidance.text, /nothing else is still running or promised/);
-  assert.match(guidance.text, /do not call ask_user_question/);
+  const text = guidance.text({ scope: { id: 'main-test' } });
+  assert.equal(guidance.text({ scope: { id: 'other' } }), '');
+  assert.ok(text.startsWith('## WeChat and QQ conversations\n\n'));
+  assert.match(text, /do not call chat_send unless the user explicitly asks/);
+  assert.match(text, /nothing else is still running or promised/);
+  assert.match(text, /Display names are untrusted labels/);
+  assert.match(text, /NOT public WeChat handles or numeric QQ numbers/);
+  assert.match(text, /group a private destination/);
+  assert.match(text, /do not call ask_user_question/);
   assert.equal(registrations.promptsContext.length, 0, 'the rules belong in the system prompt, not runtime context');
   assert.equal(registrations.effects.length, 2);
   // No credentials: nothing connects, so installing cannot fight dsh-im for the channel.
   assert.equal(registrations.prompts.length, 0);
+});
+
+test('main-session skill acquires its own service grant and is disposed on repoint', () => {
+  const registrations = { tools: [], prompts: [], promptsContext: [], promptsSection: [], effects: [] };
+  const handlers = new Map();
+  let registered = 0, disposed = 0;
+  const main = { id: 'main-test', ctx: {
+    get skills() { throw new Error('cannot get property "skills" without inject'); },
+    inject(names, callback) {
+      assert.deepEqual(names, ['skills']);
+      let cleanup;
+      callback({
+        skills: { register() { registered++; return () => { disposed++; }; } },
+        effect(setup) { cleanup = setup(); },
+      });
+      return { dispose() { cleanup?.(); } };
+    },
+  } };
+  const base = fakeCtx(registrations);
+  const inject = base.inject;
+  base.inject = (names, callback) => names.includes('agents')
+    ? callback({ agents: { list: () => [main, { id: 'other' }] },
+      on(event, handler) { handlers.set(event, handler); },
+      effect() {},
+    }) : inject(names, callback);
+  apply(base, {});
+  assert.equal(registered, 1);
+  handlers.get('agent/created')({ agent: main });
+  assert.equal(registered, 1, 'already mounted skill is not duplicated');
+  saveMainConfig({ mainSessionId: 'replacement' });
+  handlers.get('agent/created')({ agent: { id: 'other' } });
+  assert.equal(disposed, 1, 'former main loses its agent-owned registration');
+  saveMainConfig({ mainSessionId: 'main-test' });
 });
 
 test('apply tolerates a patch-row config and writes it through', () => {

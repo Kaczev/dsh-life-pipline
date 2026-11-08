@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import { apply } from '../index.js';
+import {isMainSession,registerMainTool,registerMainSection} from '../src/main-session.mjs';
+
+test('main-session gate fails closed, tracks changes, and denies stale tool execution',async t=>{
+ const before=process.env.DSH_HOME,root=mkdtempSync(join(tmpdir(),'lpipe-scope-'));process.env.DSH_HOME=root;
+ t.after(()=>{if(before===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=before;rmSync(root,{recursive:true,force:true});});
+ const dir=join(root,'life-pipline');mkdirSync(dir);const set=id=>writeFileSync(join(dir,'config.json'),JSON.stringify({mainSessionId:id}));
+ assert.equal(isMainSession({id:'main'}),false);set('main');
+ assert.equal(isMainSession({id:'main'}),true);assert.equal(isMainSession({id:'child',parentSession:'main'}),false);assert.equal(isMainSession(),false);
+ let tool,options,section,calls=0;
+ const ctx={tools:{register:(t,o)=>{tool=t;options=o;}},systemPrompt:{section:s=>{section=s;}}};
+ registerMainTool(ctx,{name:'probe',execute:async()=>++calls});registerMainSection(ctx,{name:'probe',order:1,text:'main only'});
+ let guard,hook;
+ const host={logger:{warn(){}},on:(_name,fn)=>{hook=fn;},inject(names,fn){if(names.includes('tools'))fn({tools:{guard:fn=>{guard=fn;}}});}};
+ apply(host);
+ const exec=id=>({name:'ask_user_question',agent:{id,session:{id,events:[{type:'user/message',data:{source:{kind:'dsh-lpipe-chat'}}}]}}});
+ assert.equal(guard(exec('other')),undefined);assert.match(guard(exec('main')),/Denied/);
+ assert.equal(await hook(exec('other'),async()=> 'untouched'),'untouched');
+ assert.equal(options.when({agent:{id:'main'}}),true);assert.equal(options.when({agent:{id:'other'}}),false);
+ assert.equal(section.text({scope:{id:'main'}}),'main only');assert.equal(section.text({scope:{id:'other'}}),'');assert.equal(section.text({}),'');
+ await assert.rejects(async()=>tool.execute({}, {agent:{id:'other'}}),/main session/);assert.equal(calls,0);
+ assert.equal(await tool.execute({}, {agent:{id:'main'}}),1);
+ set('other');assert.equal(options.when({agent:{id:'main'}}),false);assert.equal(section.text({scope:{id:'main'}}),'');
+ await assert.rejects(async()=>tool.execute({}, {agent:{id:'main'}}),/main session/);
+ assert.equal(options.when({agent:{id:'other'}}),true);set('');assert.equal(isMainSession('other'),false);
+ writeFileSync(join(dir,'config.json'),'{broken');assert.equal(isMainSession('main'),false);
+});

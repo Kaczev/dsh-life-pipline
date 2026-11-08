@@ -191,13 +191,15 @@ export class InboundGateway {
   #render(batch) {
     const { ownerName } = this.#getConfig();
     return batch.map((row) => {
-      const who = row.senderName
+      const who = String(row.senderName
         || (row.senderId && ownerName && row.senderId === this.#ownerId(row.channel) ? ownerName : '')
-        || shortId(row.senderId);
+        || shortId(row.senderId)).replace(/[\r\n\[\]\u0000-\u001f\u007f]/g, ' ');
+      const owner = this.#ownerId(row.channel);
+      const ownerMatch = Boolean(owner && row.senderId && String(row.senderId) === owner);
       const head = row.conversationKind === 'group'
         ? `${row.channelLabel} · ${shortId(row.conversationId)} · ${who}`
         : `${row.channelLabel} · ${who}`;
-      return { head, text: messageBody(row), at: row.at, images: row.images ?? [] };
+      return { head, ownerMatch, text: messageBody(row), at: row.at, images: row.images ?? [] };
     }).reduce((lines, row) => {
       // WeChat shows a time only when the conversation paused; a burst reads as
       // one block. The stamp sits on its own line so the notice keeps its shape.
@@ -207,7 +209,7 @@ export class InboundGateway {
       // The pictures travel as image parts; the line still has to read like a
       // message when there are no words around them.
       const body = row.text || (count > 0 ? `（${count} 张图片）` : '');
-      lines.push(`[${row.head}] ${body}`);
+      lines.push(`${row.ownerMatch ? '(Owner)' : ''}[${row.head}] ${body}`);
       const parsed = Date.parse(row.at);
       if (Number.isFinite(parsed)) this.#lastAt = parsed;
       return lines;

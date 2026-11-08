@@ -1,3 +1,4 @@
+import { registerMainTool, registerMainSection } from 'dsh-life-pipline/main-session';
 import { appendDiagnostic } from 'dsh-life-pipline/diagnostics';
 import { join } from 'node:path';
 
@@ -103,7 +104,7 @@ export function apply(ctx) {
     });
     for (const tool of tools) {
       try {
-        toolsCtx.tools.register(tool);
+        registerMainTool(toolsCtx, tool);
       } catch (error) {
         log.warn(`[life-wake] could not register ${tool.name}: ${error?.message ?? error}`);
       }
@@ -112,7 +113,7 @@ export function apply(ctx) {
 
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
-      promptCtx.systemPrompt.section({
+      registerMainSection(promptCtx, {
         name: 'dsh-lpipe-wake',
         order: 705,
         interpolate: false,

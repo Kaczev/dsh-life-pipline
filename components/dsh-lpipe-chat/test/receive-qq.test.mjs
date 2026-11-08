@@ -88,7 +88,7 @@ test('a QQ private message reaches the main session with the sender label', asyn
     assert.equal(events[0].conversationKind, 'dm');
     assert.equal(events[0].messageId, 'msg-1');
     // The notice may open with a timestamp line; the message itself is last.
-    assert.equal(prompts[0].content[0].text.split(String.fromCharCode(10)).pop(), '[QQ · Kaczev] 在机房');
+    assert.equal(prompts[0].content[0].text.split(String.fromCharCode(10)).pop(), '(Owner)[QQ · Kaczev] 在机房');
 
     const sent = await channel.sendText('收到', {});
     assert.deepEqual(sent, { messageId: 'qq-out-1', scope: 'c2c', targetId: OWNER });

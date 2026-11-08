@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "title": "Lpipe Home",
+    "description": "A personal folder for the LP main session; inactive until a valid folder is selected."
+  },
+  "ownerName": "Owner name",
+  "location": "Home location",
+  "customPath": "Custom absolute path"
+}

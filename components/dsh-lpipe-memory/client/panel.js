@@ -12,6 +12,8 @@ const RPC_ENDPOINT = 'dsh-lpipe-memory';
 const PANEL_SLOT = 'lpipe.settings.panel';
 const POLL_MS = 20000;
 const TURNS = 30;
+const SCOPE_LABEL = '所有对话生效';
+const SCOPE_HINT = '同时控制记忆、星图、回忆；不影响聊天、唤醒、B 站。';
 
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
@@ -30,6 +32,121 @@ const card = {
   background: COLORS.bg,
   padding: 16,
 };
+
+const scopeCard = {
+  border: `1px solid ${COLORS.border}`,
+  borderRadius: 'var(--dsw-radius-lg)',
+  background: COLORS.bg,
+  padding: '9px 12px 8px',
+  marginBottom: 10,
+};
+
+const scopeTitle = {
+  fontSize: 10.5,
+  fontWeight: 650,
+  color: COLORS.muted,
+  lineHeight: 1.5,
+};
+
+const scopeHint = {
+  marginTop: 2,
+  fontSize: 10,
+  lineHeight: 1.55,
+  color: COLORS.faint,
+};
+
+function switchStyle(on, disabled) {
+  return {
+    position: 'relative',
+    width: 36,
+    height: 20,
+    padding: 0,
+    borderRadius: 999,
+    border: `1px solid ${on ? COLORS.accent : COLORS.borderStrong}`,
+    background: on ? COLORS.accent : COLORS.borderStrong,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.65 : 1,
+    flex: 'none',
+    transition: 'background .15s, border-color .15s, opacity .15s',
+  };
+}
+
+function knobStyle(on) {
+  return {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    background: '#ffffff',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, .28)',
+    transform: on ? 'translateX(18px)' : 'none',
+    transition: 'transform .15s',
+  };
+}
+
+const smallButton = {
+  appearance: 'none',
+  fontFamily: 'inherit',
+  fontSize: 10.5,
+  lineHeight: 1.45,
+  padding: '3px 8px',
+  borderRadius: 6,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  border: `1px solid ${COLORS.borderStrong}`,
+  background: 'transparent',
+  color: COLORS.text,
+};
+
+/** 作用域开关。读取完成前只显示「读取中」，不把默认值 false 当成真实配置。 */
+function ScopeBar({ scope, loading, saving, saved, error, onToggle, onRetry }) {
+  const readError = scope === null && Boolean(error);
+  const saveError = scope !== null && Boolean(error);
+  const status = saving ? '保存中…' : (saved ? '已保存' : '');
+  return h('div', { style: scopeCard, 'data-testid': 'memory-scope' },
+    h('div', {
+      style: {
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14,
+      },
+    },
+      h('div', { style: { minWidth: 0 } },
+        h('div', { style: scopeTitle }, SCOPE_LABEL),
+        h('div', { style: scopeHint }, SCOPE_HINT)),
+      h('div', { style: { flex: 'none', display: 'flex', alignItems: 'center', gap: 8, paddingTop: 1 } },
+        status
+          ? h('span', {
+            style: {
+              fontSize: 10, whiteSpace: 'nowrap',
+              color: saving ? COLORS.faint : COLORS.accent,
+            },
+          }, status)
+          : null,
+        loading
+          ? h('span', { style: { fontSize: 10, color: COLORS.faint, whiteSpace: 'nowrap' } }, '读取中…')
+          : readError
+            ? h('button', { type: 'button', style: smallButton, onClick: onRetry }, '重试')
+            : scope === null
+              ? null
+              : h('button', {
+                type: 'button',
+                role: 'switch',
+                'aria-checked': scope,
+                'aria-label': SCOPE_LABEL,
+                disabled: saving,
+                onClick: onToggle,
+                style: switchStyle(scope, saving),
+              }, h('span', { style: knobStyle(scope) })))),
+    readError || saveError
+      ? h('div', {
+        style: {
+          marginTop: 6, fontSize: 10.5, lineHeight: 1.55,
+          color: 'var(--dsw-alias-state-error-primary)',
+        },
+      }, readError ? `读取设置失败：${error}` : `保存失败：${error}`)
+      : null);
+}
 
 /** 15.0 MB / 812 KB：只保留两位有效位，别让小波动看起来像大变化。 */
 function formatBytes(bytes) {
@@ -80,6 +197,11 @@ function plotOf(turns) {
 function MemoryPanel({ rpcCall }) {
   const [stats, setStats] = React.useState(null);
   const [error, setError] = React.useState('');
+  const [scope, setScope] = React.useState(null);
+  const [scopeLoading, setScopeLoading] = React.useState(true);
+  const [scopeSaving, setScopeSaving] = React.useState(false);
+  const [scopeSaved, setScopeSaved] = React.useState(false);
+  const [scopeError, setScopeError] = React.useState('');
 
   const call = React.useCallback(async (method, payload) => {
     const result = await rpcCall(method, payload ?? {});
@@ -90,6 +212,53 @@ function MemoryPanel({ rpcCall }) {
     }
     return result.value;
   }, [rpcCall]);
+
+  const loadScope = React.useCallback(async () => {
+    setScopeLoading(true);
+    setScopeSaved(false);
+    setScopeError('');
+    try {
+      const value = await call('memory.config', {});
+      if (typeof value?.allSessions !== 'boolean') throw new Error('响应缺少 allSessions');
+      setScope(value.allSessions);
+    } catch (failure) {
+      setScope(null);
+      setScopeError(String(failure?.message ?? failure));
+    } finally {
+      setScopeLoading(false);
+    }
+  }, [call]);
+
+  const toggleScope = React.useCallback(async () => {
+    if (scope === null || scopeSaving) return;
+    const previous = scope;
+    const next = !previous;
+    setScope(next);
+    setScopeSaving(true);
+    setScopeSaved(false);
+    setScopeError('');
+    try {
+      const value = await call('memory.config.save', { allSessions: next });
+      if (typeof value?.allSessions !== 'boolean') throw new Error('响应缺少 allSessions');
+      setScope(value.allSessions);
+      setScopeSaved(true);
+    } catch (failure) {
+      setScope(previous);
+      setScopeError(String(failure?.message ?? failure));
+    } finally {
+      setScopeSaving(false);
+    }
+  }, [call, scope, scopeSaving]);
+
+  React.useEffect(() => {
+    void loadScope();
+  }, [loadScope]);
+
+  React.useEffect(() => {
+    if (!scopeSaved) return undefined;
+    const timer = setTimeout(() => setScopeSaved(false), 1800);
+    return () => clearTimeout(timer);
+  }, [scopeSaved]);
 
   const reload = React.useCallback(async () => {
     try {
@@ -138,6 +307,16 @@ function MemoryPanel({ rpcCall }) {
           h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.accent } }), '原文'),
         h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
           h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.disk } }), '落盘'))),
+
+    h(ScopeBar, {
+      scope,
+      loading: scopeLoading,
+      saving: scopeSaving,
+      saved: scopeSaved,
+      error: scopeError,
+      onToggle: toggleScope,
+      onRetry: loadScope,
+    }),
 
     error
       ? h('div', { style: { marginBottom: 12, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' } },
@@ -250,5 +429,5 @@ module.exports = {
   name,
   inject,
   apply,
-  __test__: { MemoryPanel, PANEL_SLOT, formatBytes, formatClock, plotOf, TURNS },
+  __test__: { MemoryPanel, ScopeBar, PANEL_SLOT, SCOPE_LABEL, formatBytes, formatClock, plotOf, TURNS },
 };

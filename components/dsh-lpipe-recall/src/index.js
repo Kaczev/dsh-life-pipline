@@ -1,3 +1,4 @@
+import { isMemorySession, registerMemoryTool, registerMemorySection } from 'dsh-lpipe-memory/scope'
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
 import { randomUUID } from 'node:crypto'
@@ -401,7 +402,7 @@ export function apply(ctx, options = {}) {
 
   ctx.inject(['systemPrompt'], (promptCtx) => {
     try {
-      promptCtx.systemPrompt.section({
+      registerMemorySection(promptCtx, {
         name: 'dsh-lpipe-recall',
         order: 710,
         interpolate: false,
@@ -693,7 +694,7 @@ export function apply(ctx, options = {}) {
     for (const tool of tools) {
       // 工具名撞车不该把整个包带下去。
       try {
-        toolsCtx.tools.register(tool)
+        registerMemoryTool(toolsCtx, tool)
       } catch (error) {
         warn(`[dsh-lpipe-recall] 注册 ${tool.name} 失败：${error?.message ?? error}`)
       }
@@ -703,9 +704,10 @@ export function apply(ctx, options = {}) {
   ctx.on(
     'agent/pre-step',
     async ({ agent, turn, step, signal }, next) => {
+      if (!isMemorySession(agent)) return next()
       noteRun({ event: 'pre-step', turn, step })
       const decision = await next()
-      if (decision?.kind === 'reject' || signal?.aborted) return decision
+      if (!isMemorySession(agent) || decision?.kind === 'reject' || signal?.aborted) return decision
       const session = agent?.session
       if (!session?.id) return decision
       // 先把「最近说过什么」推到眼前：一类触发源用它做窗口，二类触发源用它计数。

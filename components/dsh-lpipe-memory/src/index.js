@@ -1,4 +1,6 @@
 // 宿主半边：订阅 session/event，把白名单事件逐条追加进记忆。
+import { isMemorySession } from './scope.mjs'
+import { loadConfig, saveConfig } from './config.mjs'
 import { readSessionTitle } from 'dsh-life-pipline/session-title'
 
 import { captureMedia } from './media.mjs'
@@ -84,7 +86,11 @@ export function apply(ctx, options = {}) {
     try {
       registerMemoryRpc(
         connectionCtx,
-        createMemoryRpcHandler({ stats: (query) => stats.get(query) }),
+        createMemoryRpcHandler({ stats: (query) => stats.get(query), getConfig: loadConfig, saveConfig: patch => {
+          const config = saveConfig(patch)
+          for (const id of buffered.keys()) if (!isMemorySession(id)) buffered.delete(id)
+          return config
+        } }),
       )
     } catch (error) {
       warn(`[dsh-lpipe-memory] RPC 注册失败：${error?.message ?? error}`)
@@ -134,6 +140,8 @@ export function apply(ctx, options = {}) {
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessionsCtx.on('session/event', (session, event) => {
       const sessionId = session?.id ?? ''
+      for (const id of buffered.keys()) if (!isMemorySession(id)) buffered.delete(id)
+      if (!isMemorySession(sessionId)) return
       try {
         // 轮次结束本身不入档，但它是这一轮完成的信号。
         if (event?.type === TURN_END) {

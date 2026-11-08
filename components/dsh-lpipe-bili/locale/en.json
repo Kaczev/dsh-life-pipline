@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Lpipe Bili",
+    "description": "Read-only Bilibili browsing, search, uploads and comments; scan to log in and watch through storyboards."
+  },
+  "downloadRetentionDays": "Temporary file retention (days)"
+}

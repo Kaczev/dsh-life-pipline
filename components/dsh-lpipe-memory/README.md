@@ -61,6 +61,10 @@ node scripts/install-local.mjs
 
 本包自带 `cordis.patch.yml`，只插自己一行；「Lpipe 设置」那一页仍由 `dsh-life-pipline` 提供。
 
+## 设置
+
+「Lpipe 设置」里的记忆块有一个「所有对话生效」开关，默认关闭。它写进 `life-memory/config.json` 的 `allSessions`，由记忆、星图、回忆共享，不影响聊天、唤醒、B 站。读取失败会显示错误并保留重试；保存失败会退回上一个值，不会把开关留在未保存的新状态。
+
 ## 还没有的
 
 - 词表/倒排索引：属于星图（`dsh-lpipe-starmap`），本层只提供 `search` 的全扫兜底。

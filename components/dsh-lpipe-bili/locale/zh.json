@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "B 站管线（Lpipe Bili）",
+    "description": "只读浏览 B 站推荐、搜索、投稿和评论，扫码登录并用分镜观看视频。"
+  },
+  "downloadRetentionDays": "临时文件保留天数"
+}

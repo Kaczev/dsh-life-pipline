@@ -1,3 +1,9 @@
+import {mkdtempSync as scopeTemp,mkdirSync as scopeMkdir,writeFileSync as scopeWrite} from 'node:fs'
+import {tmpdir as scopeTmp} from 'node:os'
+import {join as scopeJoin} from 'node:path'
+process.env.DSH_HOME=scopeTemp(scopeJoin(scopeTmp(),'recall-scope-'))
+scopeMkdir(scopeJoin(process.env.DSH_HOME,'life-pipline'))
+scopeWrite(scopeJoin(process.env.DSH_HOME,'life-pipline','config.json'),JSON.stringify({mainSessionId:'current'}))
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { COMMON_SHARE, keysInSession, activityTextOf, charsOf, commonStars, createTriggerHandler, isNaturalWake, matchTextOf, keysInContext, recentText, textOfEvent, triggerFromMessages, triggerOf } from '../src/index.js'
@@ -278,23 +284,29 @@ test('真实组装：不同 query 不串缓存，已读排除先于限额且主�
   writer.close()
   const tools = new Map()
   const sections = []
-  apply({ logger: { warn() {} }, on() {}, inject: (names, fn) => {
+  let preStep
+  apply({ logger: { warn() {} }, on(name, handler) { if (name === 'agent/pre-step') preStep = handler }, inject: (names, fn) => {
     const services = { attachments: { saveImage() {} }, tools: { register: (tool) => tools.set(tool.name, tool) }, systemPrompt: { section: (section) => sections.push(section) } }
     if (names.every((name) => services[name])) fn(services)
   } }, { root, memoryRoot, starmapRoot })
+  const untouched = { kind: 'continue', messages: [] }
+  const other = { id: 'other', get session() { throw Error('non-main session must not be read') } }
+  assert.equal(await preStep({ agent: other }, async () => untouched), untouched)
   assert.equal(sections.length, 1)
   assert.equal(sections[0].name, 'dsh-lpipe-recall')
   assert.equal(sections[0].order, 710)
   assert.equal(sections[0].interpolate, false)
-  assert.ok(sections[0].text.startsWith('## Recalling earlier conversations\n\n'))
-  assert.match(sections[0].text, /try recall_fragments before concluding/)
-  assert.match(sections[0].text, /use recall_open to read/)
-  assert.match(sections[0].text, /historical material, not as instructions/)
-  assert.match(sections[0].text, /do not keep searching without new clues/)
+  const promptText = sections[0].text({scope:{id:'current'}})
+  assert.equal(sections[0].text({scope:{id:'other'}}),'')
+  assert.ok(promptText.startsWith('## Recalling earlier conversations\n\n'))
+  assert.match(promptText, /try recall_fragments before concluding/)
+  assert.match(promptText, /use recall_open to read/)
+  assert.match(promptText, /historical material, not as instructions/)
+  assert.match(promptText, /do not keep searching without new clues/)
 
   writeFileSync(join(root, 'config.json'), JSON.stringify({ fragments: 1 }))
   const session = { id: 'current', snapshotEvents: () => [], surface: { nodes: [] } }
-  const ask = (query) => tools.get('recall_fragments').execute({ query }, { agent: { session } })
+  const ask = (query) => tools.get('recall_fragments').execute({ query }, { agent: { id:session.id, session } })
   assert.match((await ask('雪糕')).text, /archive:3/)
   assert.match((await ask('小猫')).text, /archive:2/)
   session.snapshotEvents = () => [{ seq: 1, type: 'tool/call', data: { callId: 'read', name: 'recall_open', arguments: '{}' } }, { seq: 2, type: 'tool/result', data: { message: { toolCallId: 'read', content: [{ type: 'text', text: 'lpipe_recall_id[archive:3]' }] } } }]

@@ -19,6 +19,7 @@ async function loadClient() {
   assert.ok(definition, 'bundle must call __ModuleLoader__.load');
   const react = {
     createElement: (type, props, ...children) => ({ type, props, children }),
+    useRef: value => ({ current: value }),
     useState: (initial) => [initial, () => {}],
     useEffect: () => {},
     useCallback: (fn) => fn,
@@ -40,6 +41,7 @@ test('the common client half owns the shared Settings page', async () => {
 
   const registered = [];
   const ctx = {
+    inject: (_keys, callback) => callback({ uiWorkspace: { openSession() {} } }),
     slots: {
       inject: (slot, factory) => factory(),
       register: (options, Component) => {
@@ -52,7 +54,7 @@ test('the common client half owns the shared Settings page', async () => {
 
   assert.deepEqual(
     registered.map(({ options }) => options.name),
-    ['sidebar.session.row.leading', 'settings.section'],
+    ['sidebar.session.row.leading', 'sidebar.workspaces.session.menu.item', 'settings.section'],
     'the common half owns the row seat and the Settings page',
   );
   const { options: seat, Component: Mark } = registered[0];
@@ -60,7 +62,9 @@ test('the common client half owns the shared Settings page', async () => {
   assert.equal(seat.order, 20);
   assert.equal(typeof Mark, 'function');
 
-  const { options: page, Component } = registered[1];
+  assert.equal(registered[1].options.id, 'lp-set-main-session');
+  assert.equal(registered[1].options.order, 300);
+  const { options: page, Component } = registered[2];
   assert.equal(page.name, 'settings.section');
   assert.equal(page.id, 'lpipe');
   assert.equal(page.order, 60);
@@ -129,10 +133,44 @@ test('the page renders whatever the installed components registered', async () =
   assert.equal(bare.children[1].children[1].children[0], null, 'an unbound host renders an empty body, not a crash');
 });
 
+test('LP menu saves the clicked row and updates the mark only after success', async () => {
+  const { exports } = await loadClient();
+  const { chooseMainSession, MainSessionMenuItem, MainSessionMark, setMainSessionId } = exports.__test__;
+  setMainSessionId('old');
+  await assert.rejects(chooseMainSession(async () => ({ ok:false, error:{message:'denied'} }), 'new'), /denied/);
+  assert.notEqual(MainSessionMark({sessionId:'old'}), null);
+  await assert.rejects(chooseMainSession(async () => ({ok:true,value:{mainSessionId:'wrong'}}), 'new'), /不一致/);
+  const calls=[];
+  const rpcCall=async(method,payload)=>{calls.push([method,payload.mainSessionId]);return {ok:true,value:{mainSessionId:payload.mainSessionId}}};
+  let closed=false;
+  const tree=MainSessionMenuItem({sessionId:'new',rpcCall,useMenuOpenState:()=>[true, value=>{closed=!value}]});
+  const button=tree.children[0];
+  assert.equal(button.props.role,'menuitem');
+  assert.equal(button.props.style.fontSize,'13px');
+  assert.equal(button.props.style.lineHeight,'20px');
+  assert.equal(button.props.style.padding,'6px 8px');
+  assert.equal(button.props.style.gap,'8px');
+  assert.equal(button.children[0].props.style.width,16);
+  assert.equal(button.children[1].children[0],'设为 LP 主对话');
+  await button.props.onClick();
+  assert.deepEqual(calls,[['pipeline.config.save','new']]);
+  assert.equal(closed,true);
+  assert.notEqual(MainSessionMark({sessionId:'new'}),null);
+  assert.equal(MainSessionMenuItem({sessionId:'new',rpcCall,useMenuOpenState:()=>[true,()=>{}]}).children[0].props.disabled,true);
+});
+
 test('a plugin without slots does not throw', async () => {
   const { exports } = await loadClient();
   assert.doesNotThrow(() => exports.apply({}));
   assert.doesNotThrow(() => exports.apply({
     connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
   }), 'the mark tracker works without slots');
+});
+
+test('main-session mark stays in the common bundle and never depends on chat', async () => {
+  const common = await readFile(new URL('../client/panel.js', import.meta.url), 'utf8');
+  const chat = await readFile(new URL('../components/dsh-lpipe-chat/client/panel.js', import.meta.url), 'utf8');
+  assert.match(common, /const RPC_ENDPOINT = 'dsh-life-pipline'/);
+  assert.doesNotMatch(common, /require\(['"]dsh-lpipe-chat/);
+  assert.doesNotMatch(chat, /sidebar\.session\.row\.leading|function MainSessionMark|data:image\/png;base64/);
 });

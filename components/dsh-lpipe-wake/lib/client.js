@@ -425,7 +425,7 @@ function WakePanel({ rpcCall }) {
             h('option', { value: 'minutes' }, '分钟'),
             h('option', { value: 'hours' }, '小时')),
           h('button', {
-            style: { ...button(), padding: '4px 14px' },
+            style: { ...button(!busy && draftMs !== null && draftMs !== intervalMs ? '#5ec9b4' : null), padding: '4px 14px', opacity: !busy && draftMs !== null && draftMs !== intervalMs ? 1 : 0.42 },
             disabled: busy || draftMs === null || draftMs === intervalMs,
             onClick: saveDraft,
           }, '保存'),
@@ -462,7 +462,7 @@ function WakePanel({ rpcCall }) {
             h('option', { value: 'seconds' }, '秒'),
             h('option', { value: 'minutes' }, '分钟')),
           h('button', {
-            style: { ...button(), padding: '4px 14px' },
+            style: { ...button(!busy && beatMs !== null && beatMs !== heartbeatMs ? '#5ec9b4' : null), padding: '4px 14px', opacity: !busy && beatMs !== null && beatMs !== heartbeatMs ? 1 : 0.42 },
             disabled: busy || beatMs === null || beatMs === heartbeatMs,
             onClick: saveBeat,
           }, '保存'),

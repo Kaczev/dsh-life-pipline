@@ -105,3 +105,14 @@ test('安静的时候点下去立刻变「暂时停止」，不等宿主回话',
   const idle = exported.__test__.runState('', { running: false, updatedAt: now }, now)
   assert.equal(idle.buttonLabel, '现在抽星')
 })
+
+test('星数整体可悬浮，显示宿主总数与四类明细，包括空库', () => {
+  const { exported } = loadBundle()
+  const value = { stars: 13480, text: 13280, exact: 10000, fuzzy: 2454, common: 826, time: 200 }
+  const count = exported.__test__.StarCount({ value })
+  assert.equal(textOf(count), '13480颗星')
+  assert.equal(count.props.title, '10000 颗准确星，2454 颗模糊星，826 颗通用星，200 颗时间星')
+  const empty = exported.__test__.StarCount({ value: null })
+  assert.equal(textOf(empty), '0颗星')
+  assert.equal(empty.props.title, '0 颗准确星，0 颗模糊星，0 颗通用星，0 颗时间星')
+})

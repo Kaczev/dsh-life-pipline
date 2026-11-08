@@ -3,6 +3,7 @@
 // 查询时现聚合。同句 1、相邻句 0.5、对不上句子的整轮 0.5。
 import { normalizeName } from './extract.mjs'
 import { fuzzyScore, fuzzyStarsIn, starMeta } from './fuzzy.mjs'
+import { commonStars } from './brightness.mjs'
 
 const round = (value) => Math.round(value * 1000) / 1000
 
@@ -189,12 +190,25 @@ export function createQueries({ repo, memoryStatus, progressState, usageStats, p
         updatedAt: progressState.updatedAt ?? null,
       }
       : { error: '', errorAt: null, running: false, stopping: false, done: 0, total: 0, failed: 0, lanes: { active: 0, total: 0 }, updatedAt: null }
-    let fuzzy = 0
-    for (const star of repo.stars.values()) if (star.kind === 'fuzzy') fuzzy += 1
+    const commonIds = commonStars(repo)
+    let exact = 0, fuzzy = 0, common = 0, time = 0
+    for (const star of repo.stars.values()) {
+      if (star.kind === 'fuzzy') fuzzy += 1
+      else if (star.kind === 'common' || commonIds.has(star.id)) common += 1
+      else exact += 1
+    }
+    // 与 matchTimeStars 一致：每个有有效片段时间的星源记录各有一颗时星。
+    // 同一时刻的不同片段不合并；文星中的时钟模糊星仍只算模糊星。
+    for (const record of repo.turns.values()) {
+      if (record.at != null && Number.isFinite(Number(record.at))) time += 1
+    }
     return {
-      stars: repo.stars.size,
-      exact: repo.stars.size - fuzzy,
+      stars: repo.stars.size + time,
+      text: repo.stars.size,
+      exact,
       fuzzy,
+      common,
+      time,
       built,
       turns: status.turns,
       grey: Math.max(0, status.turns - built - (status.skipped ?? 0)),

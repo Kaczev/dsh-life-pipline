@@ -1,0 +1,52 @@
+{
+  "name": "dsh-lpipe-home",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Personal folder configuration and main-session prompt for Lpipe.",
+  "license": "AGPL-3.0-or-later",
+  "icon": "assets/icon.png",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./assets/icon.png",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "dsh-life-pipline": "^0.7.4"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build-client": "node scripts/build-client.mjs"
+  },
+  "files": [
+    "src",
+    "lib",
+    "client",
+    "assets",
+    "locale",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaczev/dsh-life-pipline.git",
+    "directory": "components/dsh-lpipe-home"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  }
+}

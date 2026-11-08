@@ -3,6 +3,8 @@ import { readSessionTitle } from './session-title.mjs';
 export const PIPELINE_RPC_ENDPOINT = 'dsh-life-pipline';
 
 const METHODS = new Set([
+  'pipeline.workspaces',
+  'pipeline.session.create',
   'pipeline.status',
   'pipeline.config.save',
   'pipeline.session.title',
@@ -17,12 +19,19 @@ function isRecord(value) {
 }
 
 /** One pure dispatcher: the settings page and `node --test` share it. */
-export function createPipelineRpcHandler({ getConfig, update, sessions }) {
+export function createPipelineRpcHandler({ getConfig, update, sessions, workspaces, createSession, renameSession }) {
+  const attempts = new Map();
   const status = () => {
-    const config = getConfig();
+    let config = getConfig();
+    const selected = String(config.lastWorkspaceId ?? '');
+    if (selected && workspaces && !workspaces.get(selected)) {
+      update(current => ({ ...current, lastWorkspaceId: '' }));
+      config = getConfig();
+    }
     const mainSessionId = String(config.mainSessionId ?? '');
     return {
       mainSessionId,
+      lastWorkspaceId: String(config.lastWorkspaceId ?? ''),
       session: readSessionTitle(sessions, mainSessionId),
       configPath: '',
     };
@@ -32,6 +41,39 @@ export function createPipelineRpcHandler({ getConfig, update, sessions }) {
     if (!METHODS.has(method)) return failure('pipeline/unknown-method', `Unknown method: ${method}`);
     const input = isRecord(payload) ? payload : {};
 
+    if (method === 'pipeline.workspaces') {
+      return { ok: true, value: (workspaces?.list() ?? []).map(w => ({ id: w.id, title: w.title, path: w.path })) };
+    }
+    if (method === 'pipeline.session.create') {
+      if (!workspaces || !createSession) return failure('pipeline/unavailable', '工作区创建服务不可用。');
+      if (typeof input.requestId !== 'string' || !/^[\w-]{8,100}$/.test(input.requestId) || typeof input.workspaceId !== 'string') return failure('pipeline/bad-request', '请选择工作区并提供创建请求标识。');
+      let entry = attempts.get(input.requestId);
+      if (entry && entry.workspaceId !== input.workspaceId) return failure('pipeline/bad-request', '重试不能更换工作区。');
+      if (!entry) {
+        const workspace = workspaces.get(input.workspaceId);
+        if (!workspace) return failure('pipeline/bad-request', '所选工作区已不存在，请刷新。');
+        if (await workspace.status() !== 'ok') return failure('pipeline/bad-request', '工作区目录不可用。');
+        // Recheck after await: concurrent identical requests must share one creation.
+        entry = attempts.get(input.requestId);
+        if (!entry) {
+          if (attempts.size >= 100) return failure('pipeline/limit', '本次运行的创建记录已达上限，请重启后重试。');
+          entry = { workspaceId: input.workspaceId, promise: createSession({ workspaceId: input.workspaceId }) };
+          attempts.set(input.requestId, entry);
+        }
+      }
+      let created;
+      try { created = await entry.promise; }
+      catch { return failure('pipeline/create-failed', '创建结果未确认；请检查会话列表，不要重复创建。'); }
+      const sessionId = created.sessionId;
+      if (!entry.named && renameSession) {
+        try { await renameSession({ sessionId, title: 'LP 主会话' }); entry.named = true; }
+        catch { return { ok: true, value: { sessionId, bound: false, error: '空会话已创建，但设置标题失败。请重试，不会重复创建。' } }; }
+      }
+      if (entry.bound) return { ok: true, value: { sessionId, bound: true, error: '' } };
+      try { update(current => ({ ...current, mainSessionId: sessionId, lastWorkspaceId: entry.workspaceId })); entry.bound = true; }
+      catch { return { ok: true, value: { sessionId, bound: false, error: '空会话已创建，但保存主会话失败。请重试绑定。' } }; }
+      return { ok: true, value: { sessionId, bound: true, error: '' } };
+    }
     if (method === 'pipeline.status') return { ok: true, value: status() };
 
     if (method === 'pipeline.session.title') {

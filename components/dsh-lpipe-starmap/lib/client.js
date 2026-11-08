@@ -135,6 +135,13 @@ function ratioOf(built, turns) {
   return Math.min(1, Math.max(0, built / turns));
 }
 
+/** 数字与单位共用悬浮区；总数和四类明细都来自同一份宿主快照。 */
+function StarCount({ value }) {
+  const title = `${value?.exact ?? 0} 颗准确星，${value?.fuzzy ?? 0} 颗模糊星，${value?.common ?? 0} 颗通用星，${value?.time ?? 0} 颗时间星`;
+  return h('div', { title, style: { display: 'flex', alignItems: 'baseline' } },
+    h('span', { style: mid }, String(value?.stars ?? 0)),
+    h('span', { style: { ...small, position: 'relative', top: -2 } }, '颗星'));
+}
 const CHART_HEIGHT = 56;
 
 /**
@@ -551,20 +558,8 @@ function StarmapPanel({ rpcCall }) {
           h('span', { style: big }, String(built)),
           h('span', { style: unit, position: 'relative', top: -3 }, `轮已亮 / ${turns}`),
         ),
-        h(
-          'div',
-          { style: { display: 'flex', alignItems: 'baseline' } },
-          h('span', { style: mid }, String(value?.stars ?? 0)),
-          h(
-            'span',
-            {
-              style: { ...small, position: 'relative', top: -2 },
-              // 一行只放得下总数；准确星与模糊星各多少，悬停再看。
-              title: `${Math.max(0, (value?.stars ?? 0) - (value?.fuzzy ?? 0))} 颗准确星，${value?.fuzzy ?? 0} 颗模糊星`,
-            },
-            '颗星',
-          ),
-        ),
+        h(StarCount, { value }),
+
         grey > 0
           ? h(
               'div',
@@ -924,6 +919,7 @@ module.exports = {
   apply,
   __test__: {
     StarmapPanel,
+    StarCount,
     PANEL_SLOT,
     clock,
     ratioOf,

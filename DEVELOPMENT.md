@@ -62,6 +62,7 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | 插件列表卡片（公共包） | `dsh-life-pipline` | **Life Pipline** | [`assets/icon.png`](assets/icon.png) |
 | 插件列表卡片（组件） | `dsh-lpipe-chat` | **Lpipe Chat** | [`components/dsh-lpipe-chat/assets/icon.png`](components/dsh-lpipe-chat/assets/icon.png) |
 | 插件列表卡片（组件） | `dsh-lpipe-wake` | **Lpipe Wake** / 唤醒管线 | [`components/dsh-lpipe-wake/assets/icon.png`](components/dsh-lpipe-wake/assets/icon.png) |
+| 插件列表卡片（组件） | `dsh-lpipe-home` | **Lpipe Home** / 栖所管线 | [`components/dsh-lpipe-home/assets/icon.png`](components/dsh-lpipe-home/assets/icon.png) |
 | 设置侧栏条目与页面标题 | 由 `dsh-life-pipline` 渲染整页 | **Lpipe 设置** | — |
 
 标题和简介来自包导出的 `locale/en.json`、`locale/zh.json` 的 `meta.title` / `meta.description`，由宿主的 `readPluginMeta` 读取，缺失时才回退 `package.json` 的 `name` / `description`；图标来自 `package.json` 的 `icon` 字段，必须在包目录内、≤256 KiB。两条路径都要在 `exports` 里放行，否则宿主解析不到。
@@ -91,7 +92,9 @@ dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件
 | 记忆 | `dsh-lpipe-memory` | M1 已实现（写入 / 读取 / 校验 / 按天媒体包 / 冷日打包） |
 | 星图 | `dsh-lpipe-starmap` | 已实现（模型抽星 / 星表与星源 / 水位 / 准确星与模糊星 / 只读查询 / 设置块） |
 | 回忆 | dsh-lpipe-recall | M1 已实现（触发源匹配 → 点亮星星 → 挑片段 → 注入一条自己的消息；设置块只改五项） |
-| 联想、想象、B站 | — | 未开始 |
+| B 站 | `dsh-lpipe-bili` | M1 已实现（只读浏览 / 扫码登录 / 字幕与分镜；设置块与图标已就位） |
+| 栖所 | `dsh-lpipe-home` | M1 已实现（个人文件夹校验 + 主会话英文提示词；设置块三项、图标已就位） |
+| 联想、想象 | — | 未开始 |
 
 ### dsh-lpipe-chat
 

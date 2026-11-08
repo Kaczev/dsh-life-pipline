@@ -1,7 +1,7 @@
-// 记忆管线的 RPC：只读，给设置页看大小曲线用。
+// 记忆管线的统计与作用域设置 RPC。
 export const MEMORY_RPC_ENDPOINT = 'dsh-lpipe-memory'
 
-const METHODS = new Set(['memory.stats'])
+const METHODS = new Set(['memory.stats', 'memory.config', 'memory.config.save'])
 
 function failure(code, message) {
   return { ok: false, error: { code, message, details: {} } }
@@ -17,10 +17,17 @@ function clampTurns(value) {
   return Math.min(120, Math.max(1, Math.round(turns)))
 }
 
-export function createMemoryRpcHandler({ stats }) {
+export function createMemoryRpcHandler({ stats, getConfig, saveConfig }) {
   return async function handle(method, payload) {
     if (!METHODS.has(method)) return failure('memory/unknown-method', `Unknown method: ${method}`)
     try {
+      if (method === 'memory.config') return { ok: true, value: getConfig() }
+      if (method === 'memory.config.save') {
+        if (!isRecord(payload) || typeof payload.allSessions !== 'boolean' || Object.keys(payload).some(key => key !== 'allSessions')) {
+          return failure('memory/bad-request', 'allSessions 必须是布尔值，且不能包含其他配置字段。')
+        }
+        return { ok: true, value: saveConfig(payload) }
+      }
       if (method === 'memory.stats') {
         return { ok: true, value: stats({ turns: clampTurns(payload?.turns) }) }
       }
