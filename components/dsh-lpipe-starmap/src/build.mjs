@@ -20,6 +20,16 @@ export const RULES_VERSION = 12
 
 const SYMBOL_ONLY = /^[^\p{L}\p{N}]+$/u
 const CJK_MAX = 10
+// 完整名称过滤，不以子串拒绝「自我意识」「对方观点」等有主题意义的概念。
+const CONTEXT_REFERENTS = new Set([
+  '我', '你', '您', '他', '她', '它', '我们', '咱们', '你们', '您们', '他们', '她们', '它们',
+  '自己', '自身', '本人', '对方', '彼此', '这个', '那个', '这些', '那些', '这', '那',
+  '这里', '那里', '这儿', '那儿', '上面', '下面', '上述', '前者', '后者',
+  'i', 'me', 'you', 'he', 'him', 'she', 'her', 'it', 'we', 'us', 'they', 'them',
+  'myself', 'yourself', 'himself', 'herself', 'itself', 'ourselves', 'yourselves', 'themselves',
+  'this', 'that', 'these', 'those', 'here', 'there', 'eachother',
+])
+export const isContextReferent = name => CONTEXT_REFERENTS.has(foldText(name))
 
 /**
  * 模型偶尔会把整句、公式、量词短语原样搬出来。这些当「星」没有意义：
@@ -29,7 +39,7 @@ export const isSingleLatinStar = (name) => /^\p{Script=Latin}$/u.test(foldText(n
 
 export function starWorthy(name) {
   const text = String(name ?? '').trim()
-  if (!text || isTimeLocator(text)) return false
+  if (!text || isTimeLocator(text) || isContextReferent(text)) return false
   if (isSingleLatinStar(text)) return false
   if (SYMBOL_ONLY.test(text)) return false
   const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length

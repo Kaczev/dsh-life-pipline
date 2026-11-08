@@ -9,7 +9,7 @@ test('确定性旧星清理保留模糊星、机制概念、坐标和水位，�
   const root = mkdtempSync(join(tmpdir(), '过滤旧星 '))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(join(root, 'sources', 's'), { recursive: true })
-  const stars = [{ id:'old',name:'刚刚',kind:'exact' },{ id:'common',name:'上周',kind:'common' },{ id:'f',name:'20:44',kind:'fuzzy' },{ id:'valid',name:'时间模板',kind:'exact' }]
+  const stars = [{ id:'old',name:'她',kind:'exact' },{ id:'common',name:'对方',kind:'common' },{ id:'f',name:'20:44',kind:'fuzzy' },{ id:'valid',name:'时间模板',kind:'exact' }]
   const original = stars.map(JSON.stringify).join('\n')+'\n'
   writeFileSync(join(root,'stars.jsonl'),original)
   const file = join(root,'sources','s','day.jsonl')
@@ -24,4 +24,15 @@ test('确定性旧星清理保留模糊星、机制概念、坐标和水位，�
   assert.deepEqual(after,{...record,lines:[{...record.lines[0],stars:['f','valid']}],pairs:[['f','valid']]})
   assert.equal(readFileSync(join(root,'state.json'),'utf8'),'{"rules":12,"built":{"s":{"turn":2,"to":9}}}')
   assert.equal(pruneInvalidStars(root).changedFiles,0)
+})
+
+
+test('代词拒绝但主题词和完整名称保留', async () => {
+ const {starWorthy,RULES_VERSION}=await import('../src/build.mjs')
+ const {SYSTEM_PROMPT}=await import('../src/llm.mjs')
+ for(const name of ['我','你','您','他','她','它','我们','咱们','你们','他们','她们','它们','自己','自身','本人','对方','彼此','这个','那个','这些','那些','这里','那里','上面','下面','前者','后者','She','IT','myself','this','each other']) assert.equal(starWorthy(name),false,name)
+ for(const name of ['记忆','时间','项目','自我意识','对方观点','这个杀手不太冷','Ksa','主体性','指代消解']) assert.equal(starWorthy(name),true,name)
+ assert.equal(RULES_VERSION,12)
+ assert.ok(SYSTEM_PROMPT.includes('自己'))
+ assert.ok(SYSTEM_PROMPT.includes('Broad but meaningful topics'))
 })
