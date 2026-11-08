@@ -11,7 +11,14 @@ test('自然日/周日周界、组合时段、滚动时间与模板', () => {
  assert.equal(iso(parse('上周').ranges[0].end), '2026-11-07T16:00:00.000Z')
  assert.equal(iso(parse('上周三晚上').ranges[0].start), '2026-11-04T10:00:00.000Z')
  assert.equal(parse('过去两小时').ranges[0].start, now - 7200000)
- assert.equal(parse('刚才').ranges[0].start, now - 600000)
+ for (const word of ['刚刚', '刚才']) {
+  const range = parse(word).ranges[0]
+  assert.equal(range.start, now - 12 * 3600000)
+  assert.equal(range.end, now)
+  assert.equal(range.response, 'broad')
+  const hits = matchTimeStars({text: word, records: [{session:'a',turn:1,at:now-30*60000}], ...options})
+  assert.equal([...hits.values()][0].score, 2)
+ }
  assert.equal(parse('前几天').ranges[0].end, now - 2 * 86400000)
  assert.equal(parse('昨天和前天').ranges.length, 2)
  assert.equal(parse('上周到昨天').ranges.length, 1)

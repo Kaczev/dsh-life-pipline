@@ -1,7 +1,7 @@
 const MINUTE = 60000
 const DAY = 86400000
 export const TIME_TEMPLATES = Object.freeze({
-  刚刚: [0, 10 * MINUTE], 刚才: [0, 10 * MINUTE],
+  刚刚: [0, DAY / 2], 刚才: [0, DAY / 2],
   不久前: [0, DAY], 前几天: [2 * DAY, 7 * DAY], 最近: [0, 7 * DAY], 近期: [0, 7 * DAY],
 })
 const numberOf = text => {
