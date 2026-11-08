@@ -16,7 +16,8 @@
 - [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖本包。
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
   - [src/brightness.mjs](components/dsh-lpipe-starmap/src/brightness.mjs)：基础亮度与通用分类的只读快照。
-  - [src/match.mjs](components/dsh-lpipe-starmap/src/match.mjs)：准确／模糊匹配，输出闪烁星、基础亮度及最后命中位置；[测试](components/dsh-lpipe-starmap/test/brightness.test.mjs)。
+  - [src/match.mjs](components/dsh-lpipe-starmap/src/match.mjs)：文星／时星统一匹配，输出类型、亮度及最后命中位置；[文星测试](components/dsh-lpipe-starmap/test/brightness.test.mjs)。
+  - [src/time.mjs](components/dsh-lpipe-starmap/src/time.mjs)：片段时间星视图、时间表达组合与范性／确性响应；[解析测试](components/dsh-lpipe-starmap/test/time.test.mjs)、[回忆接入测试](components/dsh-lpipe-recall/test/time.test.mjs)。
   - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
 - [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
   - [README.md](components/dsh-lpipe-recall/README.md)：配置、设置块与两个主动工具的参数和分页规则。

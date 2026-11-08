@@ -90,7 +90,7 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
   // 用整窗的点亮星会让别的句子莫名其妙地排前面：那些星是照亮了别的片段的，
   // 这段只是恰好字面上撞上，对「为什么想起这一段」没有任何解释力。
   const wanted = new Set(candidate.stars ?? [])
-  const local = new Map([...flicker].filter(([id]) => wanted.size === 0 || wanted.has(id)))
+  const local = new Map([...flicker].filter(([id, hit]) => hit.type !== 'time' && (wanted.size === 0 || wanted.has(id))))
   // 句子 id = 句在这一片段里的序号（1 起）。它只是片段内的坐标，跨片段没有意义——
   // 模型要深挖时报的是「仓库 + 片段 + 句子」三个 id，缺一个都定位不到。
   const all = []
@@ -99,7 +99,7 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
     if (!text) continue
     for (const sentence of pieces(text)) {
       const { score, exact, ids } = sentenceScore(sentence, local)
-      all.push({ id: all.length + 1, score, exact, ids, at: row.at ?? candidate.at, text: sentence })
+      all.push({ id: all.length + 1, score: score + (candidate.timeStrength ?? 0), exact, ids, at: row.at ?? candidate.at, text: sentence })
     }
   }
   const top = all.filter((entry) => entry.score > 0)

@@ -85,7 +85,7 @@ export function selectFragments({ candidates, query, corpus, now, recentDays = 3
   const maximum = pool.reduce((value, candidate) => Math.max(value, candidate.lexicalScore), 0)
   for (const candidate of pool) {
     candidate.lexicalFactor = 1 + (maximum > 0 ? candidate.lexicalScore / maximum : 0)
-    candidate.unmaskedStrength = candidate.strength * candidate.timeFactor * candidate.lexicalFactor
+    candidate.unmaskedStrength = ((candidate.strength - (candidate.timeStrength ?? 0)) * candidate.timeFactor + 2 * (candidate.timeStrength ?? 0)) * candidate.lexicalFactor
     candidate.maskSum = 0
   }
   const selected = []

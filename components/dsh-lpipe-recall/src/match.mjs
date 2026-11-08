@@ -7,8 +7,8 @@ export { exactMatch } from 'dsh-lpipe-starmap/match'
 
 /** 真文星优先占有来源；剩余背景星共享与真文等量的全局亮度预算。 */
 export function balanceFlicker(ahead, behind) {
-  const foregroundSum = [...ahead.values()].reduce((sum, hit) => sum + hit.score, 0)
-  const background = [...behind].filter(([id]) => !ahead.has(id))
+  const foregroundSum = [...ahead.values()].filter(hit => hit.type !== 'time').reduce((sum, hit) => sum + hit.score, 0)
+  const background = [...behind].filter(([id, hit]) => !ahead.has(id) && hit.type !== 'time')
   const backgroundSum = background.reduce((sum, [, hit]) => sum + hit.score, 0)
   const factor = backgroundSum > 0 ? foregroundSum / backgroundSum : 0
   const flicker = new Map(ahead)
@@ -53,7 +53,7 @@ export function weightFlicker(hits, { weight, length, offset = 0 }) {
 
 /** A 与 B0 先做差集得到 B，再施加环境权重，最后分配背景预算。 */
 export function environmentFlicker(ahead, backgroundCandidates, { foregroundLength, backgroundLength }) {
-  const background = new Map([...backgroundCandidates].filter(([id]) => !ahead.has(id)))
+  const background = new Map([...backgroundCandidates].filter(([id, hit]) => !ahead.has(id) && hit.type !== 'time'))
   const weightedAhead = weightFlicker(ahead, { weight: foregroundWeight, length: foregroundLength })
   const weightedBackground = weightFlicker(background, { weight: backgroundWeight, length: backgroundLength })
   return { ...balanceFlicker(weightedAhead, weightedBackground), background }

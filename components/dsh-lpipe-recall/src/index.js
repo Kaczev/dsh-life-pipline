@@ -187,7 +187,7 @@ export function keysInContext(messages) {
  * （日志实测 `messages: 2`），所以只扫 messages 永远是 0。真正的「模型看得见什么」
  * 在 `session.snapshotEvents()` 与 `session.surface.nodes`（rewind/压缩过的会被排除）。
  */
-export function keysInSession(session) {
+export function keysInSession(session, coolChars = Infinity) {
   const found = new Set()
   let events = []
   let visible = null
@@ -201,8 +201,17 @@ export function keysInSession(session) {
   if (!Array.isArray(events)) return found
   const calls = new Map(events.filter((event) => event?.type === 'tool/call').map((event) => [event.data?.callId, event.data]))
   const pattern = /lpipe_recall_id\[([^\]:]+):(\d+)\]/g
-  for (const event of events) {
+  let windowChars = 0
+  const windowEvents = []
+  for (let i = events.length - 1; i >= 0 && windowChars < coolChars; i--) {
+    const event = events[i]
     if (visible && !visible.has(event.seq)) continue
+    windowEvents.push(event)
+    const data = event.data ?? {}
+    const content = data.message?.content ?? data.content
+    windowChars += typeof content === 'string' ? content.length : Array.isArray(content) ? content.reduce((sum, part) => sum + (part?.text?.length ?? (typeof part === 'string' ? part.length : 0)), 0) : (data.text?.length ?? 0)
+  }
+  for (const event of windowEvents.reverse()) {
     let content
     if (event?.type === 'user/message' && event?.data?.source?.kind === 'dsh-lpipe-recall') {
       content = event.data.content
@@ -215,7 +224,7 @@ export function keysInSession(session) {
     } else continue
     const texts = Array.isArray(content)
       ? content.map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : '')).filter(Boolean)
-      : typeof event?.data?.text === 'string'
+      : typeof content === 'string' ? [content] : typeof event?.data?.text === 'string'
         ? [event.data.text]
         : []
     for (const text of texts) {
@@ -522,11 +531,11 @@ export function apply(ctx, options = {}) {
   }
 
   const compose = (sessionId, raw, report = () => {}, present = new Set(), session = null) => {
+    const settings = config()
     if (session) {
       syncBuffer(session)
-      for (const key of keysInSession(session)) present.add(key)
+      for (const key of keysInSession(session, settings.coolChars)) present.add(key)
     }
-    const settings = config()
     if (!settings.enabled) {
       report({ skip: 'disabled' })
       return ''
@@ -561,7 +570,7 @@ export function apply(ctx, options = {}) {
     }
 
     const store = repoNow()
-    if (!store || store.stars.size === 0) {
+    if (!store || store.turns.size === 0) {
       report({ skip: 'no-store', stars: store?.stars?.size ?? 0 })
       return ''
     }
@@ -569,10 +578,13 @@ export function apply(ctx, options = {}) {
     // 来源分数只值 0.2（用户定的口径）。
     const { common, brightness } = starProfile(store)
     const stars = [...store.stars.values()]
-    const backgroundCandidates = matchStars({ text: background, stars, common, brightness })
-    const ahead = matchStars({ text: foreground, stars, common, brightness })
+    const now = Date.now()
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const records = [...store.turns.values()]
+    const backgroundCandidates = matchStars({ text: background, stars, common, brightness, records, now, timeZone })
+    const ahead = matchStars({ text: foreground, stars, common, brightness, records, now, timeZone })
     // 真文星只有一个来源：这一轮的输入源。它既决定候选，也决定排序的第一顺位。
-    const currentExact = new Set([...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
+    const currentExact = new Set([...ahead.entries()].filter(([, hit]) => ((hit.kind ?? 'exact') === 'exact' || hit.type === 'time')).map(([id]) => id))
     const foregroundExact = new Set(currentExact)
     const { flicker, foregroundSum, backgroundSum, factor } = environmentFlicker(ahead, backgroundCandidates, {
       foregroundLength: foldText(foreground).length, backgroundLength: foldText(background).length,
@@ -584,7 +596,8 @@ export function apply(ctx, options = {}) {
     }
 
     const excluded = coolTurns({ rows, coolChars: settings.coolChars })
-    for (const key of present) excluded.add(key)
+    const timeKeys = new Set([...ahead.values()].filter(hit => hit.type === 'time').map(hit => hit.key))
+    for (const key of present) if (!timeKeys.has(key)) excluded.add(key)
     const candidates = candidatesOf({
       repo: store,
       flicker,
@@ -607,7 +620,7 @@ export function apply(ctx, options = {}) {
     }
 
     // 已经在他眼前的片段不再摆：记号就写在上一次的块头上。
-    const fresh = rankFragments({ candidates, query: foreground, repo: store, reader, flicker, config: settings })
+    const fresh = rankFragments({ candidates, query: foreground, repo: store, reader, flicker, config: settings, now })
     if (fresh.length === 0) {
       report({ skip: 'in-context', flicker: flicker.size, candidates: candidates.length })
       return ''
@@ -721,7 +734,7 @@ export function apply(ctx, options = {}) {
         const text = found.text
         // 「摆过没有」不再查账本：把这一次请求的 messages 扫一遍，块头上的记号就是凭据。
         deliveredKeys.set(session.id, new Set())
-        const present = keysInSession(session)
+        const present = keysInSession(session, config().coolChars)
         for (const key of keysInContext(decision.messages)) present.add(key)
         noteRun({
           session: session.id,

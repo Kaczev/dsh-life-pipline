@@ -1,3 +1,4 @@
+import { matchTimeStars } from './time.mjs'
 import { fuzzyScore, fuzzyStarsIn } from './fuzzy.mjs'
 import { foldText } from './llm.mjs'
 import { baseBrightness, FUZZY_FLOOR, NUMBER_FLOOR } from './brightness.mjs'
@@ -49,7 +50,7 @@ const foldedCache = new WeakMap()
  * @param {Set<string>} [input.common] 通用星的 id 集合，来源分数会被压到 0.2
  * @returns {Map<string, {id: string, name: string, kind: string, score: number, at: number}>}
  */
-export function matchStars({ text, stars, common = new Set(), rarity = new Map(), brightness = null }) {
+export function matchStars({ text, stars, common = new Set(), rarity = new Map(), brightness = null, records = [], now = Date.now(), timeZone }) {
   const source = String(text ?? '')
   const folded = foldText(source)
   const intrinsic = star => brightness?.get(star.id) ?? baseBrightness(star, { common, rarity })
@@ -62,6 +63,7 @@ export function matchStars({ text, stars, common = new Set(), rarity = new Map()
       id: star.id,
       name: star.name,
       kind: star.kind ?? 'exact',
+      type: 'text',
       // form/value 要带上：句子打分时还要拿它算模糊星的感觉。
       form: star.form ?? null,
       value: Number.isFinite(star.value) ? star.value : null,
@@ -103,5 +105,6 @@ export function matchStars({ text, stars, common = new Set(), rarity = new Map()
     }
   }
 
+  for (const [id, hit] of matchTimeStars({ text: source, records, now, timeZone })) out.set(id, hit)
   return out
 }

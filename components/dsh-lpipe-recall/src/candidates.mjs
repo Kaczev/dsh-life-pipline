@@ -42,18 +42,19 @@ export function candidatesOf({
   // 它们不许自己撑出一段回忆——这一步同时也取代了原来的「必须有一颗真文星」准入。
   for (const [id, hit] of flicker) {
     if (!foreground.has(id)) continue
-    if ((hit.kind ?? 'exact') !== 'exact' || common.has(id)) continue
-    for (const entry of repo.byStar.get(id) ?? []) {
+    if (hit.type !== 'time' && ((hit.kind ?? 'exact') !== 'exact' || common.has(id))) continue
+    for (const entry of hit.type === 'time' ? [{ key: hit.key, seq: null }] : repo.byStar.get(id) ?? []) {
       if (excluded.has(entry.key)) continue
       let bucket = buckets.get(entry.key)
       if (!bucket) {
-        bucket = { key: entry.key, stars: [], strength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, current: 0, currentWeight: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
+        bucket = { key: entry.key, stars: [], strength: 0, timeStrength: 0, exact: 0, exactScore: 0, foreground: 0, foregroundScore: 0, current: 0, currentWeight: 0, fuzzy: [], common: [], seen: new Set(), lines: new Map() }
         buckets.set(entry.key, bucket)
       }
       if (bucket.seen.has(id)) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
-      bucket.exact += 1
+      if (hit.type === 'time') bucket.timeStrength += hit.score
+      else bucket.exact += 1
       bucket.foreground += 1
       bucket.foregroundScore += hit.score
       // 当前这一句自己点亮的星：最像「你正在问的东西」。
@@ -67,7 +68,7 @@ export function candidatesOf({
   for (const [id, hit] of flicker) {
     // 真文里的准确星在第一遍已经算过了；其余（背景准确星、模糊星、通用星）到这里补分。
     const isExact = (hit.kind ?? 'exact') === 'exact'
-    if (isExact && foreground.has(id) && !common.has(id)) continue
+    if (foreground.has(id) && ((isExact && !common.has(id)) || hit.type === 'time')) continue
     for (const entry of repo.byStar.get(id) ?? []) {
       const bucket = buckets.get(entry.key)
       if (!bucket || bucket.seen.has(id)) continue
@@ -100,6 +101,7 @@ export function candidatesOf({
       current: bucket.current,
       currentWeight: bucket.currentWeight,
       strength: bucket.strength,
+      timeStrength: bucket.timeStrength,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
       session: record?.session ?? bucket.key.slice(0, bucket.key.lastIndexOf('#')),

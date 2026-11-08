@@ -14,6 +14,7 @@
     "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json",
     "./brightness": "./src/brightness.mjs",
+    "./time": "./src/time.mjs",
     "./match": "./src/match.mjs",
     "./build": "./src/build.mjs",
     "./fuzzy": "./src/fuzzy.mjs",
