@@ -28,7 +28,7 @@ test('面板只开放六项，默认值与范围跟实现一致', () => {
       { key: 'sentencesPerFragment', min: 1, max: 12, fallback: 2 },
       { key: 'inputChars', min: 2000, max: 32000, fallback: 32000 },
       { key: 'backgroundChars', min: 8000, max: 96000, fallback: 16000 },
-      { key: 'coolChars', min: 32000, max: 4000000, fallback: 1000000 },
+      { key: 'coolChars', min: 32000, max: 4000000, fallback: 2500000 },
       { key: 'recentDays', min: 1, max: 3650, fallback: 30 },
     ],
   )

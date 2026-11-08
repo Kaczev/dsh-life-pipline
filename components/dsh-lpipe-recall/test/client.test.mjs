@@ -107,7 +107,7 @@ test('表单只出现六个输入项，默认值用 K/M 简写', () => {
   const form = testApi.displayValues(testApi.DEFAULT_VALUES)
   assert.equal(form.inputChars, '32K')
   assert.equal(form.backgroundChars, '16K')
-  assert.equal(form.coolChars, '1M')
+  assert.equal(form.coolChars, '2.5M')
   const element = testApi.RecallForm({
     form,
     errors: {},
