@@ -124,6 +124,14 @@ test('表单只出现六个输入项，默认值用 K/M 简写', () => {
     assert.match(text, new RegExp(label))
   }
   assert.match(text, /2K–32K/)
+  for (const item of testApi.FIELDS) {
+    assert.ok(text.includes(`${item.label}（默认：${testApi.compactValue(item.fallback)}）`))
+  }
+  const changed = testApi.RecallForm({
+    form: { ...form, coolChars: '32K' }, errors: {}, saving: false, dirty: true,
+    onChange() {}, onSave() {}, onRevert() {},
+  })
+  assert.match(textOf(changed), /冷却窗口（默认：2\.5M）/)
   assert.match(text, /8K–96K/)
   assert.match(text, /32K–4M/)
   assert.match(text, /保存/)

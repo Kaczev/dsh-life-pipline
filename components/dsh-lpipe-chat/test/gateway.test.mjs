@@ -20,6 +20,19 @@ function setup(t, deliver, config = { mainSessionId: 'session-main', quietSecond
   return gateway;
 }
 
+test('notice byte budget keeps latest and long message has a continuation ID', async (t) => {
+  const notices = [];
+  const config = { mainSessionId: 'main', quietSeconds: 3, windowSeconds: 6, outputBytes: 1024 };
+  const gateway = setup(t, async (r) => notices.push(r), config);
+  gateway.accept({ ...message('旧'.repeat(400)), id: 'old' });
+  gateway.accept({ ...message('新'.repeat(900)), id: 'latest' });
+  await flush(t);
+  const text = notices[0].message.content[0].text;
+  assert.ok(Buffer.byteLength(text) <= 1024);
+  assert.match(text, /前面 1 条未展示/); assert.doesNotMatch(text, /旧/);
+  assert.match(text, /正文未完/); assert.match(text, /latest/);
+});
+
 test('a burst arrives as one notice once the quiet period passes, with real newlines', async (t) => {
   const notices = [];
   const gateway = setup(t, async (r) => notices.push(r));

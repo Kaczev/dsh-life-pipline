@@ -1,3 +1,4 @@
+import { parseBytes, DEFAULT_OUTPUT_BYTES, DEFAULT_DOWNLOAD_BYTES } from './content.mjs';
 import QRCode from './qrcode.mjs';
 
 import { clampQuiet, clampWindow } from './config.mjs';
@@ -51,6 +52,9 @@ function publicConfig(config, channels) {
     mainSessionId: String(config.mainSessionId ?? ''),
     quietSeconds: clampQuiet(config.quietSeconds),
     windowSeconds: clampWindow(config.windowSeconds),
+    outputBytes: config.outputBytes ?? DEFAULT_OUTPUT_BYTES,
+    downloadBytes: config.downloadBytes ?? DEFAULT_DOWNLOAD_BYTES,
+    downloadRetentionDays: config.downloadRetentionDays ?? 7,
     ownerOnly: config.ownerOnly !== false,
     ownerName: String(config.ownerName ?? ''),
     weixin: {
@@ -138,6 +142,17 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
           return failure('chat/bad-request', '合并间隔必须在 0.2 到 60 秒之间。');
         }
         patch.quietSeconds = Math.round(seconds * 10) / 10;
+      }
+      try {
+        for (const key of ['outputBytes', 'downloadBytes']) {
+          if (Object.hasOwn(input, key)) patch[key] = parseBytes(input[key]);
+        }
+        if (patch.outputBytes !== undefined && patch.outputBytes < 1024) throw new Error('通知／历史上限不能小于 1KB。');
+      } catch (error) { return failure('chat/bad-request', error.message); }
+      if (Object.hasOwn(input, 'downloadRetentionDays')) {
+        const days = Number(input.downloadRetentionDays);
+        if (!Number.isSafeInteger(days) || days < 1 || days > 36500) return failure('chat/bad-request', '下载保留天数必须是 1 到 36500 的整数。');
+        patch.downloadRetentionDays = days;
       }
       if (Object.keys(patch).length === 0) return failure('chat/bad-request', '没有可保存的字段。');
       update((current) => ({ ...current, ...patch }));

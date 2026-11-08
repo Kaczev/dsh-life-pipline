@@ -164,6 +164,10 @@ function ChatSettingsPanel({ rpcCall }) {
   const [busy, setBusy] = React.useState(false);
   const [quietDraft, setQuietDraft] = React.useState('1');
   const [windowDraft, setWindowDraft] = React.useState('5');
+  const [outputDraft, setOutputDraft] = React.useState('16KB');
+  const [downloadDraft, setDownloadDraft] = React.useState('512MB');
+  const [retentionDraft, setRetentionDraft] = React.useState('7');
+  const hydrated = React.useRef(false);
   const [login, setLogin] = React.useState({});
 
   const call = React.useCallback(async (method, payload) => {
@@ -177,10 +181,19 @@ function ChatSettingsPanel({ rpcCall }) {
     return result.value;
   }, [rpcCall]);
 
+  const resetDrafts = (config) => {
+    setQuietDraft(String(config.quietSeconds));
+    setWindowDraft(String(config.windowSeconds));
+    setOutputDraft(config.outputBytes === 16384 ? '16KB' : String(config.outputBytes ?? '16KB'));
+    setDownloadDraft(config.downloadBytes === 536870912 ? '512MB' : String(config.downloadBytes ?? '512MB'));
+    setRetentionDraft(String(config.downloadRetentionDays ?? 7));
+  };
   const adopt = React.useCallback((value) => {
     setStatus(value);
-    setQuietDraft((current) => (current === '1' ? String(value.config.quietSeconds) : current));
-    setWindowDraft((current) => (current === '5' ? String(value.config.windowSeconds) : current));
+    if (!hydrated.current) {
+      resetDrafts(value.config);
+      hydrated.current = true;
+    }
     setLogin((current) => ({
       weixin: value.channels?.weixin?.login ?? current.weixin,
       qq: value.channels?.qq?.login ?? current.qq,
@@ -263,7 +276,9 @@ function ChatSettingsPanel({ rpcCall }) {
   const save = async (patch) => {
     setBusy(true);
     try {
-      adopt(await call('chat.config.save', patch));
+      const value = await call('chat.config.save', patch);
+      adopt(value);
+      resetDrafts(value.config);
       setError('');
     } catch (cause) {
       setError(cause.message);
@@ -332,6 +347,7 @@ function ChatSettingsPanel({ rpcCall }) {
   }
 
   return h('div', { style: { maxWidth: 720 } },
+    h('style', null, '.lpipe-chat-limits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}@media(max-width:780px){.lpipe-chat-limits{grid-template-columns:repeat(2,minmax(0,1fr))}}'),
     h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
       h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
       h('span', {
@@ -343,47 +359,28 @@ function ChatSettingsPanel({ rpcCall }) {
       }, '社交管线')),
 
     h('div', { style: card },
-      h('div', {
-        style: {
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 12,
-          alignItems: 'end',
-        },
-      },
-        h('div', null,
-          h('label', { style: label }, '合并间隔（秒）'),
-          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-            h('input', {
-              style: { ...input, width: 88, flex: 'none' },
-              type: 'number',
-              min: 0.2,
-              max: 60,
-              step: 0.1,
-              value: quietDraft,
-              onChange: (event) => setQuietDraft(event.target.value),
-            }),
-            h('button', {
-              style: button(),
-              disabled: busy,
-              onClick: () => save({ quietSeconds: Number(quietDraft) }),
-            }, '保存'))),
-        h('div', null,
-          h('label', { style: label }, '收集窗口（秒）'),
-          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-            h('input', {
-              style: { ...input, width: 88, flex: 'none' },
-              type: 'number',
-              min: 3,
-              max: 120,
-              value: windowDraft,
-              onChange: (event) => setWindowDraft(event.target.value),
-            }),
-            h('button', {
-              style: button(),
-              disabled: busy,
-              onClick: () => save({ windowSeconds: Number(windowDraft) }),
-            }, '保存'))))),
+      h('div', { className: 'lpipe-chat-limits' },
+        ...[
+          ['合并间隔（秒）（默认：1）', quietDraft, setQuietDraft, 'number', 0.2, 60, 0.1],
+          ['收集窗口（秒）（默认：5）', windowDraft, setWindowDraft, 'number', 3, 120, 1],
+          ['通知／历史上限（默认：16KB）', outputDraft, setOutputDraft, 'text'],
+          ['文件下载上限（默认：512MB）', downloadDraft, setDownloadDraft, 'text'],
+        ].map(([title, value, setter, type, min, max, step]) => h('label', { key: title, style: label }, title,
+          h('input', { style: { ...input, width: '100%', boxSizing: 'border-box', marginTop: 8 },
+            type, min, max, step, value, disabled: busy,
+            onChange: (event) => setter(event.target.value),
+           })))),
+      h('label', { style: { ...label, display: 'block', maxWidth: 220, marginTop: 12 } }, '下载保留天数（天）（默认：7）',
+        h('input', { style: { ...input, marginTop: 8 }, type: 'number', min: 1, max: 36500, step: 1,
+          value: retentionDraft, disabled: busy, onChange: event => setRetentionDraft(event.target.value) })),
+      h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 } },
+        h('button', { style: button(), disabled: busy,
+          onClick: () => save({ quietSeconds: Number(quietDraft), windowSeconds: Number(windowDraft), outputBytes: outputDraft, downloadBytes: downloadDraft, downloadRetentionDays: Number(retentionDraft) }),
+        }, busy ? '保存中…' : '保存'),
+        h('button', { style: button(), disabled: busy,
+          onClick: () => { resetDrafts(status.config); setError(''); },
+        }, '取消')),
+      h('p', { style: { fontSize: 12, color: COLORS.muted, marginBottom: 0 } }, '大小支持 B、KB、MB、G，按 1024 进位。默认 downloads 中的文件按最后修改时间清理，启动时及每小时检查；不清理子目录或自定义下载目录。五项一起保存。')),
 
     h(ChannelCard, {
       name: 'weixin',

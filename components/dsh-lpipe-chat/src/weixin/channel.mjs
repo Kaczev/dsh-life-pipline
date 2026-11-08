@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { registerFile } from '../files.mjs';
 import {
   WEIXIN_QR_BASE_URL,
   createWeixinApi,
@@ -146,7 +147,8 @@ export class WeixinChannel {
     // A picture on its own is a message too; only a message with neither is
     // nothing we can act on.
     const images = await this.#imagesOf(message, signal);
-    if ((!text && images.length === 0) || !senderId) return;
+    const fileItems = (message.item_list ?? []).filter((item) => item.file_item);
+    if ((!text && images.length === 0 && fileItems.length === 0) || !senderId) return;
     const { ownerUserId } = this.#credentials();
     if (this.#config().ownerOnly) {
       // An unknown owner is not permission to accept everyone.
@@ -172,6 +174,7 @@ export class WeixinChannel {
       senderId,
       senderName: '',
       text,
+      files: fileItems.map((item) => registerFile('weixin', item.file_item)),
       images,
       at: new Date(Number(message.create_time_ms) || Date.now()).toISOString(),
       messageId: weixinMessageId(message),
@@ -185,6 +188,17 @@ export class WeixinChannel {
    */
   #imagesOf(message, signal) {
     return weixinInboundImages(message, { fetchImpl: this.#fetchImpl, log: this.#log, signal });
+  }
+
+  async sendMedia(file, kind) {
+    if (!['image', 'file'].includes(kind)) throw new Error('微信暂不支持原生表情发送；请选择明确的 image 或 file。');
+    const { botToken, ownerUserId, baseUrl } = this.#credentials();
+    if (!botToken || !ownerUserId) throw new Error('WeChat is not connected yet');
+    const result = await this.#api[kind === 'image' ? 'sendImage' : 'sendFile']({
+      baseUrl, token: botToken, toUserId: ownerUserId, file,
+      contextToken: this.#contextTokens.get(ownerUserId) || '',
+    });
+    return { messageIds: result?.providerMessageIds ?? [], toUserId: ownerUserId };
   }
 
   async sendText(text, { toUserId, contextToken } = {}) {

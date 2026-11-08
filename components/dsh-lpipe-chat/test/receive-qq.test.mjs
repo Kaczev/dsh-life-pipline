@@ -42,6 +42,19 @@ async function withHome(config, run) {
   }
 }
 
+test('QQ file-only messages survive filtering without downloading', async () => {
+  await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
+    const bot = fakeBot(); const events = [];
+    const channel = new QqChannel({ config: loadConfig, log: quiet, createBot: () => bot, onInbound: (event) => events.push(event) });
+    await channel.connect();
+    bot.emit('message', {}, { kind: 'c2c', senderId: OWNER, content: '', messageId: 'file-1', timestamp: Date.now(), attachments: [{ filename: '报告.pdf', content_type: 'application/pdf', size: 12, url: 'https://nt.qq.com.cn/not-fetched' }] });
+    await new Promise(setImmediate);
+    assert.equal(events.length, 1); assert.equal(events[0].files[0].name, '报告.pdf'); assert.ok(events[0].files[0].id);
+    assert.equal(events[0].images.length, 0);
+    await channel.stop();
+  });
+});
+
 test('a QQ private message reaches the main session with the sender label', async () => {
   await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
     const bot = fakeBot();

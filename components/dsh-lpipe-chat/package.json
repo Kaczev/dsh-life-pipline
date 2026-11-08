@@ -48,6 +48,7 @@
   },
   "files": [
     "src",
+    "skills",
     "lib",
     "client",
     "assets",

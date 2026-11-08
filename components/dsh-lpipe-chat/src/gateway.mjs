@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { stampFor } from 'dsh-life-pipline/clock';
 import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
+import { messageBody, outputLimit, utf8Head } from './content.mjs';
 
 /**
  * Two holders in front of one notice.
@@ -97,11 +98,24 @@ export class InboundGateway {
       // Public UserMessage contract: notice provenance, not human prompt input
       // and not a fabricated tool result. Freeze before publication.
       const channels = Object.freeze([...new Set(batch.map((row) => row.channel))]);
-      const { refs, note } = await this.#persistImages(batch);
-      // Rendered once: the stamp baseline moves as it is rendered.
-      const body = this.#render(batch);
+      const budget = outputLimit(this.#getConfig());
+      let shown = batch.slice();
+      const baseline = this.#lastAt;
+      let body;
+      do {
+        this.#lastAt = baseline;
+        body = this.#render(shown);
+        if (Buffer.byteLength(body) <= budget - 512 || shown.length <= 1) break;
+        shown.shift();
+      } while (shown.length);
+      const omitted = batch.length - shown.length;
+      const prefix = omitted ? `〔前面 ${omitted} 条未展示；用 chat_history 查看〕\n` : '';
+      const tail = `\n〔正文未完；用 chat_history(messageId="${shown[0]?.id || shown[0]?.messageId || ''}") 续读〕`;
+      if (Buffer.byteLength(body) > budget - 512) body = utf8Head(body, budget - 512 - Buffer.byteLength(tail)) + tail;
+      const { refs, note } = await this.#persistImages(shown);
+      body = prefix + body;
       const publish = (extra, images) => {
-        const text = [body, note, extra].filter(Boolean).join('\n');
+        const text = utf8Head([body, note, extra].filter(Boolean).join('\n'), budget);
         const content = [{ type: 'text', text }];
         for (const ref of images) content.push({ type: 'image', attachment: ref });
         return Object.freeze({
@@ -146,13 +160,17 @@ export class InboundGateway {
    */
   async #persistImages(batch) {
     const wanted = [];
+    let imageBytes = 0; let omitted = 0;
     for (const row of batch) {
       for (const image of row.images ?? []) {
-        if (wanted.length >= MAX_IMAGES_PER_MESSAGE) break;
+        const size = image.data?.byteLength ?? 0;
+        if (wanted.length >= MAX_IMAGES_PER_MESSAGE || imageBytes + size > 16 * 1024 * 1024) { omitted++; continue; }
+        imageBytes += size;
         wanted.push(image);
       }
     }
-    if (wanted.length === 0) return { refs: [], note: '' };
+    const omittedNote = omitted ? `（另有 ${omitted} 张图片超过本批 4 张／16MB 预算，未附加。）` : '';
+    if (wanted.length === 0) return { refs: [], note: omittedNote };
     if (typeof this.#saveImages !== 'function') {
       return { refs: [], note: `（有 ${wanted.length} 张图片，但这个宿主没有附件服务，看图看不到。）` };
     }
@@ -162,7 +180,7 @@ export class InboundGateway {
         mediaType: image.mediaType,
         name: image.name,
       })));
-      return { refs: Array.isArray(refs) ? refs : [], note: '' };
+      return { refs: Array.isArray(refs) ? refs : [], note: omittedNote };
     } catch (error) {
       const reason = String(error?.message ?? error).split('\n')[0];
       this.#log.warn?.(`[life-chat] inbound image refused: ${reason}`);
@@ -179,7 +197,7 @@ export class InboundGateway {
       const head = row.conversationKind === 'group'
         ? `${row.channelLabel} · ${shortId(row.conversationId)} · ${who}`
         : `${row.channelLabel} · ${who}`;
-      return { head, text: row.text, at: row.at, images: row.images ?? [] };
+      return { head, text: messageBody(row), at: row.at, images: row.images ?? [] };
     }).reduce((lines, row) => {
       // WeChat shows a time only when the conversation paused; a burst reads as
       // one block. The stamp sits on its own line so the notice keeps its shape.

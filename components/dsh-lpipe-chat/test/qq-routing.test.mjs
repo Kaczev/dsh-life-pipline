@@ -3,6 +3,19 @@ import test from 'node:test';
 import { ApiError } from '@tencent-connect/qqbot-nodejs';
 import { QqChannel } from '../src/qq/channel.mjs';
 
+test('QQ media shares passive quota, preserves GIF bytes and never retries rejection', async () => {
+  const f = fixture(); await f.channel.connect(); await f.receive();
+  const bytes = Buffer.from('GIF89a'); const seen = [];
+  f.bot.sendImage = async (target, source) => { seen.push({ target, source }); return { id: 'image' }; };
+  await f.channel.sendMedia({ bytes, fileName: 'animation.gif' }, 'image');
+  assert.equal(seen[0].target.msgId, 'in'); assert.equal(seen[0].source.buffer, bytes);
+  await Promise.all(Array.from({ length: 4 }, () => f.channel.sendText('hi')));
+  assert.equal(f.calls.filter(c => c.target.msgId).length, 3);
+  f.bot.sendFile = async () => { seen.push('file'); throw new ApiError('rejected', 400, { code: 40034001 }); };
+  await assert.rejects(f.channel.sendMedia({ bytes, fileName: 'file' }, 'file'));
+  assert.equal(seen.filter(x => x === 'file').length, 1); await f.channel.stop();
+});
+
 function fixture() {
   let now = Date.now();
   const config = { ownerOnly: true, qq: { appId: 'app', appSecret: 'secret', ownerOpenId: 'owner' } };

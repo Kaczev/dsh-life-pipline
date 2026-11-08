@@ -1,6 +1,9 @@
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { openForwardImageById, withForwardFiles } from './forward.mjs';
+import { sendMediaParts } from './media.mjs';
 import { join } from 'node:path';
 import QRCode from './qrcode.mjs';
+import { downloadFile } from './files.mjs';
+import { historyPage } from './history.mjs';
 import { homeDir, ensureHome } from './paths.mjs';
 import { dshImAccounts, ownershipWarning } from './env-info.mjs';
 
@@ -25,23 +28,29 @@ const textOutput = (description) => ({
  * Tools the agent uses to talk back into WeChat / QQ and to look at what came
  * through. Registration happens from the component, not from here.
  */
-export function createChatTools({ getConfig, update, channels, store }) {
+export function createChatTools({ getConfig, update, channels, store, getAttachments = () => null }) {
   return [
     {
       name: 'chat_send',
-      description: 'Send a text message to the owner over WeChat or QQ. Use this whenever you decide to answer an injected IM batch; silence is a valid choice too. After sending, do not repeat the same words in the Harness reply; different information is fine.',
+      description: 'Send text, images or files over WeChat or QQ; combinations report partial results without retrying delivered parts. Use when answering an injected IM batch; silence is valid. Do not repeat the sent words in the Harness reply.',
       parameters: {
         type: 'object',
         additionalProperties: false,
         properties: {
           channel: { type: 'string', enum: ['weixin', 'qq'], description: 'Which channel to send on.' },
           text: { type: 'string', description: 'Message body, plain text.' },
+          media: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
+            properties: {
+              kind: { type: 'string', enum: ['image', 'file', 'sticker'], description: 'image/file supported; sticker is rejected rather than silently downgraded. GIF image bytes are sent unchanged; platform animation is unverified.' },
+              path: { type: 'string', description: 'Local file path. Supply this or attachmentId.' },
+              attachmentId: { type: 'string', description: 'Received file attachment ID; explicitly downloads it before sending.' },
+            }, required: ['kind'] } },
           scope: { type: 'string', enum: ['c2c', 'group'], description: 'QQ only: private chat (default) or group.' },
           targetId: { type: 'string', description: 'QQ only: user or group openid. Defaults to the owner for private chat; required for group chat.' },
           msgId: { type: 'string', description: 'QQ only: select a known inbound message to reply to. Omit to use the latest eligible message for this target; expired or exhausted routes use proactive delivery.' },
           completed: { type: 'boolean', description: 'Set true when this message is the whole answer for this turn: the turn ends here and nothing more is said in the Harness UI. Leave it out when you still have work to do after sending.' },
         },
-        required: ['channel', 'text'],
+        required: ['channel'],
       },
       output: {
         schema: {
@@ -57,17 +66,25 @@ export function createChatTools({ getConfig, update, channels, store }) {
         },
         render: (_args, value) => [{ type: 'text', text: value.summary }],
       },
-      async execute(args, exec) {
+      execute: async function send(args, exec) {
+        if (args.media?.length) return sendMediaParts(args, {
+          getConfig, channels, store,
+          sendText: send,
+        }, exec);
         const text = String(args?.text ?? '');
-        if (!text.trim()) throw new Error('text is empty');
+        if (!text.trim()) throw new Error('text or media is required');
         const channel = args.channel === 'qq' ? 'qq' : 'weixin';
         const config = getConfig();
+        const archive = (row) => {
+          try { store.appendMessage(row); return ''; }
+          catch { return ' 本地归档失败；消息已发送，不要重发。'; }
+        };
         if (channel === 'weixin') {
           // The channel reuses the token it last heard on this conversation;
           // passing a stored one here would resurrect a token from an older
           // bot, which the provider accepts and then silently drops.
           const sent = await channels.weixin.sendText(text, {});
-          store.appendMessage({
+          const archiveWarning = archive({
             channel: 'weixin',
             direction: 'out',
             conversationKind: 'dm',
@@ -85,7 +102,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
             sent: true,
             channel,
             messageIds: sent.messageIds,
-            summary: `已通过微信发出 ${text.length} 字${warning ? `（${warning}）` : ''}。`,
+            summary: `已通过微信发出 ${text.length} 字${warning ? `（${warning}）` : ''}。${archiveWarning}`,
           };
         }
         const sent = await channels.qq.sendText(text, {
@@ -93,7 +110,7 @@ export function createChatTools({ getConfig, update, channels, store }) {
           targetId: args?.targetId,
           msgId: args?.msgId,
         });
-        store.appendMessage({
+        const archiveWarning = archive({
           channel: 'qq',
           direction: 'out',
           conversationKind: sent.scope === 'group' ? 'group' : 'dm',
@@ -108,9 +125,23 @@ export function createChatTools({ getConfig, update, channels, store }) {
           sent: true,
           channel,
           messageIds: sent.messageId ? [sent.messageId] : [],
-          summary: `已通过 QQ 发出 ${text.length} 字。`,
+          summary: `已通过 QQ 发出 ${text.length} 字。${archiveWarning}`,
         };
       },
+    },
+    {
+      name: 'chat_download',
+      description: 'Inspect an archived file attachment or explicitly download it. Does not open, unpack or execute files.',
+      parameters: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          id: { type: 'string', description: 'Attachment ID from a notice or chat_history.' },
+          action: { type: 'string', enum: ['inspect', 'download'], description: 'Default inspect; download saves bytes subject to the configured size limit.' },
+          directory: { type: 'string', description: 'Optional destination directory; defaults to the current user’s .dsh/life-chat/downloads.' },
+        }, required: ['id'],
+      },
+      output: textOutput('附件信息。'),
+      execute: (args) => downloadFile(args, getConfig()),
     },
     {
       name: 'chat_history',
@@ -121,29 +152,24 @@ export function createChatTools({ getConfig, update, channels, store }) {
         properties: {
           channel: { type: 'string', enum: ['weixin', 'qq'], description: 'Optional channel filter.' },
           keyword: { type: 'string', description: 'Optional case-insensitive substring filter.' },
-          limit: { type: 'number', description: 'How many rows to return, 1-200. Default 20.' },
+          messageId: { type: 'string', description: 'Open one archived message or forwarded record using its ID.' },
+          image: { type: 'string', description: 'View one forwarded image using its attachment ID shown in history. Use alone; downloads up to 8MB.' },
+          cursor: { type: 'string', description: 'Continue a bounded page; retains the original filters.' },
+          limit: { type: 'number', description: 'Maximum rows per page, 1-200. Default 20; byte budget may return fewer.' },
         },
       },
-      output: textOutput('查无记录。'),
-      async execute(args) {
-        const rows = store.queryMessages({
-          channel: args?.channel,
-          keyword: args?.keyword,
-          limit: args?.limit,
-        });
-        if (rows.length === 0) return { count: 0, summary: '查无记录。' };
-        const lines = rows.map((row) => {
-          const who = row.direction === 'out' ? '我' : (row.senderName || row.senderId.slice(-6));
-          const count = Array.isArray(row.images) ? row.images.length : 0;
-          // The bytes are gone from the archive by design; only the fact stays.
-          const body = count > 0 ? `${row.text || ''}${row.text ? ' ' : ''}（${count} 张图片）` : row.text;
-          return `${row.at} [${row.channel === 'qq' ? 'QQ' : '微信'}] ${who}: ${body}`;
-        });
-        return {
-          count: rows.length,
-          messages: rows.map(({ id, at, channel, direction, senderId, senderName, text, images }) => ({ id, at, channel, direction, senderId, senderName, text, images })),
-          summary: lines.join('\n'),
-        };
+      output: {
+        ...textOutput('查无记录。'),
+        render: (_args, value) => [{ type: 'text', text: value.summary }, ...(value.attachment ? [{ type: 'image', attachment: value.attachment }] : [])],
+      },
+      async execute(args, exec) {
+        const rows = store.readMessages();
+        if (args.image !== undefined && args.image !== '') {
+          if (args.messageId || args.cursor || args.channel || args.keyword || args.limit !== undefined) throw new Error('image attachment ID must be used alone');
+          return openForwardImageById(args.image, getAttachments(), { signal: exec?.signal });
+        }
+        const selected = args.messageId ? rows.map(row => row.id === args.messageId || row.messageId === args.messageId ? withForwardFiles(row) : row) : rows;
+        return historyPage(args, getConfig(), selected);
       },
     },
     {

@@ -48,7 +48,7 @@ const counter = () => {
 
 test('chat_send offers completed as an optional switch', () => {
   const schema = tools.chat_send.parameters;
-  assert.deepEqual(schema.required, ['channel', 'text']);
+  assert.deepEqual(schema.required, ['channel']);
   assert.equal(schema.properties.completed.type, 'boolean');
 });
 

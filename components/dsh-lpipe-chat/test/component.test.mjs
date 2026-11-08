@@ -13,6 +13,7 @@ function fakeCtx(registrations) {
   const services = {
     sessionController: { prompt: async (request) => registrations.prompts.push(request) },
     effect: (setup) => registrations.effects.push(setup),
+    skills: { register: () => () => {} },
     tools: { register: (tool) => registrations.tools.push(tool.name) },
     systemPrompt: {
       section: (entry) => registrations.promptsSection.push(entry),
@@ -32,7 +33,7 @@ test('component loads, registers four tools and the prompt guidance', () => {
   const registrations = { tools: [], prompts: [], promptsContext: [], promptsSection: [], effects: [] };
   apply(fakeCtx(registrations), {});
   assert.equal(name, 'dsh-lpipe-chat');
-  assert.deepEqual(registrations.tools.sort(), ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
+  assert.deepEqual(registrations.tools.sort(), ['chat_download', 'chat_history', 'chat_login', 'chat_send', 'chat_status']);
   assert.equal(registrations.promptsSection[0].name, 'dsh-lpipe-chat');
   const guidance = registrations.promptsSection[0];
   assert.equal(guidance.interpolate, false);

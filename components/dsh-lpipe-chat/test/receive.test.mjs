@@ -38,6 +38,24 @@ function fakeApi(messages) {
   };
 }
 
+test('WeChat file-only messages survive filtering without downloading', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-life-file-')); const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  let channel;
+  try {
+    saveConfig({ weixin: { botToken: 'tok', ownerUserId: OWNER } });
+    const events = [];
+    const api = fakeApi([{ message_type: 1, from_user_id: OWNER, context_token: 'ctx', item_list: [{ type: 4, file_item: { file_name: '报告.pdf', len: '12', media: { encrypt_query_param: 'not-fetched' } } }] }]);
+    channel = new WeixinChannel({ config: loadConfig, log: quiet, api, fetchImpl: () => { throw new Error('must not download'); }, onInbound: (event) => events.push(event) });
+    await channel.connect(); await waitFor(() => events.length > 0);
+    assert.equal(events[0].files[0].name, '报告.pdf'); assert.equal(events[0].files[0].size, 12);
+    assert.equal(events[0].images.length, 0);
+  } finally {
+    await channel?.stop(); if (previous === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previous;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test('a WeChat message reaches the main session as a labelled prompt', async () => {
   const home = await mkdtemp(join(tmpdir(), 'dsh-life-rx-'));
   const previous = process.env.DSH_HOME;

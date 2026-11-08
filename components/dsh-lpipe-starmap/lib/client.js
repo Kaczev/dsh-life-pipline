@@ -805,7 +805,7 @@ function StarmapPanel({ rpcCall }) {
         h(
           'div',
           { style: field },
-          h('div', { style: label }, '并发路数'),
+          h('div', { style: label }, '并发路数（默认：3 路）'),
           h(
             'select',
             {
@@ -822,7 +822,7 @@ function StarmapPanel({ rpcCall }) {
         h(
           'div',
           { style: field },
-          h('div', { style: label }, '输出上限'),
+          h('div', { style: label }, '输出上限（默认：32000）'),
           h('input', {
             style: input,
             type: 'number',

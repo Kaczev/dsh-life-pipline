@@ -50,6 +50,9 @@ export function defaultConfig() {
      * Range 3-120.
      */
     windowSeconds: 5,
+    outputBytes: 16 * 1024,
+    downloadBytes: 512 * 1024 ** 2,
+    downloadRetentionDays: 7,
     /** Only the owner is allowed through. Off = every sender reaches you. */
     ownerOnly: true,
     /** How the owner is labelled in injected batches. */

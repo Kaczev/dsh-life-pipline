@@ -1,5 +1,7 @@
+import { startDownloadCleanup } from './download-cleanup.mjs';
+import { registerChatSkill } from './skill.mjs';
 import { loadConfig, saveConfig, updateConfig } from './config.mjs';
-import { appendMessage, queryMessages, lastContextToken } from './store.mjs';
+import { appendMessage, queryMessages, readMessages, lastContextToken } from './store.mjs';
 import { InboundGateway } from './gateway.mjs';
 import { createNoticeDelivery } from './notice.mjs';
 import { createChatTools } from './tools.mjs';
@@ -13,6 +15,7 @@ export const name = 'dsh-lpipe-chat';
 const store = {
   appendMessage,
   queryMessages,
+  readMessages,
   lastContextToken,
 };
 
@@ -40,6 +43,7 @@ export function apply(ctx, config) {
   }
 
   const getConfig = () => loadConfig();
+  const stopDownloadCleanup = startDownloadCleanup(getConfig, log);
   const update = (mutator) => updateConfig(mutator);
 
   const channels = {
@@ -106,7 +110,8 @@ export function apply(ctx, config) {
 
   function acceptInbound(event) {
     try {
-      store.appendMessage({
+      const archived = store.appendMessage({
+        files: event.files ?? [],
         channel: event.channel,
         direction: 'in',
         conversationKind: event.conversationKind,
@@ -120,6 +125,7 @@ export function apply(ctx, config) {
         contextToken: event.contextToken,
         replyTarget: event.replyTarget,
       });
+      event = { ...event, id: archived.id };
     } catch (error) {
       log.warn(`[life-chat] failed to archive inbound message: ${error?.message ?? error}`);
     }
@@ -153,8 +159,10 @@ export function apply(ctx, config) {
     }
   });
 
+  ctx.inject(['skills'], (skillCtx) => registerChatSkill(skillCtx));
+
   ctx.inject(['tools'], (toolsCtx) => {
-    const tools = createChatTools({ getConfig, update, channels, store });
+    const tools = createChatTools({ getConfig, update, channels, store, getAttachments: () => attachments });
     for (const tool of tools) {
       // A name clash with another plugin must not take the whole bundle down.
       try {
@@ -199,6 +207,7 @@ export function apply(ctx, config) {
   }
 
   ctx.effect(() => () => {
+    stopDownloadCleanup();
     gateway.dispose();
     void channels.weixin.stop();
     void channels.qq.stop();

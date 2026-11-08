@@ -53,8 +53,8 @@ const grid = { display: 'grid', gap: 7 };
 const gridFive = { ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' };
 
 const field = { minWidth: 0 };
-const fieldHead = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, marginBottom: 4 };
-const fieldName = { fontSize: 10.5, fontWeight: 650, color: COLORS.muted, whiteSpace: 'nowrap' };
+const fieldHead = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 };
+const fieldName = { fontSize: 10.5, fontWeight: 650, color: COLORS.muted, overflowWrap: 'anywhere' };
 const fieldRange = { fontSize: 9, color: COLORS.faint, whiteSpace: 'nowrap' };
 
 const control = {
@@ -202,7 +202,7 @@ function fieldView(item, form, errors, disabled, onChange) {
     h(
       'div',
       { style: fieldHead },
-      h('label', { htmlFor: id, style: fieldName }, item.label),
+      h('label', { htmlFor: id, style: fieldName }, `${item.label}（默认：${compactValue(item.fallback)}）`),
       h('span', { style: fieldRange }, `${compactValue(item.min)}–${compactValue(item.max)}`),
     ),
     h(

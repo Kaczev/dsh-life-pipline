@@ -392,7 +392,7 @@ function WakePanel({ rpcCall }) {
 
     h('div', { style: row },
       h('div', { style: { ...card, marginBottom: 0 } },
-        h('label', { style: label }, '默认唤醒间隔'),
+        h('label', { style: label }, '默认唤醒间隔（默认：2 小时）'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
             type: 'number',
@@ -429,7 +429,7 @@ function WakePanel({ rpcCall }) {
             : null),
         note('我停下之后，过这么久再叫我。')),
       h('div', { style: { ...card, marginBottom: 0 } },
-        h('label', { style: label }, '心跳间隔'),
+        h('label', { style: label }, '心跳间隔（默认：30 秒）'),
         h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
           h('input', {
             type: 'number',

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { QQBot, ApiError } from '@tencent-connect/qqbot-nodejs';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
+import { registerFile } from '../files.mjs';
 import { toIso } from '../time.mjs';
 import { MAX_IMAGES_PER_MESSAGE, downloadImage } from '../images.mjs';
 
@@ -268,7 +269,8 @@ export class QqChannel {
     if (this.#bot !== bot || !bot) return;
     // A picture on its own is a message too; only a message with neither is
     // nothing we can act on.
-    if ((!text && images.length === 0) || !senderId || message.senderIsBot) return;
+    const fileItems = (message.attachments ?? []).filter((item) => !String(item.content_type ?? '').startsWith('image/'));
+    if ((!text && images.length === 0 && fileItems.length === 0) || !senderId || message.senderIsBot) return;
     const qq = this.#config().qq ?? {};
     const group = message.kind === 'group';
     // Only the owner gets through. Groups stay closed unless the owner speaks there.
@@ -308,6 +310,7 @@ export class QqChannel {
       senderId,
       senderName: String(message.senderName ?? ''),
       text,
+      files: fileItems.map((item) => registerFile('qq', item)),
       images,
       at: toIso(message.timestamp),
       messageId: String(message.messageId ?? ''),
@@ -365,7 +368,16 @@ export class QqChannel {
     return latest;
   }
 
-  async sendText(text, { scope = 'c2c', targetId, msgId } = {}) {
+  async sendText(text, options = {}) {
+    return this.#send('text', String(text), options);
+  }
+
+  async sendMedia(file, kind, options = {}) {
+    if (!['image', 'file'].includes(kind)) throw new Error('QQ 暂不支持原生表情发送；请选择明确的 image 或 file。');
+    return this.#send(kind, file, options);
+  }
+
+  async #send(kind, payload, { scope = 'c2c', targetId, msgId } = {}) {
     const bot = this.#bot;
     if (!bot) throw new Error('QQ is not connected yet');
     const qq = this.#config().qq ?? {};
@@ -376,12 +388,15 @@ export class QqChannel {
     // Reserve before awaiting: concurrent sends cannot overspend one msg_id.
     // Unknown outcomes also spend a slot; retrying them could duplicate a send.
     if (route) route.used += 1;
+    const send = (recipient) => kind === 'text' ? bot.sendText(recipient, payload)
+      : kind === 'image' ? bot.sendImage(recipient, { buffer: payload.bytes })
+        : bot.sendFile(recipient, { buffer: payload.bytes }, { fileName: payload.fileName });
     let sent;
     try {
       try {
-        sent = await bot.sendText(route ? { ...proactive, msgId: route.msgId } : proactive, String(text));
+        sent = await send(route ? { ...proactive, msgId: route.msgId } : proactive);
       } catch (error) {
-        if (!route || !(error instanceof ApiError)
+        if (kind !== 'text' || !route || !(error instanceof ApiError)
           || error.httpStatus < 400 || error.httpStatus >= 500) throw error;
         const { dead } = classifySendError(error);
         if (dead) throw error;
@@ -389,7 +404,7 @@ export class QqChannel {
         // msg_id again; attempt exactly one proactive send, like upstream #464.
         route.used = PASSIVE_LIMIT[scope];
         this.#log.warn?.('[life-chat] qq: passive reply refused; trying proactive once');
-        sent = await bot.sendText(proactive, String(text));
+        sent = await send(proactive);
       }
     } catch (error) {
       const { message, dead } = classifySendError(error);

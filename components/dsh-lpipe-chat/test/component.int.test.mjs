@@ -31,6 +31,7 @@ function fakeContext() {
       state.cleanups.push(factory());
       return () => {};
     },
+    skills: { register: (skill) => { state.skill = skill; return () => {}; } },
     tools: {
       register: (tool) => state.tools.push(tool),
     },
@@ -88,7 +89,7 @@ test('the component registers tools, the page route and the prompt guidance', as
     apply(ctx, { mainSessionId: 'session-x', ownerName: 'Kaczev' });
 
     assert.deepEqual(state.tools.map((tool) => tool.name).sort(),
-      ['chat_history', 'chat_login', 'chat_send', 'chat_status']);
+      ['chat_download', 'chat_history', 'chat_login', 'chat_send', 'chat_status']);
     assert.equal(state.routes.length, 1);
     assert.equal(state.routes[0].path, '/api/dsh-lpipe-chat');
     assert.equal(state.prompt[0].name, 'dsh-lpipe-chat');
