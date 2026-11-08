@@ -48,7 +48,7 @@
     "directory": "components/dsh-lpipe-starmap"
   },
   "dependencies": {
-    "dsh-life-pipline": "^0.7.0",
+    "dsh-life-pipline": "^0.7.1",
     "dsh-lpipe-memory": "^0.1.0"
   },
   "scripts": {

@@ -19,7 +19,8 @@
     "locale",
     "assets",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "cordis.patch.yml"
   ],
   "engines": {
     "node": "^22.19 || >=24",
@@ -33,7 +34,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "dsh-life-pipline": "^0.7.0",
+    "dsh-life-pipline": "^0.7.1",
     "dsh-lpipe-memory": "^0.1.0",
     "dsh-lpipe-starmap": "^0.1.0"
   },

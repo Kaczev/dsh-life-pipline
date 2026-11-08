@@ -16,7 +16,7 @@
     "./icon": "./assets/icon.png"
   },
   "dependencies": {
-    "dsh-life-pipline": "^0.7.0"
+    "dsh-life-pipline": "^0.7.1"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
