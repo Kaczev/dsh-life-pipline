@@ -198,16 +198,16 @@ export function matchTimeStars({ text, records, now = Date.now(), timeZone }) {
   for (const record of records ?? []) {
     const at = Number(record.at)
     if (record.at == null || !Number.isFinite(at) || parsed.excluded.some(r => at >= r.start && at < r.end)) continue
-    let score = 0, position = -1, kind = 'exact'
+    let score = 0, position = -1, kind = 'exact', recentFactor = 2
     for (const range of parsed.ranges) {
       const brightness = 2 * timeMatch(at, range, now)
       if (!(brightness > 0)) continue
-      if (brightness > score) { score = brightness; kind = range.response }
+      if (brightness > score) { score = brightness; kind = range.response; recentFactor = 1.75 + 0.5 * Math.max(0, Math.min(1, (at - range.start) / (range.end - range.start))) }
       position = Math.max(position, range.at)
     }
     if (!(score > 0)) continue
     const key = `${record.session}#${record.turn}`, id = `time:${key}`
-    out.set(id, { id, name: new Date(at).toISOString(), kind: 'time', response: kind, type: 'time', score, at: position, key })
+    out.set(id, { id, name: new Date(at).toISOString(), kind: 'time', response: kind, recentFactor, type: 'time', score, at: position, key })
   }
   return out
 }
