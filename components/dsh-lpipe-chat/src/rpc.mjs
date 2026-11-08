@@ -1,4 +1,4 @@
-import QRCode from 'qrcode';
+import QRCode from './qrcode.mjs';
 
 import { clampQuiet, clampWindow } from './config.mjs';
 import { readSessionTitle } from './session-title.mjs';

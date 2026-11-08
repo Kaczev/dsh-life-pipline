@@ -94,7 +94,7 @@ test('a QQ group message keeps the group identity and replies into the group', a
     await channel.connect();
     await bot.emit('message', {}, {
       kind: 'group', groupOpenid: GROUP, senderId: OWNER, senderName: 'Kaczev',
-      content: '群里说一句', messageId: 'msg-2', timestamp: 1_793_728_666_199,
+      content: '群里说一句', messageId: 'msg-2', timestamp: Date.now(),
     });
     assert.equal(events[0].conversationKind, 'group');
     assert.equal(events[0].conversationId, GROUP);

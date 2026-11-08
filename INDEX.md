@@ -45,6 +45,8 @@
 - [assets/session-mark.png](assets/session-mark.png)：会话栏里主会话标题左侧的小标记（64² 透明 PNG，内联进公共包的客户端）。主会话是公共状态，所以这枚标记归 `dsh-life-pipline` 管。
 - [components/dsh-lpipe-chat/locale/en.json](components/dsh-lpipe-chat/locale/en.json) / [zh.json](components/dsh-lpipe-chat/locale/zh.json)：组件显示名「Lpipe Chat」与简介。
 - [components/dsh-lpipe-chat/src/index.js](components/dsh-lpipe-chat/src/index.js)：组件装配、服务注入与清理。
+- [components/dsh-lpipe-chat/src/qrcode.mjs](components/dsh-lpipe-chat/src/qrcode.mjs)：热重载安全的二维码 CommonJS 加载器；[重复重载测试](components/dsh-lpipe-chat/test/qrcode-loading.test.mjs)。
+- [components/dsh-lpipe-chat/src/qq/channel.mjs](components/dsh-lpipe-chat/src/qq/channel.mjs)：QQ 连接与按目标隔离的被动回复窗口、额度及明确拒绝后的单次主动降级；[路由测试](components/dsh-lpipe-chat/test/qq-routing.test.mjs)。
 - [components/dsh-lpipe-chat/src/gateway.mjs](components/dsh-lpipe-chat/src/gateway.mjs)：入站窗口合并、通知消息构造与重试。
 - [components/dsh-lpipe-chat/src/notice.mjs](components/dsh-lpipe-chat/src/notice.mjs)：主会话恢复、忙时注入与空闲唤醒。
 - [components/dsh-lpipe-chat/client/panel.js](components/dsh-lpipe-chat/client/panel.js)：chat 自己那块设置（注册进 `lpipe.settings.panel`）；构建到 `lib/client.js`。

@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import QRCode from 'qrcode';
+import QRCode from './qrcode.mjs';
 import { homeDir, ensureHome } from './paths.mjs';
 import { dshImAccounts, ownershipWarning } from './env-info.mjs';
 
@@ -37,8 +37,8 @@ export function createChatTools({ getConfig, update, channels, store }) {
           channel: { type: 'string', enum: ['weixin', 'qq'], description: 'Which channel to send on.' },
           text: { type: 'string', description: 'Message body, plain text.' },
           scope: { type: 'string', enum: ['c2c', 'group'], description: 'QQ only: private chat (default) or group.' },
-          targetId: { type: 'string', description: 'QQ only: user or group openid. Defaults to the owner.' },
-          msgId: { type: 'string', description: 'QQ only: reply passively to this inbound message id.' },
+          targetId: { type: 'string', description: 'QQ only: user or group openid. Defaults to the owner for private chat; required for group chat.' },
+          msgId: { type: 'string', description: 'QQ only: select a known inbound message to reply to. Omit to use the latest eligible message for this target; expired or exhausted routes use proactive delivery.' },
           completed: { type: 'boolean', description: 'Set true when this message is the whole answer for this turn: the turn ends here and nothing more is said in the Harness UI. Leave it out when you still have work to do after sending.' },
         },
         required: ['channel', 'text'],

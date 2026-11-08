@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { QQBot } from '@tencent-connect/qqbot-nodejs';
+import { QQBot, ApiError } from '@tencent-connect/qqbot-nodejs';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
 import { toIso } from '../time.mjs';
 import { MAX_IMAGES_PER_MESSAGE, downloadImage } from '../images.mjs';
 
 const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
+const PASSIVE_WINDOW_MS = { c2c: 60 * 60_000, group: 5 * 60_000 };
+const PASSIVE_LIMIT = { c2c: 4, group: 5 };
+const PASSIVE_MARGIN_MS = 30_000;
+const MAX_REPLY_ROUTES = 256;
 
 /**
  * The SDK's `start()` can wait forever when the socket never comes up, so
@@ -82,6 +86,9 @@ export class QqChannel {
   #status = { connected: false, appId: '', lastError: '' };
   #lastProbeAt = 0;
   #probe = null;
+  #replyRoutes = new Map();
+  #routeOwner = '';
+  #now;
 
   #readyTimeoutMs;
   #fetchToken;
@@ -93,6 +100,7 @@ export class QqChannel {
     createBot = (options) => new QQBot(options),
     readyTimeoutMs = READY_TIMEOUT_MS,
     fetchToken = defaultFetchToken,
+    now = Date.now,
   }) {
     this.#createBot = createBot;
     this.#config = config;
@@ -100,6 +108,7 @@ export class QqChannel {
     this.#onInbound = onInbound;
     this.#readyTimeoutMs = readyTimeoutMs;
     this.#fetchToken = fetchToken;
+    this.#now = now;
   }
 
   get status() {
@@ -216,6 +225,7 @@ export class QqChannel {
     on('message', (_ctx, message) => {
       // Pictures download before they are archived, so this is async; a broken
       // attachment must never take the message down with it.
+      if (this.#bot !== bot) return;
       void this.#accept(message).catch((error) => {
         this.#log.warn?.(`[life-chat] qq inbound failed: ${error?.message ?? error}`);
       });
@@ -250,9 +260,12 @@ export class QqChannel {
 
   async #accept(message) {
     if (!message) return;
+    const bot = this.#bot;
+    const acceptedAt = this.#now();
     const text = String(message.content ?? '').trim();
     const senderId = String(message.senderId ?? '').trim();
     const images = await this.#imagesOf(message);
+    if (this.#bot !== bot || !bot) return;
     // A picture on its own is a message too; only a message with neither is
     // nothing we can act on.
     if ((!text && images.length === 0) || !senderId || message.senderIsBot) return;
@@ -270,6 +283,23 @@ export class QqChannel {
     const conversationId = group
       ? String(message.groupOpenid ?? message.channelId ?? senderId)
       : senderId;
+    const scope = group ? 'group' : 'c2c';
+    const at = toIso(message.timestamp);
+    this.#syncRouteOwner();
+    const msgId = String(message.messageId ?? '').trim();
+    if (msgId) {
+      const key = JSON.stringify([scope, conversationId, msgId]);
+      // Redelivery must not renew a window or reset its spent budget.
+      if (!this.#replyRoutes.has(key)) {
+        this.#replyRoutes.set(key, {
+          scope, targetId: conversationId, msgId,
+          receivedAt: Math.min(Date.parse(at), acceptedAt), used: 0,
+        });
+      }
+      while (this.#replyRoutes.size > MAX_REPLY_ROUTES) {
+        this.#replyRoutes.delete(this.#replyRoutes.keys().next().value);
+      }
+    }
     this.#onInbound({
       channel: 'qq',
       channelLabel: 'QQ',
@@ -309,19 +339,60 @@ export class QqChannel {
     return images;
   }
 
+  #syncRouteOwner() {
+    const qq = this.#config().qq ?? {};
+    const owner = JSON.stringify([qq.appId, qq.appSecret, qq.ownerOpenId]);
+    if (owner !== this.#routeOwner) {
+      this.#replyRoutes.clear();
+      this.#routeOwner = owner;
+    }
+  }
+
+  #replyRoute(scope, targetId, msgId) {
+    this.#syncRouteOwner();
+    const now = this.#now();
+    let latest = null;
+    for (const [key, route] of this.#replyRoutes) {
+      if (now - route.receivedAt >= PASSIVE_WINDOW_MS[route.scope] - PASSIVE_MARGIN_MS) {
+        this.#replyRoutes.delete(key);
+        continue;
+      }
+      if (route.scope !== scope || route.targetId !== targetId) continue;
+      if (msgId && route.msgId !== msgId) continue;
+      if (route.used >= PASSIVE_LIMIT[scope]) continue;
+      if (!latest || route.receivedAt >= latest.receivedAt) latest = route;
+    }
+    return latest;
+  }
+
   async sendText(text, { scope = 'c2c', targetId, msgId } = {}) {
     const bot = this.#bot;
     if (!bot) throw new Error('QQ is not connected yet');
     const qq = this.#config().qq ?? {};
-    const target = targetId || qq.ownerOpenId;
-    if (!target) throw new Error('QQ has no target: set the owner openid on the config page');
+    const target = targetId || (scope === 'c2c' ? qq.ownerOpenId : '');
+    if (!target) throw new Error('QQ has no target: specify the group or set the owner openid');
+    const route = this.#replyRoute(scope, target, msgId);
+    const proactive = { scope, targetId: target };
+    // Reserve before awaiting: concurrent sends cannot overspend one msg_id.
+    // Unknown outcomes also spend a slot; retrying them could duplicate a send.
+    if (route) route.used += 1;
     let sent;
     try {
-      sent = await bot.sendText({ scope, targetId: target, ...(msgId ? { msgId } : {}) }, String(text));
+      try {
+        sent = await bot.sendText(route ? { ...proactive, msgId: route.msgId } : proactive, String(text));
+      } catch (error) {
+        if (!route || !(error instanceof ApiError)
+          || error.httpStatus < 400 || error.httpStatus >= 500) throw error;
+        const { dead } = classifySendError(error);
+        if (dead) throw error;
+        // A definite rejection means nothing was delivered. Do not retry this
+        // msg_id again; attempt exactly one proactive send, like upstream #464.
+        route.used = PASSIVE_LIMIT[scope];
+        this.#log.warn?.('[life-chat] qq: passive reply refused; trying proactive once');
+        sent = await bot.sendText(proactive, String(text));
+      }
     } catch (error) {
       const { message, dead } = classifySendError(error);
-      // The credentials outlived the bot. Keeping "connected" here is why a
-      // deregistered account used to show a green light forever.
       if (dead) this.#markDead(message);
       throw new Error(message);
     }
