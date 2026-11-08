@@ -59,6 +59,12 @@
 | `starmap.turn` | 这一轮有哪几颗星（`{ key: "session#turn" }` 或 `{ session, turn }`） |
 | `starmap.links` | 和谁相连、有多强、证据在哪句（`{ id, min, limit }`） |
 
+## 星属性与匹配接口
+
+读取层可导入 `dsh-lpipe-starmap/brightness` 的 `starProfile(repo)`，取得当前索引的通用星集合、稀有度和基础亮度映射。基础亮度合并基础值、名称长度与全库稀有度，不包含本次输入、位置或匹配相似度；新增记忆后基于新索引重算，不写入星表，不需要重新抽星。
+
+`dsh-lpipe-starmap/match` 提供 `exactMatch` 和 `matchStars`。匹配默认环境权重为 1；调用方可传入 `weight`，以及 `starProfile` 的结果。回忆负责真文／背景窗口、环境权重、背景预算和候选排序，星图不决定这些策略。
+
 ## 配置
 
 | 环境变量 | 作用 |

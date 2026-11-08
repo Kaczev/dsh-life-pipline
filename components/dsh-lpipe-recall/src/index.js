@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
 import { openRepo } from 'dsh-lpipe-starmap/store'
+import { starProfile } from 'dsh-lpipe-starmap/brightness'
+export { COMMON_SHARE, commonStars } from 'dsh-lpipe-starmap/brightness'
 import { candidatesOf, coolTurns } from './candidates.mjs'
-import { backgroundWeight, foregroundWeight, rarityWeights, balanceFlicker } from './match.mjs'
+import { backgroundWeight, foregroundWeight, balanceFlicker } from './match.mjs'
 import { loadConfig, panelConfigOf, savePanelConfig } from './config.mjs'
 import { createRecallRpcHandler, registerRecallRpc } from './rpc.mjs'
 import { flickerStars } from './match.mjs'
@@ -37,20 +39,6 @@ export function triggerOf(rows) {
     return { row, skip: null }
   }
   return null
-}
-
-/** 通用星判据：出现在超过 5% 的片段里。 */
-export const COMMON_SHARE = 0.05
-
-export function commonStars(repo) {
-  const total = repo.turns.size
-  const common = new Set()
-  if (total < 10) return common
-  for (const [id, lines] of repo.byStar) {
-    const fragments = new Set(lines.map((entry) => entry.key))
-    if (fragments.size / total > COMMON_SHARE) common.add(id)
-  }
-  return common
 }
 
 const STARS_FILE = 'stars.jsonl'
@@ -586,11 +574,10 @@ export function apply(ctx, options = {}) {
     }
     // 通用星：在超过 5% 的片段里都出现的星，几乎不构成「这两段记忆有关」的证据，
     // 来源分数只值 0.2（用户定的口径）。
-    const common = commonStars(store)
+    const { common, brightness } = starProfile(store)
     const stars = [...store.stars.values()]
-    const rarity = rarityWeights(store)
-    const behind = flickerStars({ text: background, stars, common, rarity, weight: backgroundWeight })
-    const ahead = flickerStars({ text: foreground, stars, common, rarity, weight: foregroundWeight })
+    const behind = flickerStars({ text: background, stars, common, brightness, weight: backgroundWeight })
+    const ahead = flickerStars({ text: foreground, stars, common, brightness, weight: foregroundWeight })
     // 真文星只有一个来源：这一轮的输入源。它既决定候选，也决定排序的第一顺位。
     const currentExact = new Set([...ahead.entries()].filter(([, hit]) => (hit.kind ?? 'exact') === 'exact').map(([id]) => id))
     const foregroundExact = new Set(currentExact)
