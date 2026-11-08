@@ -53,7 +53,7 @@ export function candidatesOf({
       if (bucket.seen.has(id)) continue
       bucket.seen.add(id)
       bucket.stars.push(id)
-      if (hit.type === 'time') { bucket.timeStrength += hit.score; bucket.timeRecentFactor = hit.recentFactor ?? 2 }
+      if (hit.type === 'time') bucket.timeStrength += hit.score
       else bucket.exact += 1
       bucket.foreground += 1
       bucket.foregroundScore += hit.score
@@ -102,7 +102,6 @@ export function candidatesOf({
       currentWeight: bucket.currentWeight,
       strength: bucket.strength,
       timeStrength: bucket.timeStrength,
-      timeRecentFactor: bucket.timeRecentFactor ?? 2,
       fuzzy: bucket.fuzzy.length,
       lines: bucket.lines,
       session: record?.session ?? bucket.key.slice(0, bucket.key.lastIndexOf('#')),
