@@ -1,7 +1,8 @@
 import { isSpokenRow, pieces } from './render.mjs'
 
-export const MAX_SENTENCES = 40
-export const MAX_CHARS = 8000
+export const MAX_SENTENCES = 200
+export const MAX_CHARS = 24000
+export const DEFAULT_COUNT = 20
 
 export function parseRecallId(raw) {
   if (typeof raw !== 'string') return null
@@ -41,7 +42,7 @@ export function fragmentSentencesOf(reader, session, turn) {
 }
 
 /** 起止坐标包含端点；跨片段按轮号排列。分页只给下一句坐标，不重复尾句。 */
-export function openRange({ reader, session, from, to = null, count = 6, maxChars = MAX_CHARS }) {
+export function openRange({ reader, session, from, to = null, count = DEFAULT_COUNT, maxChars = MAX_CHARS }) {
   const fragments = fragmentsOf(reader.rows(session))
   const turns = [...fragments.keys()].sort((a, b) => a - b)
   const valid = (pos) => pos && fragments.get(pos.turn)?.[pos.sentence - 1]
@@ -49,7 +50,7 @@ export function openRange({ reader, session, from, to = null, count = 6, maxChar
   if (to && !valid(to)) throw new Error('to points to a missing fragment or sentence')
   const compare = (a, b) => a.turn - b.turn || a.sentence - b.sentence
   if (to && compare(to, from) < 0) throw new Error('to must not precede from')
-  if (!Number.isInteger(count) || count < 1 || count > MAX_SENTENCES) throw new Error('count must be an integer from 1 to 40')
+  if (!Number.isInteger(count) || count < 1 || count > MAX_SENTENCES) throw new Error('count must be an integer from 1 to 200')
   const all = turns.flatMap((turn) => fragments.get(turn)).filter((line) => compare({ turn: line.turn, sentence: line.id }, from) >= 0)
   const wanted = to ? all.filter((line) => compare({ turn: line.turn, sentence: line.id }, to) <= 0) : all.slice(0, count)
   const picked = []
@@ -58,7 +59,10 @@ export function openRange({ reader, session, from, to = null, count = 6, maxChar
     const truncated = clipped || lines.length < wanted.length
     const next = clipped ? last : all[lines.length]
     const headers = [...new Set(lines.map((line) => line.turn))].map((turn) => `${recallIdOf(session, turn)} 本片段共 ${fragments.get(turn).length} 句`)
-    const body = lines.map((line, index) => `${index === 0 || index === lines.length - 1 ? recallIdOf(session, line.turn, line.id) : `〔${line.turn}:${line.id}〕`} ${line.text}`)
+    const body = lines.map((line, index) => {
+      const boundary = index === 0 || index === lines.length - 1 || lines[index - 1]?.turn !== line.turn || lines[index + 1]?.turn !== line.turn
+      return boundary ? `${recallIdOf(session, line.turn, line.id)} ${line.text}` : line.text
+    })
     const note = clipped ? `…（已截断：单句过长，${last.turn}:${last.id} 未完整返回）` : truncated ? '…（已截断：达到本次读取上限）' : ''
     const continuation = next && !clipped ? `下一页 from=${next.turn}:${next.id}` : ''
     return [`〔回忆 · 原文〕本仓库共 ${turns.length} 个片段`, ...headers, ...body, note, continuation].filter(Boolean).join('\n')

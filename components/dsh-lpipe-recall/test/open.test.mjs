@@ -44,16 +44,16 @@ test('不存在的起止和反向区间报错，不静默夹到尾句', () => {
   assert.throws(() => open(rows, { from: { turn: 5, sentence: 3 } }), /missing/)
   assert.throws(() => open(rows, { to: { turn: 9, sentence: 1 } }), /missing/)
   assert.throws(() => open(rows, { from: { turn: 5, sentence: 2 }, to: { turn: 5, sentence: 1 } }), /precede/)
-  for (const count of [0, 41, 1.5]) assert.throws(() => open(rows, { count }), /count/)
+  for (const count of [0, 201, 1.5]) assert.throws(() => open(rows, { count }), /count/)
 })
 
-test('40 句截断明确标记，8000 字包含头部、ID 和翻页提示', () => {
-  const value = open([row(5, '一。'.repeat(80))], { to: { turn: 5, sentence: 80 } })
-  assert.equal(value.end, '5:40')
+test('200 句截断明确标记，24000 字包含头部、ID 和翻页提示', () => {
+  const value = open([row(5, '一。'.repeat(240))], { to: { turn: 5, sentence: 240 } })
+  assert.equal(value.end, '5:200')
   assert.equal(value.truncated, true)
   assert.match(value.text, /已截断/)
-  assert.match(value.text, /下一页 from=5:41/)
-  const large = open([row(5, `${'字'.repeat(250)}。`.repeat(80))], { to: { turn: 5, sentence: 80 } })
+  assert.match(value.text, /下一页 from=5:201/)
+  const large = open([row(5, `${'字'.repeat(250)}。`.repeat(240))], { to: { turn: 5, sentence: 240 } })
   assert.ok(large.text.length <= MAX_CHARS)
   assert.equal(large.truncated, true)
   const single = open([row(5, `${'字'.repeat(250)}。`)], { maxChars: 180 })
@@ -91,3 +91,16 @@ test('recall_fragments 传递查询与会话，支持异步组装，空查询报
   const empty = createRecallTools({ reader: readerOf([]), compose: () => '' })[0]
   assert.match((await empty.execute({ query: '雪糕' })).text, /没有想起什么/)
 })
+
+test("默认读取20句，仅返回首尾和跨片段边界的完整坐标", async () => {
+ const rows = [row(5, "一。".repeat(25)), row(6, "二。三。四。")];
+ assert.equal(open(rows).end, "5:20");
+ const value = open(rows, { from: { turn: 5, sentence: 23 }, to: { turn: 6, sentence: 3 } });
+ assert.equal((value.text.match(/lpipe_recall_id\[repo:\d+:\d+\]/g) ?? []).length, 4);
+ assert.doesNotMatch(value.text, /〔5:24〕|〔6:2〕|lpipe_recall_id\[repo:5:24\]|lpipe_recall_id\[repo:6:2\]/);
+ assert.match(value.text, /lpipe_recall_id\[repo:5:25\]/);
+ assert.match(value.text, /lpipe_recall_id\[repo:6:1\]/);
+ const tool = createRecallTools({ reader: readerOf(rows) }).find(t => t.name === "recall_open");
+ assert.equal(tool.parameters.properties.count.maximum, 200);
+ assert.match((await tool.execute({ repo: "repo", from: "5:1" })).summary, /5:1–5:20/);
+});

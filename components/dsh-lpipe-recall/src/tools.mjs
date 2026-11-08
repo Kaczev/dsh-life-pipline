@@ -1,4 +1,4 @@
-import { MAX_SENTENCES, openRange, parsePosition } from './open.mjs'
+import { DEFAULT_COUNT, MAX_SENTENCES, openRange, parsePosition } from './open.mjs'
 
 /**
  * 主动深挖的记忆工具：模型手里只有「模糊回忆」摆出来的那几句，想多读就读这里。
@@ -57,7 +57,7 @@ export function createRecallTools({ reader, compose = null }) {
           repo: { type: 'string', description: '记忆仓库 ID，即模糊回忆 lpipe_recall_id 中第一个冒号之前的部分。' },
           from: { type: 'string', description: '起点“片段ID:句子ID”，例如 858:12（包含该句）。' },
           to: { type: 'string', description: '可选终点“片段ID:句子ID”（包含该句），可跨片段。' },
-          count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: '省略 to 时读取的句数，默认 6，范围 1–40。' },
+          count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: '省略 to 时读取的句数，默认 20，范围 1–200；输出最多 24000 字符。' },
         },
         required: ['repo', 'from'],
       },
@@ -80,7 +80,7 @@ export function createRecallTools({ reader, compose = null }) {
         const to = args?.to === undefined ? null : parsePosition(args.to)
         if (!from || (args?.to !== undefined && !to)) throw new Error('from/to must look like turn:sentence with positive integer IDs')
         reader.reload?.()
-        const opened = openRange({ reader, session: repo, from, to, count: args?.count ?? 6 })
+        const opened = openRange({ reader, session: repo, from, to, count: args?.count ?? DEFAULT_COUNT })
         return { text: opened.text, summary: `打开 ${repo} ${opened.start}–${opened.end}` }
       },
     },
