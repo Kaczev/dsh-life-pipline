@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs';
+import { appendDiagnostic } from 'dsh-life-pipline/diagnostics';
 import { join } from 'node:path';
 
 import { describeActivity, lastActivityAt } from 'dsh-life-pipline/session';
@@ -52,11 +52,10 @@ export function apply(ctx) {
       // what the tick actually saw instead of guessed at.
       probe: (record) => {
         try {
-          appendFileSync(join(homeDir(), 'probe.jsonl'), `${JSON.stringify({
+          appendDiagnostic(join(homeDir(), 'probe.jsonl'), {
             ...record,
             ...describeActivity(sessions?.(), record.sessionId),
-          })}
-`);
+          });
         } catch { /* diagnostics never break the engine */ }
       },
       deliver: (request) => current.deliver(request),

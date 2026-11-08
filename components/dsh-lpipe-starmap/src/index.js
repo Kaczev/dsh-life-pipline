@@ -3,6 +3,7 @@
 // 抽星只问模型一次（哪两个概念一起出现过），落到哪一句、连多粗由我们自己算。
 // 模型不可用时什么都不点亮，灰记忆就一直是灰的——不猜、不用规则兜底。
 import { renameSync, rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
 import { join } from 'node:path'
 
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -55,16 +56,13 @@ export function apply(ctx, options = {}) {
 
   /**
    * 抽星的运行日志：轮询只看得到「现在什么样」，看不出「为什么变成这样」。
-   * 暂停这类事必须能事后复盘，所以把关键节点写进 <root>/run.jsonl（超过 2 MB 就重开）。
+   * 暂停这类事必须能事后复盘，所以把关键节点写进 <root>/run.jsonl（最多 2 MiB，保留最新完整记录）。
    */
   const logFile = join(root, 'run.jsonl')
   const runLog = (event, extra = {}) => {
     try {
       mkdirSync(root, { recursive: true })
-      try {
-        if (statSync(logFile).size > 2 * 1024 * 1024) rmSync(logFile, { force: true })
-      } catch {}
-      appendFileSync(logFile, `${JSON.stringify({ at: new Date().toISOString(), event, ...extra })}\n`)
+      appendDiagnostic(logFile, { at: new Date().toISOString(), event, ...extra })
     } catch {}
   }
 

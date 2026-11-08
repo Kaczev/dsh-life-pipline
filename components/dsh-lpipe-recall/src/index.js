@@ -1,4 +1,5 @@
-import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync } from 'node:fs'
+import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -379,7 +380,7 @@ export function apply(ctx, options = {}) {
   const noteRun = (entry) => {
     try {
       mkdirSync(recallDir, { recursive: true })
-      writeFileSync(join(recallDir, 'recall.jsonl'), `${JSON.stringify({ at: Date.now(), ...entry })}\n`, { flag: 'a' })
+      appendDiagnostic(join(recallDir, 'recall.jsonl'), { at: Date.now(), ...entry })
     } catch {
       /* 记不下来就算了，不影响回忆本身 */
     }

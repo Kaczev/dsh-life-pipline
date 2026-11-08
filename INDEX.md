@@ -9,6 +9,7 @@
 - [client/panel.js](client/panel.js)：「Lpipe 设置」整页容器（`settings.section`，`id: lpipe`，声明子槽 `lpipe.settings.panel`）；构建到 `lib/client.js`。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：把 `client/panel.js` 包成宿主的模块壳。
 - [scripts/install-local.mjs](scripts/install-local.mjs)：把本包与 `components/*` 以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
+- [src/diagnostics.mjs](src/diagnostics.mjs)：四类诊断日志共用的 2 MiB 完整记录尾部保留；[测试](test/diagnostics.test.mjs)。
 - [test/panel.test.mjs](test/panel.test.mjs)：公共页容器的注册与渲染回归。
 - [assets/icon.png](assets/icon.png) / [locale/](locale/)：插件卡片的图标与显示名。
 - [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），自身也是 bundle，依赖本包。

@@ -18,7 +18,8 @@
  * call walks. Both are cheap, and both are idempotent — the first deny wins.
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { appendDiagnostic } from './diagnostics.mjs';
 import { join } from 'node:path';
 
 import { eventsOf } from './session-activity.mjs';
@@ -84,7 +85,7 @@ export function noteEvaluation(record) {
   try {
     const file = join(homeDir(), 'guard.jsonl');
     mkdirSync(join(homeDir()), { recursive: true });
-    appendFileSync(file, `${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`, 'utf8');
+    appendDiagnostic(file, { at: new Date().toISOString(), ...record });
   } catch {
     // Diagnostics are never allowed to break a tool call.
   }
