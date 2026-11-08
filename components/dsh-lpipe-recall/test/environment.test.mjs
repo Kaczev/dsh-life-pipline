@@ -1,7 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { timeCoefficient, lexicalTerms, bm25, lexicalCorpus, excerptSimilarity, selectFragments, rankFragments } from '../src/environment.mjs'
+import { timeCoefficient, lexicalTerms, lexicalQueryTerms, bm25, lexicalCorpus, excerptSimilarity, selectFragments, rankFragments } from '../src/environment.mjs'
 import { renderRecall } from '../src/render.mjs'
+
+test('词面查询剔除有效时间表达和常见问句，保留主题、机制名称及英文词内部', () => {
+  const options = { now: Date.parse('2026-11-08T12:00:00+08:00'), timeZone: 'Asia/Shanghai' }
+  assert.deepEqual(lexicalQueryTerms('刚刚我们做了什么？', options), [])
+  assert.deepEqual(lexicalQueryTerms('刚才还记得我们干了什么吗？', options), [])
+  assert.deepEqual(lexicalQueryTerms('昨天15:30我们修复图片召回', options), lexicalTerms('修复图片召回'))
+  assert.deepEqual(lexicalQueryTerms('刚刚我们修好了图片召回', options), lexicalTerms('修好了图片召回'))
+  assert.deepEqual(lexicalQueryTerms('What did we do?', options), [])
+  assert.ok(lexicalQueryTerms('somewhere recall_image', options).includes('somewhere'))
+  assert.ok(lexicalQueryTerms('时间星响应刚刚这个词', options).includes('刚刚'))
+  assert.deepEqual(lexicalQueryTerms('`昨天`', options), ['昨天'])
+  const data = { documents: new Map([['example', {length:2,tf:new Map([['刚刚',1],['什么',1]])}]]), averageLength:2, idf:()=>1 }
+  const out = selectFragments({ candidates:[candidate('example',6)], query:'刚刚我们做了什么？', corpus:data, now:options.now, timeZone:options.timeZone, prepareExcerpt })
+  assert.equal(out[0].lexicalScore,0)
+  assert.equal(out[0].lexicalFactor,1)
+})
 
 test('生产排序入口冻结摘录并供渲染复用，不重新读原文', () => {
   const repo = { turns: new Map([1, 2, 3].map((turn) => [`s#${turn}`, { session: 's', turn }])) }

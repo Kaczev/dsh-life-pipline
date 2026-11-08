@@ -623,7 +623,7 @@ export function apply(ctx, options = {}) {
     }
 
     // 已经在他眼前的片段不再摆：记号就写在上一次的块头上。
-    const fresh = rankFragments({ candidates, query: foreground, repo: store, reader, flicker, config: settings, now })
+    const fresh = rankFragments({ candidates, query: foreground, repo: store, reader, flicker, config: settings, now, timeZone })
     if (fresh.length === 0) {
       report({ skip: 'in-context', flicker: flicker.size, candidates: candidates.length })
       return ''

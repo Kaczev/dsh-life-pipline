@@ -1,4 +1,5 @@
 import { recallRows, recallPieces } from './text.mjs'
+import { parseTimeRanges } from 'dsh-lpipe-starmap/time'
 import { pieces, fragmentSentences } from './render.mjs'
 
 const DAY = 86400000
@@ -15,6 +16,21 @@ export function lexicalTerms(text) {
     } else out.push(token)
   }
   return out
+}
+
+/** 仅过滤词面查询，不改变闪烁星、候选准入或原文统计。 */
+export function lexicalQueryTerms(query, options = {}) {
+  let text = String(query ?? '').normalize('NFKC')
+  const { ranges, excluded } = parseTimeRanges(text, options)
+  for (const range of [...ranges, ...excluded].sort((a, b) => b.at - a.at)) {
+    text = text.slice(0, range.at) + ' '.repeat(range.length) + text.slice(range.at + range.length)
+  }
+  // 先在原文上断开停用短语，避免汉字二元组跨越被删词重新拼接。
+  text = text.replace(/我们|你们|他们|她们|它们|什么|哪些|哪个|怎么|怎样|如何|是否|记不记得|还记得|记得|回忆一下|回忆|发生了|做过|做了|干了|事情|东西|一下/gu, ' ')
+  text = text.replace(/\b(?:please|remember|recall|what|which|when|where|how)\b/giu, ' ')
+  text = text.replace(/[的了呢吗呀啊吧哦]+(?=[\s，。！？、,.!?]|$)/gu, ' ')
+  const stop = new Set(['i', 'we', 'you', 'he', 'she', 'it', 'they', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'do', 'did', 'does', 'have', 'has', 'had', 'to', 'of', 'and', 'or', 'about', 'can', 'could', 'me', 'us', 'our', 'my'])
+  return lexicalTerms(text).filter(term => !stop.has(term))
 }
 
 export function timeCoefficient(at, now, recentDays = 30) {
@@ -76,8 +92,8 @@ export function excerptSimilarity(left, right, idf) {
 }
 
 /** 固定系数只算一次；前缀贪心只确定披露名次，不计算其余名次。 */
-export function selectFragments({ candidates, query, corpus, now, recentDays = 30, limit = 4, prepareExcerpt }) {
-  const terms = lexicalTerms(query)
+export function selectFragments({ candidates, query, corpus, now, timeZone, recentDays = 30, limit = 4, prepareExcerpt }) {
+  const terms = lexicalQueryTerms(query, { now, timeZone })
   const pool = candidates.map((candidate) => ({ ...candidate,
     lexicalScore: bm25(corpus.documents.get(candidate.key), terms, corpus),
     timeFactor: timeCoefficient(candidate.at, now, recentDays),
@@ -126,13 +142,13 @@ export function selectFragments({ candidates, query, corpus, now, recentDays = 3
   return selected
 }
 
-export function rankFragments({ candidates, query, repo, reader, flicker, config, now = Date.now(), corpus = null }) {
+export function rankFragments({ candidates, query, repo, reader, flicker, config, now = Date.now(), timeZone, corpus = null }) {
   const rows = new Map()
   const snapshot = { rows(session) {
     if (!rows.has(session)) rows.set(session, reader.rows(session))
     return rows.get(session)
   } }
-  return selectFragments({ candidates, query, corpus: corpus ?? lexicalCorpus({ repo, reader: snapshot }), now,
+  return selectFragments({ candidates, query, corpus: corpus ?? lexicalCorpus({ repo, reader: snapshot }), now, timeZone,
     recentDays: config.recentDays, limit: config.fragments,
     prepareExcerpt: (candidate) => fragmentSentences({ reader: snapshot, candidate, flicker, limit: config.sentencesPerFragment }),
   })
