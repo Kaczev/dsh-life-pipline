@@ -678,10 +678,10 @@ export function apply(ctx, options = {}) {
     return null
   }
 
-  ctx.inject(['tools'], (toolsCtx) => {
+  ctx.inject(['tools', 'attachments'], (toolsCtx) => {
     let tools = []
     try {
-      tools = createRecallTools({ reader, compose })
+      tools = createRecallTools({ reader, compose, attachments: toolsCtx.attachments })
     } catch (error) {
       warn(`[dsh-lpipe-recall] 造工具失败：${error?.message ?? error}`)
       return

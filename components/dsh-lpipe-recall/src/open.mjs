@@ -1,3 +1,4 @@
+import { imagesOfRows, imageListing } from './images.mjs'
 import { isSpokenRow, pieces } from './render.mjs'
 
 export const MAX_SENTENCES = 200
@@ -42,8 +43,24 @@ export function fragmentSentencesOf(reader, session, turn) {
 }
 
 /** 起止坐标包含端点；跨片段按轮号排列。分页只给下一句坐标，不重复尾句。 */
-export function openRange({ reader, session, from, to = null, count = DEFAULT_COUNT, maxChars = MAX_CHARS }) {
-  const fragments = fragmentsOf(reader.rows(session))
+export function openRange({ reader, session, from, to = null, count = DEFAULT_COUNT, maxChars = MAX_CHARS, imagesOffset = 0 }) {
+  const rows = reader.rows(session)
+  const fragments = fragmentsOf(rows)
+  if (!Number.isSafeInteger(imagesOffset) || imagesOffset < 0) throw new Error('imagesOffset must be a non-negative integer')
+  const imageText = (turnList) => {
+    const all = turnList.flatMap(turn => imagesOfRows(rows.filter(row => row.turn === turn)).map(image => ({ ...image, turn })))
+    if (!all.length) return ''
+    const selected = all.slice(imagesOffset, imagesOffset + 24)
+    return ['〔片段图片：仅引用，尚未加载〕共 ' + all.length + ' 张',
+      ...selected.map(image => '片段 ' + image.turn + '｜' + imageListing([image]).split('\n').at(-1)),
+      imagesOffset + selected.length < all.length ? '更多图片：imagesOffset=' + (imagesOffset + selected.length) : '',
+    ].filter(Boolean).join('\n')
+  }
+  if (from?.sentence === 1 && fragments.get(from.turn)?.length === 0 && imagesOfRows(rows.filter(row => row.turn === from.turn)).length && !to) {
+    const text = recallIdOf(session, from.turn) + ' 本片段共 0 句\n' + imageText([from.turn])
+    if (text.length > maxChars) throw new Error('image references exceed output character limit')
+    return { text, start: from.turn + ':1', end: from.turn + ':1', turns: [from.turn], truncated: false }
+  }
   const turns = [...fragments.keys()].sort((a, b) => a - b)
   const valid = (pos) => pos && fragments.get(pos.turn)?.[pos.sentence - 1]
   if (!valid(from)) throw new Error('from points to a missing fragment or sentence')
@@ -65,7 +82,7 @@ export function openRange({ reader, session, from, to = null, count = DEFAULT_CO
     })
     const note = clipped ? `…（已截断：单句过长，${last.turn}:${last.id} 未完整返回）` : truncated ? '…（已截断：达到本次读取上限）' : ''
     const continuation = next && !clipped ? `下一页 from=${next.turn}:${next.id}` : ''
-    return [`〔回忆 · 原文〕本仓库共 ${turns.length} 个片段`, ...headers, ...body, note, continuation].filter(Boolean).join('\n')
+    return [`〔回忆 · 原文〕本仓库共 ${turns.length} 个片段`, ...headers, ...body, imageText([...new Set(lines.map(line => line.turn))]), note, continuation].filter(Boolean).join('\n')
   }
   for (const line of wanted.slice(0, MAX_SENTENCES)) {
     if (format([...picked, line]).length > maxChars) break

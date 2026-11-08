@@ -279,7 +279,7 @@ test('真实组装：不同 query 不串缓存，已读排除先于限额且主�
   const tools = new Map()
   const sections = []
   apply({ logger: { warn() {} }, on() {}, inject: (names, fn) => {
-    const services = { tools: { register: (tool) => tools.set(tool.name, tool) }, systemPrompt: { section: (section) => sections.push(section) } }
+    const services = { attachments: { saveImage() {} }, tools: { register: (tool) => tools.set(tool.name, tool) }, systemPrompt: { section: (section) => sections.push(section) } }
     if (names.every((name) => services[name])) fn(services)
   } }, { root, memoryRoot, starmapRoot })
   assert.equal(sections.length, 1)
@@ -302,7 +302,7 @@ test('真实组装：不同 query 不串缓存，已读排除先于限额且主�
   assert.match((await ask('雪糕')).text, /archive:1/)
 })
 
-test('装上之后确实把两个工具注册给了宿主', async () => {
+test('装上之后确实把三个工具注册给了宿主', async () => {
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
@@ -320,5 +320,5 @@ test('装上之后确实把两个工具注册给了宿主', async () => {
     },
   }
   apply(ctx, { root: empty, memoryRoot: empty, starmapRoot: empty })
-  assert.deepEqual(registered.sort(), ['recall_fragments', 'recall_open'])
+  assert.deepEqual(registered.sort(), ['recall_fragments', 'recall_image', 'recall_open'])
 })

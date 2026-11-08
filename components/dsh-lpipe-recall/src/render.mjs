@@ -1,3 +1,4 @@
+import { imagesOfRows } from './images.mjs'
 import { FUZZY_FLOOR, NUMBER_FLOOR } from './match.mjs'
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
 import { foldText } from 'dsh-lpipe-starmap/llm'
@@ -84,7 +85,8 @@ export function sentenceScore(text, flicker) {
 }
 
 export function fragmentSentences({ reader, candidate, flicker, limit }) {
-  const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn && isSpokenRow(row))
+  const fragmentRows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn)
+  const rows = fragmentRows.filter(isSpokenRow)
   // 只拿「这一段自己的命中星」来给句子打分。
   //
   // 用整窗的点亮星会让别的句子莫名其妙地排前面：那些星是照亮了别的片段的，
@@ -107,6 +109,7 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
     .slice(0, limit)
     .sort((a, b) => a.id - b.id)
   return {
+    imageCount: imagesOfRows(fragmentRows).length,
     total: all.length,
     lines: top.map((entry) => ({
       id: entry.id,
@@ -125,7 +128,7 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
   if (!Array.isArray(candidates) || candidates.length === 0) return ''
   const blocks = []
   for (const [index, candidate] of candidates.entries()) {
-    const { total, lines } = candidate.excerpt ?? fragmentSentences({
+    const { total, lines, imageCount = 0 } = candidate.excerpt ?? fragmentSentences({
       reader,
       candidate,
       flicker,
@@ -136,7 +139,7 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
     // 片段 id 是固定格式：`lpipe_recall_id[仓库:片段]`。程序靠它在上下文里认出
     // 「这一段已经摆过了」，模型复制它去喂 recall_open。句子的 id 不在这里给——
     // 模糊回忆本来就只摆几句，位置靠前、靠后的信息足够，精确定位是准确回忆的事。
-    const head = `第 ${index + 1} 段｜${fragmentId(candidate.session, candidate.turn)}${when ? `, ${when}` : ''}, 共 ${total} 句，展示 ${lines.length} 句`
+    const head = `第 ${index + 1} 段｜${fragmentId(candidate.session, candidate.turn)}${when ? `, ${when}` : ''}, 共 ${total} 句，展示 ${lines.length} 句${imageCount ? `，含 ${imageCount} 张图片（recall_open 可取引用）` : ''}`
     // 每一句前面挂它的句子 id：`recall_open` 要的是「片段 id + 句子 id」，
     // 只给片段，模型没法指定从哪句开始翻。
     blocks.push(`${head}\n……${lines.map((line) => `〔${line.id}〕${line.text}`).join('……')}……`)
