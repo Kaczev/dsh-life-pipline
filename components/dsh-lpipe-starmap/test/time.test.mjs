@@ -17,7 +17,7 @@ test('自然日/周日周界、组合时段、滚动时间与模板', () => {
   assert.equal(range.end, now)
   assert.equal(range.response, 'broad')
   const hits = matchTimeStars({text: word, records: [{session:'a',turn:1,at:now-30*60000}], ...options})
-  assert.equal([...hits.values()][0].score, 2)
+  assert.equal([...hits.values()][0].score, 1.75 + .5 * (11.5 / 12))
  }
  assert.equal(parse('前几天').ranges[0].end, now - 2 * 86400000)
  assert.equal(parse('昨天和前天').ranges.length, 2)
@@ -50,13 +50,24 @@ test('语境：元语言/代码/否定/假设/指代，与正常否定区分', (
  const excluded = matchTimeStars({ text:'除了昨天，最近做了什么',records:[{session:'a',turn:1,at:now-86400000}],...options })
  assert.equal(excluded.size,0)
 })
-test('时星按片段唯一，最大亮度2，重复表达不累加；DST自然日按当地边界', () => {
+test('时星按片段唯一，确性亮度2，重复表达不累加；DST自然日按当地边界', () => {
  const records=[{session:'a',turn:1,at:now-86400000},{session:'b',turn:1,at:now-86400000}]
  const hits=matchTimeStars({text:'昨天和昨天',records,...options})
  assert.equal(hits.size,2)
  for(const hit of hits.values()) assert.equal(hit.score,2)
  const r=parseTimeRanges('昨天',{now:Date.parse('2026-11-02T12:00:00-05:00'),timeZone:'America/New_York'}).ranges[0]
  assert.equal(r.end-r.start,25*3600000)
+})
+
+test('范性响应窗口内从1.75递增到2.25，尾部保留衰减，重复不累加', () => {
+ const start = now - 12 * 3600000
+ const records = [start, start + 6 * 3600000, now, start - 3600000].map((at, i) => ({session:'a',turn:i+1,at}))
+ const hits = matchTimeStars({text:'刚刚和刚才',records,...options})
+ assert.equal(hits.size,4)
+ assert.equal(hits.get('time:a#1').score,1.75)
+ assert.equal(hits.get('time:a#2').score,2)
+ assert.equal(hits.get('time:a#3').score,2.25)
+ assert.ok(hits.get('time:a#4').score > 0 && hits.get('time:a#4').score < 1.75)
 })
 
 test('年月、无效时钟、范围连接与范围内时段',()=>{

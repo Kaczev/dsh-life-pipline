@@ -200,7 +200,10 @@ export function matchTimeStars({ text, records, now = Date.now(), timeZone }) {
     if (record.at == null || !Number.isFinite(at) || parsed.excluded.some(r => at >= r.start && at < r.end)) continue
     let score = 0, position = -1, kind = 'exact'
     for (const range of parsed.ranges) {
-      const brightness = 2 * timeMatch(at, range, now)
+      const base = range.response === 'broad'
+        ? 1.75 + 0.5 * Math.max(0, Math.min(1, (at - range.start) / (range.end - range.start)))
+        : 2
+      const brightness = base * timeMatch(at, range, now)
       if (!(brightness > 0)) continue
       if (brightness > score) { score = brightness; kind = range.response }
       position = Math.max(position, range.at)
