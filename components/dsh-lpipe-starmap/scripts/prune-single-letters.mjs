@@ -8,7 +8,7 @@ import { isSingleLatinStar } from '../src/build.mjs'
 import { starmapRoot } from '../src/paths.mjs'
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
-export function pruneSingleLetters(root, { apply = false } = {}) {
+export function pruneSingleLetters(root, { apply = false, reject = isSingleLatinStar, backupLabel = 'single-letters' } = {}) {
   root = resolve(root)
   const files = []
   const collect = (dir) => {
@@ -29,7 +29,7 @@ export function pruneSingleLetters(root, { apply = false } = {}) {
   const starsBytes = readFileSync(starsPath)
   const parse = (bytes) => bytes.toString('utf8').split('\n').filter(x => x.trim()).map(JSON.parse)
   const stars = parse(starsBytes)
-  const removed = new Set(stars.filter(s => isSingleLatinStar(s.name)).map(s => s.id))
+  const removed = new Set(stars.filter(s => reject(s.name, s)).map(s => s.id))
   const changes = []
   const prepare = (file, before, rows) => {
     const after = Buffer.from(rows.map(x => JSON.stringify(x)).join('\n') + '\n')
@@ -57,7 +57,7 @@ export function pruneSingleLetters(root, { apply = false } = {}) {
   }
   let backup = null
   if (apply && changes.length) {
-    backup = join(root, 'maintenance-backups', `single-letters-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    backup = join(root, 'maintenance-backups', `${backupLabel}-${new Date().toISOString().replace(/[:.]/g, '-')}`)
     mkdirSync(backup, { recursive: true })
     for (const item of changes) {
       if (hash(readFileSync(item.file)) !== item.sha256) throw Error(`文件已变化：${item.file}`)

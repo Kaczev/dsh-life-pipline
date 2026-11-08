@@ -18,6 +18,7 @@
   - [src/brightness.mjs](components/dsh-lpipe-starmap/src/brightness.mjs)：基础亮度与通用分类的只读快照。
   - [src/match.mjs](components/dsh-lpipe-starmap/src/match.mjs)：文星／时星统一匹配，输出类型、亮度及最后命中位置；[文星测试](components/dsh-lpipe-starmap/test/brightness.test.mjs)。
   - [src/time.mjs](components/dsh-lpipe-starmap/src/time.mjs)：片段时间星视图、时间表达组合、文字定位端点过滤与范性／确性响应；[端点测试](components/dsh-lpipe-starmap/test/time-locator.test.mjs)；[解析测试](components/dsh-lpipe-starmap/test/time.test.mjs)、[回忆接入测试](components/dsh-lpipe-recall/test/time.test.mjs)。
+  - [scripts/prune-invalid-stars.mjs](components/dsh-lpipe-starmap/scripts/prune-invalid-stars.mjs)：按当前非 LLM 规则过滤旧准确／通用星，保留模糊星、版本和水位；[测试](components/dsh-lpipe-starmap/test/prune-invalid.test.mjs)。
   - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
 - [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
   - [README.md](components/dsh-lpipe-recall/README.md)：配置、设置块与三个主动工具的参数和分页规则。
