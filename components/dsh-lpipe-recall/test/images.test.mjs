@@ -30,7 +30,7 @@ test('清单按24张分页，模糊回忆仅提示数量', () => {
   assert.match(first.text, /共 30 张/)
   assert.match(first.text, /imagesOffset=24/)
   const second = openRange({ reader: many, session: 'repo', from: { turn: 5, sentence: 1 }, imagesOffset: 24 })
-  assert.equal((second.text.match(/记忆行/g) ?? []).length, 6)
+  assert.equal((second.text.match(/图片 [a-f0-9]{64}/g) ?? []).length, 6)
   const text = renderRecall({ candidates: [{ session: 'repo', turn: 5, excerpt: { imageCount: 1, total: 1, lines: [{ id: 1, text: '看图。' }] } }], reader, config: {}, flicker: new Map() })
   assert.match(text, /含 1 张图片/)
   assert.doesNotMatch(text, new RegExp(id))
@@ -51,4 +51,29 @@ test('按需返回一张持久图片引用，验证所属片段、缺失和校�
   assert.equal(saved.length, 1)
   const corrupt = createRecallTools({ reader: { ...reader, media: () => Buffer.from('wrong') }, attachments: { saveImage: () => { throw Error('not reached') } } }).find(t => t.name === 'recall_image')
   await assert.rejects(() => corrupt.execute(args), /checksum/)
+})
+
+
+test('图文按片段和原消息顺序返回，图片不冒充所选句子的附件', () => {
+  const secondId = 'b'.repeat(64)
+  const thirdId = 'c'.repeat(64)
+  const records = [
+    { seq: 10, turn: 5, kind: 'user/message', text: '第一条。第二句。', parts: [part] },
+    { seq: 11, turn: 5, kind: 'assistant/message', text: '助手答复。', parts: [] },
+    { seq: 12, turn: 5, kind: 'user/message', text: '稍后的说明。', parts: [{ ...part, sha256: secondId }] },
+    { seq: 13, turn: 5, kind: 'tool/result', text: '工具输出不能显示。', parts: [{ ...part, sha256: thirdId }] },
+    { seq: 14, turn: 6, kind: 'user/message', text: '下一片段。', parts: [part] },
+  ]
+  const r = { rows: () => records }
+  const text = openRange({ reader: r, session: 'repo', from: { turn: 5, sentence: 1 }, count: 1 }).text
+  assert.ok(text.indexOf('第一条。') < text.indexOf(id))
+  assert.ok(text.indexOf(id) < text.indexOf('记忆行 12'))
+  assert.ok(text.indexOf('记忆行 12') < text.indexOf(secondId))
+  assert.match(text, /记忆行 12〕（本次未读取该消息文字）/)
+  assert.doesNotMatch(text, /稍后的说明|工具输出不能显示/)
+  assert.match(text, /工具结果｜记忆行 13/)
+  const across = openRange({ reader: r, session: 'repo', from: { turn: 5, sentence: 4 }, to: { turn: 6, sentence: 1 } }).text
+  assert.ok(across.indexOf('图片 ' + thirdId) < across.indexOf('lpipe_recall_id[repo:6]'))
+  assert.ok(across.indexOf('lpipe_recall_id[repo:6]') < across.lastIndexOf('图片 ' + id))
+  assert.throws(() => openRange({ reader: { rows: () => [rows[1]] }, session: 'repo', from: { turn: 6, sentence: 1 }, count: 0 }), /count/)
 })
