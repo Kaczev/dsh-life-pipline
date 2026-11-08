@@ -94,8 +94,8 @@ const actions = { display: 'flex', gap: 8, flex: 'none' };
 const dot = { flex: 'none', width: 6, height: 6, marginTop: 4, borderRadius: 999, background: COLORS.faint };
 
 const FIELDS = Object.freeze([
-  { key: 'fragments', label: '每轮片段', unit: '段', min: 1, max: 5, fallback: 2 },
-  { key: 'sentencesPerFragment', label: '每段句数', unit: '句', min: 1, max: 12, fallback: 4 },
+  { key: 'fragments', label: '每轮片段', unit: '段', min: 1, max: 5, fallback: 4 },
+  { key: 'sentencesPerFragment', label: '每段句数', unit: '句', min: 1, max: 12, fallback: 2 },
   { key: 'inputChars', label: '真文上限', unit: '字', min: 2000, max: 32000, fallback: 32000 },
   { key: 'backgroundChars', label: '背景窗口', unit: '字', min: 8000, max: 96000, fallback: 16000 },
   { key: 'coolChars', label: '冷却窗口', unit: '字', min: 32000, max: 4000000, fallback: 1000000 },

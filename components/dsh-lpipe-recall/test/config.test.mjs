@@ -24,8 +24,8 @@ test('面板只开放五项，默认值与范围跟实现一致', () => {
   assert.deepEqual(
     PANEL_FIELDS.map(({ key, min, max, fallback }) => ({ key, min, max, fallback })),
     [
-      { key: 'fragments', min: 1, max: 5, fallback: 2 },
-      { key: 'sentencesPerFragment', min: 1, max: 12, fallback: 4 },
+      { key: 'fragments', min: 1, max: 5, fallback: 4 },
+      { key: 'sentencesPerFragment', min: 1, max: 12, fallback: 2 },
       { key: 'inputChars', min: 2000, max: 32000, fallback: 32000 },
       { key: 'backgroundChars', min: 8000, max: 96000, fallback: 16000 },
       { key: 'coolChars', min: 32000, max: 4000000, fallback: 1000000 },

@@ -12,12 +12,12 @@ import { configFile, recallRoot } from './paths.mjs'
  */
 export const DEFAULT_CONFIG = {
   enabled: true,
-  fragments: 2,
+  fragments: 4,
   backgroundChars: 16000,
   inputChars: 32000,
   coolChars: 1000000,
   minStrength: 0,
-  sentencesPerFragment: 4,
+  sentencesPerFragment: 2,
   // 二类触发源（我的思考、中途回复、工具结果）每攒够这么多次才评估一次回忆。
 }
 
