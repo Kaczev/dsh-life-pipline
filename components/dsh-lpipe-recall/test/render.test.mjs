@@ -52,7 +52,7 @@ test('模糊回忆照抄原句、用省略号连接，并带上是哪一段', ()
   assert.ok(block.includes('记忆管线开工'))
   assert.ok(!block.includes('今天天气不错'), '没点亮星的句子不该出现')
   assert.ok(!block.includes('星图管线和它一起跑'), '这一句没有闪烁星')
-  assert.ok(block.includes('工具输出'), '短工具结果参与选句')
+  assert.ok(!block.includes('工具输出'), '普通工具结果不参与选句')
 })
 
 test('没有候选、或者候选一句都挑不出来，就什么都不注入', () => {

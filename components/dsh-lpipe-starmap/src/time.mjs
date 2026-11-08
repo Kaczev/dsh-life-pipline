@@ -1,5 +1,16 @@
 const MINUTE = 60000
 const DAY = 86400000
+
+/** 只拒绝完整定位短语，不拒绝「时间模板」等机制概念，也不处理数字模糊星。 */
+export function isTimeLocator(name) {
+  const text = String(name ?? '').normalize('NFKC').replace(/\s+/g, '')
+  const number = '[零一二两三四五六七八九十百半0-9]+'
+  const anchor = '(?:刚刚|刚才|不久前|前几天|最近|近期|大前天|前天|昨天|今天|明天|后天|上上周|上周|本周|这周|下周|上个月|本月|这个月|下个月|去年|今年|明年)'
+  const rolling = `(?:(?:最近|过去|近)${number}个?(?:分钟|小时|天|日|周|星期|月|年)|${number}个?(?:天|周|星期|月|年)前)`
+  const suffix = '(?:(?:星期|周)?[一二三四五六日天])?(?:凌晨|早上|上午|中午|下午|晚上|夜里)?(?:[零一二两三四五六七八九十0-9]+(?:点|时)(?:[零一二两三四五六七八九十0-9]+分?)?)?(?:左右|前后|大约)?'
+  return new RegExp(`^(?:${anchor}|${rolling})${suffix}(?:(?:到|至|~|—)(?:${anchor}|${rolling})${suffix})?$`).test(text)
+}
+
 export const TIME_TEMPLATES = Object.freeze({
   刚刚: [0, DAY / 2], 刚才: [0, DAY / 2],
   不久前: [0, DAY], 前几天: [2 * DAY, 7 * DAY], 最近: [0, 7 * DAY], 近期: [0, 7 * DAY],

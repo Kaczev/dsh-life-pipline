@@ -11,7 +11,7 @@ test('近窗原文：从末尾往前收够字数，顺序照旧', () => {
     said(2, '第二段'),
     said(3, '第三段'),
   ]
-  assert.equal(recentText(rows, 100), '第一段\n工具输出不该进近窗\n第二段\n第三段')
+  assert.equal(recentText(rows, 100), '第一段\n第二段\n第三段')
   assert.equal(recentText(rows, 6), '第二段\n第三段', '收够字数就停，不多收')
   assert.equal(recentText([], 100), '')
 })
@@ -192,7 +192,7 @@ test('二类触发源取消：思考、中途回复、工具结果都不再唤�
 
 test('工具结果也算二类触发源', () => {
   const text = activityTextOf({ type: 'tool/result', data: { text: '命令输出' } })
-  assert.equal(text, '命令输出')
+  assert.equal(text, '')
 })
 
 

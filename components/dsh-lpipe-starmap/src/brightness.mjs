@@ -1,8 +1,8 @@
 import { foldText } from './llm.mjs'
 
-/** 三种星的基础亮度：准确星 1、模糊星 1、通用星 0.2。 */
+/** 三种星的基础亮度：准确星 1、模糊星 0.3、通用星 0.2。 */
 export const EXACT_SOURCE = 1
-export const FUZZY_SOURCE = 1
+export const FUZZY_SOURCE = 0.3
 export const COMMON_SOURCE = 0.2
 /** 模糊星低于这个相似度就不算「闪了一下」。 */
 export const FUZZY_FLOOR = 0.5

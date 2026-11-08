@@ -85,9 +85,9 @@ test('模糊星靠感觉点亮：20:46 会想起 20:44，648 会想起 648.5', (
   assert.ok(close.has('s_time'))
   assert.ok(close.has('s_num'))
   // 模糊星在点亮阶段只算「像多少」，片段内的 2/n 上限在 candidates 里压。
-  assert.ok(close.get('s_time').score > 0.9)
+  assert.ok(close.get('s_time').score > 0.27)
   assert.ok(close.get('s_time').score <= 2)
-  assert.ok(close.get('s_num').score >= 0.8 * 0.5)
+  assert.ok(close.get('s_num').score >= 0.3 * 0.8 * 0.5)
   const far = flickerStars({ text: '现在是 23:50，读数 12。', stars })
   assert.equal(far.size, 0)
 })

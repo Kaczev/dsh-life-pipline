@@ -24,6 +24,7 @@ export const SYSTEM_PROMPT = [
   '- a phrase carrying inline math or LaTeX (线电荷密度 \\(\\lambda\\)), \\(E(0)=0\\)).',
   '- quantity and counting phrases (4 个节点, 6 条支路).',
   '- numbers, times, percentages, versions, coordinates — the program records those by itself. Never pair them.',
+  '- textual historical time locators (刚刚, 刚才, 昨天, 上周, 最近, 过去三天). These query time stars and are never concept endpoints, even in quoted examples. Mechanism concepts such as 时间星, 时间模板, 时间范围 and 时区 remain valid.',
   '- pronouns and pointing words (这个, 那个, 上面, it, that), greetings, mood, politeness.',
   '- bare verbs or adjectives (改成, 避免, 很好) — they describe an action, not a thing.',
   '- anything that only makes sense inside this one sentence.',

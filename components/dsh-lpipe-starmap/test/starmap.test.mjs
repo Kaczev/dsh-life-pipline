@@ -34,7 +34,7 @@ test('一轮落进星图：星表、星源、水位三样都写', () => {
   buildTurn({ repo, turn: makeTurn({ turn: 1, at, rows }), sessionId: 'sess-a', pairs })
 
   const stars = readFileSync(starsFile(root), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
-  assert.deepEqual(stars.map((star) => star.name).sort(), ['wake_set', '唤醒管线', '记忆管线'])
+  assert.deepEqual(stars.map((star) => star.name).sort(), ['唤醒管线', '记忆管线'])
   assert.equal(stars.find((star) => star.name === '记忆管线').id, starIdOf('记忆管线'))
 
   const file = sourceFile(root, 'sess-a', dayOf(at))
@@ -43,8 +43,8 @@ test('一轮落进星图：星表、星源、水位三样都写', () => {
   assert.equal(record.turn, 1)
   assert.equal(record.from, 0)
   assert.equal(record.to, 2)
-  assert.equal(record.lines.find((line) => line.seq === 2).stars.length, 1, '工具调用自成一句')
-  assert.equal(record.pairs.length, 2)
+  assert.equal(record.lines.some((line) => line.seq === 2), false, '工具调用仅记忆')
+  assert.equal(record.pairs.length, 1)
 
   const state = JSON.parse(readFileSync(stateFile(root), 'utf8'))
   assert.deepEqual(state.built['sess-a'], { turn: 1, to: 2 })

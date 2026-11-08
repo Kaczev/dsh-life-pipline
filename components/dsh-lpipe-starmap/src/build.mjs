@@ -3,6 +3,7 @@
 // 抽星只问模型一次（它回答「哪两个概念一起出现过」），落到哪一句、连多粗，
 // 全在这里算：同一句 1（句内星多时按 1/(k-1) 分摊）、相邻句 0.5、都对不上的
 // 整轮记 0.5。这样权重永远是确定性的，模型换了也不会飘。
+import { isTimeLocator } from './time.mjs'
 import { clockOf } from './extract.mjs'
 import { fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 import { cleanStarName, findInSentences, foldText } from './llm.mjs'
@@ -28,7 +29,7 @@ export const isSingleLatinStar = (name) => /^\p{Script=Latin}$/u.test(foldText(n
 
 export function starWorthy(name) {
   const text = String(name ?? '').trim()
-  if (!text) return false
+  if (!text || isTimeLocator(text)) return false
   if (isSingleLatinStar(text)) return false
   if (SYMBOL_ONLY.test(text)) return false
   const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
@@ -67,30 +68,17 @@ export function groupTurns(rows) {
     }))
 }
 
-/** 一行里拿来抽星的文字：正文、思考；工具调用只取工具名，长工具输出不当成「说过的话」。 */
-const MAX_TOOL_RESULT = 600
-
+/** 交流正文与思考参与抽星；工具仅保留 chat_send 的发送正文。 */
 export function textsOf(row, toolName = null) {
-  // 注入的上下文（运行期快照、回忆/联想/想象）不是「说过的话」，不抽星。
   if (row?.kind === 'user/message' && PIPELINE_SOURCES.has(row?.source?.kind)) return []
-  // 管线工具（回忆/联想/想象）也不参与抽星。
-  if (row?.kind === 'tool/call' && isPipelineTool(row?.name)) return []
-  if (row?.kind === 'tool/result' && isPipelineTool(toolName)) return []
-  // 发给人的那段话就是你我说的话，不是「工具输出」：全文参与抽星。
-  if (row?.kind === 'tool/call' && String(row?.name) === 'chat_send') {
+  if (row?.kind === 'tool/call' && row.name === 'chat_send') {
     try {
-      const args = JSON.parse(row.arguments ?? '{}')
-      if (typeof args?.text === 'string' && args.text.trim()) return [args.text]
-    } catch { /* 参数不是 JSON 就当没有 */ }
-    return []
+      const args = typeof row.arguments === 'string' ? JSON.parse(row.arguments) : row.arguments
+      return typeof args?.text === 'string' && args.text.trim() ? [args.text] : []
+    } catch { return [] }
   }
-  if (row?.kind === 'tool/result') {
-    const text = typeof row.text === 'string' ? row.text.trim() : ''
-    // chat_send 的结果是「发出去的那段话」，跟我说的正文同类，不设上限。
-    if (toolName === 'chat_send') return text ? [text] : []
-    // 读文件、列目录这类工具的结果是数据，不是句子：整段抽星只会把文件名变成概念。
-    return text && text.length <= MAX_TOOL_RESULT ? [text] : []
-  }
+  if (row?.kind === 'tool/call' || row?.kind === 'tool/result') return []
+
   const texts = []
   if (typeof row?.text === 'string' && row.text.trim()) texts.push(row.text)
   if (typeof row?.reasoning === 'string' && row.reasoning.trim()) texts.push(row.reasoning)
@@ -105,8 +93,7 @@ export function sentencesOf(turn) {
   for (const [rowIndex, row] of (turn.rows ?? []).entries()) {
     if (row?.kind === 'tool/call' && row?.name) {
       calledWith = String(row.name)
-      if (isPipelineTool(calledWith)) continue
-      out.push({ seq: row.seq, row: rowIndex, text: calledWith })
+      if (calledWith !== 'chat_send') continue
       // chat_send 的正文要单独成句：它就是我跟人说的话。
       for (const text of textsOf(row)) out.push({ seq: row.seq, row: rowIndex, text })
       continue

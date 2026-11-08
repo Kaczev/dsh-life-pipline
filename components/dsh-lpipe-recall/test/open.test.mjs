@@ -15,7 +15,7 @@ test('坐标必须是正安全整数，完整 ID 仍能解析', () => {
 
 test('与模糊回忆切句口径一致，纳入短工具结果并排除代码', () => {
   const reader = readerOf([row(5, '一。二。'), row(5, '工具', { kind: 'tool/result' }), row(5, '```js\na=1\n```'), row(6, '别的轮次。')])
-  assert.deepEqual(fragmentSentencesOf(reader, 'repo', 5).map((line) => line.text), ['一。', '二。', '工具'])
+  assert.deepEqual(fragmentSentencesOf(reader, 'repo', 5).map((line) => line.text), ['一。', '二。'])
 })
 
 test('跨片段区间包含端点；头部列出所有已读片段和总数', () => {

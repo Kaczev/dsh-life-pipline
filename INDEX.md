@@ -17,7 +17,7 @@
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
   - [src/brightness.mjs](components/dsh-lpipe-starmap/src/brightness.mjs)：基础亮度与通用分类的只读快照。
   - [src/match.mjs](components/dsh-lpipe-starmap/src/match.mjs)：文星／时星统一匹配，输出类型、亮度及最后命中位置；[文星测试](components/dsh-lpipe-starmap/test/brightness.test.mjs)。
-  - [src/time.mjs](components/dsh-lpipe-starmap/src/time.mjs)：片段时间星视图、时间表达组合与范性／确性响应；[解析测试](components/dsh-lpipe-starmap/test/time.test.mjs)、[回忆接入测试](components/dsh-lpipe-recall/test/time.test.mjs)。
+  - [src/time.mjs](components/dsh-lpipe-starmap/src/time.mjs)：片段时间星视图、时间表达组合、文字定位端点过滤与范性／确性响应；[端点测试](components/dsh-lpipe-starmap/test/time-locator.test.mjs)；[解析测试](components/dsh-lpipe-starmap/test/time.test.mjs)、[回忆接入测试](components/dsh-lpipe-recall/test/time.test.mjs)。
   - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
 - [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
   - [README.md](components/dsh-lpipe-recall/README.md)：配置、设置块与三个主动工具的参数和分页规则。
@@ -25,7 +25,7 @@
   - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：环境权重与预算、准确真文准入、亮度排序与原文选句。
   - [src/environment.mjs](components/dsh-lpipe-recall/src/environment.mjs)：片段时间、全库 BM25 与展示摘录前缀掩盖；[测试](components/dsh-lpipe-recall/test/environment.test.mjs)。
   - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` / `recall_image` 定义与执行。
-  - [src/text.mjs](components/dsh-lpipe-recall/src/text.mjs)：响应窗口与回忆展示共用的工具文字取材和分句；[测试](components/dsh-lpipe-recall/test/text.test.mjs)。
+  - [src/text.mjs](components/dsh-lpipe-recall/src/text.mjs)：响应窗口与回忆展示共用的交流文字投影（工具仅保留发送正文）；[测试](components/dsh-lpipe-recall/test/text.test.mjs)。
   - [src/images.mjs](components/dsh-lpipe-recall/src/images.mjs)：图片元数据引用、所属片段校验与按需读取；[测试](components/dsh-lpipe-recall/test/images.test.mjs)。
   - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
   - [src/rpc.mjs](components/dsh-lpipe-recall/src/rpc.mjs)：`/api/dsh-lpipe-recall` 的 `recall.config` / `recall.config.save`。

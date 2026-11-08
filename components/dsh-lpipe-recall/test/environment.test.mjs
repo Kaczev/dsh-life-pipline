@@ -50,7 +50,7 @@ test('全库BM25使用原文、长度归一化和去重查询词，纳入短工�
   assert.ok(bm25(data.documents.get('s#1'), q, data) > bm25(data.documents.get('s#2'), q, data))
   assert.equal(bm25(data.documents.get('s#1'), [...q, ...q], data), bm25(data.documents.get('s#1'), q, data))
   assert.equal(data.documents.get('s#1').tf.has('不能'), false)
-  assert.equal(data.documents.get('s#1').tf.has('短文'), true)
+  assert.equal(data.documents.get('s#1').tf.has('短文'), false)
 })
 
 test('词面系数按完整候选池归一化，无命中退回1，候选与配置不被改写', () => {
