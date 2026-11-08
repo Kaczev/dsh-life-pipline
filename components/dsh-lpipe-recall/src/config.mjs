@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG = {
   coolChars: 1000000,
   minStrength: 0,
   sentencesPerFragment: 2,
+  recentDays: 30,
   // 二类触发源（我的思考、中途回复、工具结果）每攒够这么多次才评估一次回忆。
 }
 
@@ -31,6 +32,7 @@ export function normalizeConfig(raw = {}) {
   const merged = { ...DEFAULT_CONFIG, ...(raw && typeof raw === 'object' ? raw : {}) }
   return {
     enabled: merged.enabled !== false,
+    recentDays: clamp(merged.recentDays, 1, 3650, DEFAULT_CONFIG.recentDays),
     fragments: clamp(merged.fragments, 1, 5, DEFAULT_CONFIG.fragments),
     backgroundChars: clamp(merged.backgroundChars, 8000, 96000, DEFAULT_CONFIG.backgroundChars),
     inputChars: clamp(merged.inputChars, 2000, 32000, DEFAULT_CONFIG.inputChars),
@@ -61,7 +63,7 @@ export function saveConfig(root, patch = {}) {
 }
 
 /**
- * 设置页只开放这五项。范围与默认值必须和 `normalizeConfig` 保持一致：
+ * 设置页只开放这六项。范围与默认值必须和 `normalizeConfig` 保持一致：
  * 面板负责挡住手滑，宿主这里再挡一次，坏值永远不落盘。
  */
 export const PANEL_FIELDS = Object.freeze([
@@ -70,6 +72,7 @@ export const PANEL_FIELDS = Object.freeze([
   { key: 'inputChars', label: '真文上限', min: 2000, max: 32000, fallback: DEFAULT_CONFIG.inputChars },
   { key: 'backgroundChars', label: '背景窗口', min: 8000, max: 96000, fallback: DEFAULT_CONFIG.backgroundChars },
   { key: 'coolChars', label: '冷却窗口', min: 32000, max: 4000000, fallback: DEFAULT_CONFIG.coolChars },
+  { key: 'recentDays', label: '近期记忆天数', min: 1, max: 3650, fallback: DEFAULT_CONFIG.recentDays },
 ])
 
 export class RecallConfigError extends Error {
@@ -80,7 +83,7 @@ export class RecallConfigError extends Error {
   }
 }
 
-/** 只把设置页需要的五项交给客户端，别把别的旋钮带出去。 */
+/** 只把设置页需要的六项交给客户端，别把别的旋钮带出去。 */
 export function panelConfigOf(config = {}) {
   const normalized = normalizeConfig(config)
   return Object.fromEntries(PANEL_FIELDS.map((field) => [field.key, normalized[field.key]]))
@@ -88,7 +91,7 @@ export function panelConfigOf(config = {}) {
 
 /**
  * 设置页保存走这条路，而不是 `saveConfig`：后者会把配置重新归一化成固定键，
- * 顺手丢掉 `secondEvery` 之类它不认识的字段。这里只换这五项，其余原样保留。
+ * 顺手丢掉 `secondEvery` 之类它不认识的字段。这里只换这六项，其余原样保留。
  */
 export function savePanelConfig(root, patch = {}) {
   const raw = readRawConfig(root)

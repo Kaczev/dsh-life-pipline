@@ -50,7 +50,7 @@ const badge = {
 };
 
 const grid = { display: 'grid', gap: 7 };
-const gridFive = { ...grid, gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' };
+const gridFive = { ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' };
 
 const field = { minWidth: 0 };
 const fieldHead = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, marginBottom: 4 };
@@ -104,6 +104,7 @@ const FIELDS = Object.freeze([
   { key: 'inputChars', label: '真文上限', unit: '字', min: 2000, max: 32000, fallback: 32000 },
   { key: 'backgroundChars', label: '背景窗口', unit: '字', min: 8000, max: 96000, fallback: 16000 },
   { key: 'coolChars', label: '冷却窗口', unit: '字', min: 32000, max: 4000000, fallback: 1000000 },
+  { key: 'recentDays', label: '近期记忆天数', unit: '天', min: 1, max: 3650, fallback: 30 },
 ]);
 
 const DEFAULT_VALUES = Object.freeze(Object.fromEntries(FIELDS.map((item) => [item.key, item.fallback])));
@@ -355,7 +356,7 @@ function RecallPanel({ rpcCall }) {
   const dirty = Boolean(form && committed && !valuesEqual(form, committed));
   const firstError = FIELDS.map((item) => draft.errors[item.key]).find(Boolean) || '';
   let statusTone = 'muted';
-  let statusText = '保存后下一轮起生效；只改这五项，其他配置原样保留。';
+  let statusText = '保存后下一轮起生效；只改这六项，其他配置原样保留。';
   if (firstError) {
     statusTone = 'error';
     statusText = `校验未通过：${firstError}`;

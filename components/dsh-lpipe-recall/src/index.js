@@ -7,6 +7,7 @@ import { starProfile } from 'dsh-lpipe-starmap/brightness'
 export { COMMON_SHARE, commonStars } from 'dsh-lpipe-starmap/brightness'
 import { candidatesOf, coolTurns } from './candidates.mjs'
 import { environmentFlicker } from './match.mjs'
+import { rankFragments } from './environment.mjs'
 import { loadConfig, panelConfigOf, savePanelConfig } from './config.mjs'
 import { createRecallRpcHandler, registerRecallRpc } from './rpc.mjs'
 import { matchStars } from 'dsh-lpipe-starmap/match'
@@ -601,7 +602,7 @@ export function apply(ctx, options = {}) {
       common,
       foreground: foregroundExact,
       current: currentExact,
-      limit: settings.fragments,
+      limit: Infinity,
     })
     if (candidates.length === 0) {
       report({
@@ -615,7 +616,7 @@ export function apply(ctx, options = {}) {
     }
 
     // 已经在他眼前的片段不再摆：记号就写在上一次的块头上。
-    const fresh = candidates.filter((entry) => !present.has(entry.key))
+    const fresh = rankFragments({ candidates, query: foreground, repo: store, reader, flicker, config: settings })
     if (fresh.length === 0) {
       report({ skip: 'in-context', flicker: flicker.size, candidates: candidates.length })
       return ''
@@ -627,6 +628,8 @@ export function apply(ctx, options = {}) {
       exact: entry.exact,
       fuzzy: entry.fuzzy,
       strength: Number((entry.strength ?? 0).toFixed(2)),
+      timeFactor: entry.timeFactor, lexicalFactor: entry.lexicalFactor, maskFactor: entry.maskFactor,
+      adjustedStrength: entry.adjustedStrength,
       stars: (entry.stars ?? []).slice(0, 8).map((id) => {
         const hit = flicker.get(id)
         return { name: hit?.name ?? id, kind: hit?.kind ?? 'exact', score: Number((hit?.score ?? 0).toFixed(2)) }

@@ -12,9 +12,10 @@ const VALUES = {
   inputChars: 32000,
   backgroundChars: 16000,
   coolChars: 1000000,
+  recentDays: 30,
 }
 
-test('recall.config 只交出五项，recall.config.save 收到的就是客户端发的那份', async () => {
+test('recall.config 只交出六项，recall.config.save 收到的就是客户端发的那份', async () => {
   const calls = []
   const handle = createRecallRpcHandler({
     config: {

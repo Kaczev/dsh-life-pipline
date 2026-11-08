@@ -101,7 +101,7 @@ test('面板能渲染第一屏（引用顺序错会在这里当场抛错）', ()
   assert.match(text, /正在读取回忆管线配置/)
 })
 
-test('表单只出现五个输入项，默认值用 K/M 简写', () => {
+test('表单只出现六个输入项，默认值用 K/M 简写', () => {
   const { exported } = loadBundle()
   const testApi = exported.__test__
   const form = testApi.displayValues(testApi.DEFAULT_VALUES)
@@ -113,14 +113,14 @@ test('表单只出现五个输入项，默认值用 K/M 简写', () => {
     errors: {},
     saving: false,
     dirty: false,
-    statusText: '只改这五项。',
+    statusText: '只改这六项。',
     statusTone: 'muted',
     onChange: () => {},
     onSave: () => {},
     onRevert: () => {},
   })
   const text = textOf(element)
-  for (const label of ['每轮片段', '每段句数', '真文上限', '背景窗口', '冷却窗口']) {
+  for (const label of ['每轮片段', '每段句数', '真文上限', '背景窗口', '冷却窗口', '近期记忆天数']) {
     assert.match(text, new RegExp(label))
   }
   assert.match(text, /2K–32K/)
@@ -130,7 +130,7 @@ test('表单只出现五个输入项，默认值用 K/M 简写', () => {
   assert.doesNotMatch(text, /enabled|minStrength|minStars|secondEvery/)
 })
 
-test('五个输入项的范围与宿主配置表完全一致', () => {
+test('六个输入项的范围与宿主配置表完全一致', () => {
   const { exported } = loadBundle()
   const fields = exported.__test__.FIELDS
   assert.deepEqual(

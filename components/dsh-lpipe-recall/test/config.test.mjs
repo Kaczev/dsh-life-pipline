@@ -20,7 +20,7 @@ function writeConfig(root, value) {
   writeFileSync(join(root, 'config.json'), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
-test('面板只开放五项，默认值与范围跟实现一致', () => {
+test('面板只开放六项，默认值与范围跟实现一致', () => {
   assert.deepEqual(
     PANEL_FIELDS.map(({ key, min, max, fallback }) => ({ key, min, max, fallback })),
     [
@@ -29,6 +29,7 @@ test('面板只开放五项，默认值与范围跟实现一致', () => {
       { key: 'inputChars', min: 2000, max: 32000, fallback: 32000 },
       { key: 'backgroundChars', min: 8000, max: 96000, fallback: 16000 },
       { key: 'coolChars', min: 32000, max: 4000000, fallback: 1000000 },
+      { key: 'recentDays', min: 1, max: 3650, fallback: 30 },
     ],
   )
   assert.deepEqual(panelConfigOf({}), {
@@ -37,10 +38,11 @@ test('面板只开放五项，默认值与范围跟实现一致', () => {
     inputChars: DEFAULT_CONFIG.inputChars,
     backgroundChars: DEFAULT_CONFIG.backgroundChars,
     coolChars: DEFAULT_CONFIG.coolChars,
+    recentDays: 30,
   })
 })
 
-test('保存五项时保留 enabled、minStrength、minStars、secondEvery 与未知字段', () => {
+test('保存六项时保留 enabled、minStrength、minStars、secondEvery 与未知字段', () => {
   const { root, done } = tempRoot()
   try {
     writeConfig(root, {
@@ -62,6 +64,7 @@ test('保存五项时保留 enabled、minStrength、minStars、secondEvery 与�
       inputChars: 20000,
       backgroundChars: 24000,
       coolChars: 250000,
+      recentDays: 30,
     })
     assert.deepEqual(saved, {
       fragments: 4,
@@ -69,6 +72,7 @@ test('保存五项时保留 enabled、minStrength、minStars、secondEvery 与�
       inputChars: 20000,
       backgroundChars: 24000,
       coolChars: 250000,
+      recentDays: 30,
     })
 
     const raw = JSON.parse(readFileSync(join(root, 'config.json'), 'utf8'))
@@ -126,6 +130,21 @@ test('非整数、越界的值拒绝落盘，文件保持原样', () => {
   } finally {
     done()
   }
+})
+
+test('近期记忆天数可单独保存，非法值不落盘', () => {
+  const { root, done } = tempRoot()
+  try {
+    writeConfig(root, { fragments: 3, futureKnob: 'keep' })
+    assert.equal(savePanelConfig(root, { recentDays: 60 }).recentDays, 60)
+    assert.equal(readRawConfig(root).fragments, 3)
+    assert.equal(readRawConfig(root).futureKnob, 'keep')
+    const before = readFileSync(join(root, 'config.json'), 'utf8')
+    for (const value of [0, -1, 3651, 1.5, '30']) {
+      assert.throws(() => savePanelConfig(root, { recentDays: value }), /近期记忆天数/)
+      assert.equal(readFileSync(join(root, 'config.json'), 'utf8'), before)
+    }
+  } finally { done() }
 })
 
 test('配置缺失或读不懂时，面板读到默认值而不是打不开', () => {

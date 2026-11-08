@@ -83,7 +83,7 @@ export function sentenceScore(text, flicker) {
   return { score, exact, ids }
 }
 
-function fragmentSentences({ reader, candidate, flicker, limit }) {
+export function fragmentSentences({ reader, candidate, flicker, limit }) {
   const rows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn && isSpokenRow(row))
   // 只拿「这一段自己的命中星」来给句子打分。
   //
@@ -125,7 +125,7 @@ export function renderRecall({ candidates, flicker, reader, config, footer = '' 
   if (!Array.isArray(candidates) || candidates.length === 0) return ''
   const blocks = []
   for (const [index, candidate] of candidates.entries()) {
-    const { total, lines } = fragmentSentences({
+    const { total, lines } = candidate.excerpt ?? fragmentSentences({
       reader,
       candidate,
       flicker,

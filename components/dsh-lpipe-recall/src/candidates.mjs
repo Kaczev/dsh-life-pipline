@@ -109,6 +109,7 @@ export function candidatesOf({
       to: record?.to ?? null,
     })
   }
+  if (limit === Infinity) return out
   // 总亮度优先；同分才比较准确真文星数量和时间。
   out.sort(
     (a, b) =>
