@@ -1,3 +1,4 @@
+import { recallRows, recallPieces } from './text.mjs'
 import { imagesOfRows } from './images.mjs'
 import { FUZZY_FLOOR, NUMBER_FLOOR } from './match.mjs'
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
@@ -86,7 +87,7 @@ export function sentenceScore(text, flicker) {
 
 export function fragmentSentences({ reader, candidate, flicker, limit }) {
   const fragmentRows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn)
-  const rows = fragmentRows.filter(isSpokenRow)
+  const rows = recallRows(fragmentRows)
   // 只拿「这一段自己的命中星」来给句子打分。
   //
   // 用整窗的点亮星会让别的句子莫名其妙地排前面：那些星是照亮了别的片段的，
@@ -99,7 +100,7 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
   for (const row of rows) {
     const text = typeof row.text === 'string' ? row.text : ''
     if (!text) continue
-    for (const sentence of pieces(text)) {
+    for (const sentence of recallPieces(row, pieces)) {
       const { score, exact, ids } = sentenceScore(sentence, local)
       all.push({ id: all.length + 1, score: score + (candidate.timeStrength ?? 0), exact, ids, at: row.at ?? candidate.at, text: sentence })
     }

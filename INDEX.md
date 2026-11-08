@@ -25,6 +25,7 @@
   - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：环境权重与预算、准确真文准入、亮度排序与原文选句。
   - [src/environment.mjs](components/dsh-lpipe-recall/src/environment.mjs)：片段时间、全库 BM25 与展示摘录前缀掩盖；[测试](components/dsh-lpipe-recall/test/environment.test.mjs)。
   - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` / `recall_image` 定义与执行。
+  - [src/text.mjs](components/dsh-lpipe-recall/src/text.mjs)：响应窗口与回忆展示共用的工具文字取材和分句；[测试](components/dsh-lpipe-recall/test/text.test.mjs)。
   - [src/images.mjs](components/dsh-lpipe-recall/src/images.mjs)：图片元数据引用、所属片段校验与按需读取；[测试](components/dsh-lpipe-recall/test/images.test.mjs)。
   - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
   - [src/rpc.mjs](components/dsh-lpipe-recall/src/rpc.mjs)：`/api/dsh-lpipe-recall` 的 `recall.config` / `recall.config.save`。

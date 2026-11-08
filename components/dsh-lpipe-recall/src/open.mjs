@@ -1,5 +1,6 @@
+import { recallRows, recallPieces } from './text.mjs'
 import { imagesOfRows, imageListing } from './images.mjs'
-import { isSpokenRow, pieces } from './render.mjs'
+import { pieces } from './render.mjs'
 
 export const MAX_SENTENCES = 200
 export const MAX_CHARS = 24000
@@ -28,12 +29,11 @@ export const recallIdOf = (session, turn, sentence = null) =>
 
 function fragmentsOf(rows) {
   const fragments = new Map()
-  for (const [rowIndex, row] of rows.entries()) {
+  for (const [rowIndex, row] of recallRows(rows).entries()) {
     if (!Number.isSafeInteger(row.turn) || row.turn < 1) continue
     if (!fragments.has(row.turn)) fragments.set(row.turn, [])
-    if (!isSpokenRow(row)) continue
     const lines = fragments.get(row.turn)
-    for (const text of pieces(row.text ?? '')) lines.push({ turn: row.turn, id: lines.length + 1, text, at: row.at ?? null, rowIndex })
+    for (const text of recallPieces(row, pieces)) lines.push({ turn: row.turn, id: lines.length + 1, text, at: row.at ?? null, rowIndex })
   }
   return fragments
 }
@@ -58,7 +58,7 @@ export function openRange({ reader, session, from, to = null, count = DEFAULT_CO
         const messageLines = lines.filter(line => line.rowIndex === rowIndex)
         const messageImages = selectedImages.filter(image => image.rowIndex === rowIndex)
         if (!messageLines.length && !messageImages.length) continue
-        const speaker = row.kind === 'user/message' ? '用户' : row.kind === 'assistant/message' ? '助手' : '工具结果'
+        const speaker = row.kind === 'user/message' ? '用户' : row.kind === 'assistant/message' ? '助手' : row.kind === 'tool/call' ? '工具调用' : '工具结果'
         body.push('〔' + speaker + '｜记忆行 ' + (row.seq ?? rowIndex + 1) + '〕' + (!messageLines.length && messageImages.length ? '（本次未读取该消息文字）' : ''))
         for (const line of messageLines) {
           const index = lines.indexOf(line)

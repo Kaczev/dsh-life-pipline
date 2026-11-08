@@ -13,7 +13,8 @@ import { createRecallRpcHandler, registerRecallRpc } from './rpc.mjs'
 import { matchStars } from 'dsh-lpipe-starmap/match'
 import { foldText } from 'dsh-lpipe-starmap/llm'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
-import { isSpokenRow, renderRecall } from './render.mjs'
+import { renderRecall } from './render.mjs'
+import { recallRows, recallTexts } from './text.mjs'
 import { createRecallTools } from './tools.mjs'
 
 export const name = 'dsh-lpipe-recall'
@@ -48,16 +49,15 @@ const STARS_FILE = 'stars.jsonl'
 /**
  * 近窗原文：从会话末尾往前收 `matchChars` 个字符，按原顺序拼回去。
  *
- * 只收「说过的话」——和抽星时读到的是同一部分。工具输出、日志、注入的上下文
- * 那时候就没参与算星，匹配时也不该拿它们来点亮星星。
+ * 收取正文、思考及合格工具文字；注入的上下文与管线工具排除。
  */
 export function recentText(rows, matchChars) {
   const chunks = []
   let size = 0
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
+  const projected = recallRows(rows, { reasoning: true })
+  for (let index = projected.length - 1; index >= 0; index -= 1) {
     if (size >= matchChars) break
-    if (!isSpokenRow(rows[index])) continue
-    const text = typeof rows[index]?.text === 'string' ? rows[index].text : ''
+    const text = projected[index].text
     if (!text) continue
     chunks.push(text)
     size += text.length
@@ -261,24 +261,14 @@ export function windowsOf(rows, current, { backgroundChars, foregroundChars }) {
  * 它们不触发回忆（二类触发源已取消：会在半路打断思考），但要进匹配窗口——
  * 「刚才在说什么」本来就包括我自己说的话。
  */
-export function activityTextOf(event) {
+export function activityTextOf(event, toolName = null) {
   const data = event?.data
-  if (!data) return ''
-  if (event.type === 'assistant/message') {
-    const parts = data?.message?.content
-    if (!Array.isArray(parts)) return typeof data.text === 'string' ? data.text : ''
-    return parts
-      .filter((part) => part && (part.type === 'text' || part.type === 'reasoning') && typeof part.text === 'string')
-      .map((part) => part.text)
-      .join('\n')
-  }
-  if (event.type === 'tool/result') {
-    if (typeof data.text === 'string') return data.text
-    const parts = data?.content
-    if (Array.isArray(parts)) return parts.filter((part) => typeof part?.text === 'string').map((part) => part.text).join('\n')
-    return ''
-  }
-  return ''
+  if (!data || !['assistant/message', 'tool/call', 'tool/result'].includes(event.type)) return ''
+  const content = data.message?.content ?? data.content
+  const parts = Array.isArray(content) ? content : []
+  const text = typeof data.text === 'string' ? data.text : typeof content === 'string' ? content : parts.filter(part => part?.type === 'text').map(part => part.text).join('\n')
+  const reasoning = typeof data.reasoning === 'string' ? data.reasoning : parts.filter(part => part?.type === 'reasoning').map(part => part.text).join('\n')
+  return recallTexts({ ...data, kind: event.type, text, reasoning }, toolName, { reasoning: true }).join('\n')
 }
 
 export function createTriggerHandler({ compose, deliver, warn = () => {}, note = () => {}, activity = () => {} }) {
@@ -466,8 +456,7 @@ export function apply(ctx, options = {}) {
     if (buffers.has(sessionId)) return buffers.get(sessionId)
     let text = ''
     try {
-      for (const row of rowsNow(sessionId)) {
-        if (!isSpokenRow(row) && row?.kind !== 'tool/result') continue
+      for (const row of recallRows(rowsNow(sessionId), { reasoning: true })) {
         if (typeof row?.text === 'string') text += `${row.text}\n`
       }
     } catch {
@@ -481,6 +470,7 @@ export function apply(ctx, options = {}) {
 
   /** 每个会话已经收进缓冲区的最后一个 seq。 */
   const bufferSeen = new Map()
+  const bufferCalls = new Map()
 
   /**
    * 把缓冲区推到会话末尾。
@@ -496,12 +486,25 @@ export function apply(ctx, options = {}) {
     if (!Number.isInteger(last)) {
       // 记忆里没有东西可播种（全新会话）时，从第一条事件开始收——否则缓冲区永远是空的。
       bufferSeen.set(sessionId, bufferSeeded.get(sessionId) === false ? 0 : session.seq)
-      if (bufferSeeded.get(sessionId) !== false) return
+      if (bufferSeeded.get(sessionId) !== false) {
+        const calls = new Map()
+        for (let seq = 0; seq < session.seq; seq++) {
+          const event = session.eventAt?.(seq)
+          if (event?.type === 'tool/call') calls.set(event.data?.callId, event.data?.name)
+        }
+        bufferCalls.set(sessionId, calls)
+        return
+      }
     }
-    for (let seq = last; seq < session.seq; seq += 1) {
+    const calls = bufferCalls.get(sessionId) ?? new Map()
+    bufferCalls.set(sessionId, calls)
+    for (let seq = bufferSeen.get(sessionId); seq < session.seq; seq += 1) {
       const event = session.eventAt?.(seq)
       if (!event) continue
-      const text = activityTextOf(event)
+      if (event.type === 'tool/call') calls.set(event.data?.callId, event.data?.name)
+      const data = event.data ?? {}
+      const toolName = calls.get(data.callId ?? data.message?.toolCallId ?? data.message?.source?.callId)
+      const text = activityTextOf(event, toolName)
       if (text) appendActivity(sessionId, text)
     }
     bufferSeen.set(sessionId, session.seq)

@@ -34,13 +34,13 @@ test('时间系数从2连续衰减到1，期限可配置，未来与缺失时间
   assert.ok(Math.abs(timeCoefficient(now - 29.999 * DAY, now) - 1) < 1e-12)
 })
 
-test('全库BM25使用原文、长度归一化和去重查询词，不纳入工具与注入', () => {
+test('全库BM25使用原文、长度归一化和去重查询词，纳入短工具结果但排除注入', () => {
   const repo = { turns: new Map([['s#1', { session: 's', turn: 1 }], ['s#2', { session: 's', turn: 2 }]]) }
   let reads = 0
   const reader = { rows: () => { reads++; return [
     { turn: 1, kind: 'user/message', text: '朋友不对劲。' },
     { turn: 2, kind: 'assistant/message', text: '朋友开心。开心。开心。开心。' },
-    { turn: 1, kind: 'tool/result', text: '不能入库' },
+    { turn: 1, kind: 'tool/result', text: '工具短文' },
     { turn: 1, kind: 'user/message', source: { kind: 'dsh-lpipe-recall' }, text: '不能入库' },
   ] } }
   const data = lexicalCorpus({ repo, reader })
@@ -50,6 +50,7 @@ test('全库BM25使用原文、长度归一化和去重查询词，不纳入工�
   assert.ok(bm25(data.documents.get('s#1'), q, data) > bm25(data.documents.get('s#2'), q, data))
   assert.equal(bm25(data.documents.get('s#1'), [...q, ...q], data), bm25(data.documents.get('s#1'), q, data))
   assert.equal(data.documents.get('s#1').tf.has('不能'), false)
+  assert.equal(data.documents.get('s#1').tf.has('短文'), true)
 })
 
 test('词面系数按完整候选池归一化，无命中退回1，候选与配置不被改写', () => {

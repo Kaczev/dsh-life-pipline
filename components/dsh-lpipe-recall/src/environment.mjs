@@ -1,4 +1,5 @@
-import { isSpokenRow, pieces, fragmentSentences } from './render.mjs'
+import { recallRows, recallPieces } from './text.mjs'
+import { pieces, fragmentSentences } from './render.mjs'
 
 const DAY = 86400000
 
@@ -31,9 +32,8 @@ export function lexicalCorpus({ repo, reader }) {
   for (const record of repo.turns.values()) {
     if (!sessions.has(record.session)) {
       const turns = new Map()
-      for (const row of reader.rows(record.session)) {
-        if (!isSpokenRow(row)) continue
-        const text = pieces(row.text).join(' ')
+      for (const row of recallRows(reader.rows(record.session))) {
+        const text = recallPieces(row, pieces).join(' ')
         turns.set(row.turn, `${turns.get(row.turn) ?? ''} ${text}`)
       }
       sessions.set(record.session, turns)
