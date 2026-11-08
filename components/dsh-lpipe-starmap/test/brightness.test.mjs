@@ -58,6 +58,18 @@ test('准确星基础亮度不受位置影响，最后位置可来自较弱的�
   assert.equal(matchStars({ text: '。'.repeat(20) + '回忆匹配窗口', stars }).get('a').score, full.score)
 })
 
+test('重复时间和数值保持基础亮度，最后不达阈值的命中不覆盖位置', () => {
+  for (const star of [
+    { id: 'f', name: '20:44', kind: 'fuzzy', form: 'time', value: 1244 },
+    { id: 'f', name: '648.5', kind: 'fuzzy', form: 'number', value: 648.5 },
+  ]) {
+    const text = `${star.name} 然后 ${star.name} 最后 ${star.form === 'time' ? '23:50' : '9000'}`
+    const hit = matchStars({ text, stars: [star] }).get('f')
+    assert.equal(hit.score, matchStars({ text: star.name, stars: [star] }).get('f').score)
+    assert.equal(hit.at, text.lastIndexOf(star.name))
+  }
+})
+
 test('模糊星以最强匹配计算基础亮度，位置独立取最后有效匹配', () => {
   const stars = [{ id: 'f', name: '20:44', kind: 'fuzzy', form: 'time', value: 1244 }]
   const full = matchStars({ text: '20:44', stars }).get('f')

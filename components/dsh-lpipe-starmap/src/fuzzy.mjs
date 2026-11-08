@@ -80,7 +80,7 @@ const MEASURE_WORDS = /[个条颗次轮字行位种张页章节套件只岁米�
  * 它们是名字的一部分，不是数值感觉。
  */
 export function numbersIn(text) {
-  const source = String(text ?? '').replace(/(?:[01]?\d|2[0-3]):[0-5]\d/g, ' ')
+  const source = String(text ?? '').replace(/(?:[01]?\d|2[0-3]):[0-5]\d/g, clock => ' '.repeat(clock.length))
   const found = []
   let match
   while ((match = NUMBER.exec(source))) {
@@ -103,11 +103,12 @@ export function numbersIn(text) {
   return found
 }
 
-/** 一句话里所有的模糊星。 */
+/** 按规范名去重，保留各星最后一次有效命中的原文位置。 */
 export function fuzzyStarsIn(text) {
   const seen = new Map()
   for (const star of [...timesIn(text), ...numbersIn(text)]) {
-    if (!seen.has(star.name)) seen.set(star.name, star)
+    const previous = seen.get(star.name)
+    if (!previous || star.at > previous.at) seen.set(star.name, star)
   }
   return [...seen.values()]
 }

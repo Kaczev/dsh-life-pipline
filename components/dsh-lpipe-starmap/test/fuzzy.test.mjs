@@ -31,6 +31,16 @@ test('时间与数字的「感觉」：近的得分高，差一个量级就归�
   assert.equal(fuzzyScore({ form: 'time', value: 100 }, { form: 'number', value: 100 }), 0, '形态不同不比')
 })
 
+test('重复模糊星取最后原文位置，跨时间格式不依赖扫描顺序', () => {
+  for (const text of ['20:44 然后 20:44', '晚上八点 然后 20:00', '20:00 然后 晚上八点', '648.5 然后 648.50']) {
+    const hits = fuzzyStarsIn(text)
+    assert.equal(hits.length, 1)
+    assert.equal(hits[0].at, text.indexOf('然后 ') + 3)
+  }
+  const text = '20:44 然后 648.5 再到 20:46 最后 648.50'
+  assert.equal(numbersIn(text).at(-1).at, text.lastIndexOf('648.50'))
+})
+
 test('星星分类：时间与两位以上的独立数字是模糊星，其余是准确星', () => {
   assert.deepEqual(starMeta('20:44'), { kind: 'fuzzy', form: 'time', value: 1244 })
   assert.deepEqual(starMeta('648.5'), { kind: 'fuzzy', form: 'number', value: 648.5 })
