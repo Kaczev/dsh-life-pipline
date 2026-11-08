@@ -250,8 +250,8 @@ test('工具结果按 callId 认来源，跨片段全部排除，隐藏结果和
   const events = [call(1, 'a', 'recall_open'), result(2, 'a', 'lpipe_recall_id[repo:5] lpipe_recall_id[repo:6]'),
     call(3, 'b', 'recall_fragments'), result(4, 'b', 'lpipe_recall_id[repo:7]'),
     call(5, 'c', 'read'), result(6, 'c', 'lpipe_recall_id[repo:8]'),
-    call(7, 'd', 'recall_open', { repo: 'repo', from: '9:1', to: '10:2' }), result(8, 'd', 'failed', true)]
-  assert.deepEqual([...keysInSession({ snapshotEvents: () => events, surface: { nodes: [2, 6, 8] } })].sort(), ['repo#10', 'repo#5', 'repo#6', 'repo#9'])
+    call(7, 'd', 'recall_open', { repo: 'repo', from: '9:1', to: '10:2' }), result(8, 'd', 'failed lpipe_recall_id[repo:9]', true)]
+  assert.deepEqual([...keysInSession({ snapshotEvents: () => events, surface: { nodes: [2, 6, 8] } })].sort(), ['repo#5', 'repo#6'])
   assert.equal(keysInContext([{ role: 'user', content: 'lpipe_recall_id[repo:99]' }]).size, 0)
 })
 

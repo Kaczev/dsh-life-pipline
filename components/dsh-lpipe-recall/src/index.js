@@ -211,16 +211,7 @@ export function keysInSession(session) {
       const call = calls.get(message?.toolCallId ?? message?.source?.callId)
       if (!['recall_open', 'recall_fragments'].includes(call?.name)) continue
       content = message?.content
-      // 失败时也排除参数中明确指定的端点片段，不把助手自行构造的 ID 当已读。
-      if (message?.isError || event.data?.error) {
-        try {
-          const args = JSON.parse(call.arguments)
-          for (const value of [args.from, args.to]) {
-            const pos = /^(\d+):\d+$/.exec(value ?? '')
-            if (args.repo && pos) found.add(`${args.repo}#${Number(pos[1])}`)
-          }
-        } catch { /* 无效调用参数不作为坐标 */ }
-      }
+      if (message?.isError || event.data?.error) continue
     } else continue
     const texts = Array.isArray(content)
       ? content.map((part) => (typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : '')).filter(Boolean)

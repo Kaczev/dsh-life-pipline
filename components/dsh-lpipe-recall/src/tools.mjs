@@ -56,7 +56,7 @@ export function createRecallTools({ reader, compose = null }) {
         properties: {
           repo: { type: 'string', description: '记忆仓库 ID，即模糊回忆 lpipe_recall_id 中第一个冒号之前的部分。' },
           from: { type: 'string', description: '起点“片段ID:句子ID”，例如 858:12（包含该句）。' },
-          to: { type: 'string', description: '可选终点“片段ID:句子ID”（包含该句），可跨片段。' },
+          to: { type: ["string", "null"], description: '可选终点“片段ID:句子ID”（包含该句），可跨片段；省略、空字符串或 null 均按 count 读取。' },
           count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: '省略 to 时读取的句数，默认 20，范围 1–200；输出最多 24000 字符。' },
         },
         required: ['repo', 'from'],
@@ -77,8 +77,9 @@ export function createRecallTools({ reader, compose = null }) {
         const repo = args?.repo
         if (typeof repo !== 'string' || !repo.trim() || /[\s:\[\]]/.test(repo)) throw new Error('repo must be a memory repository ID')
         const from = parsePosition(args?.from)
-        const to = args?.to === undefined ? null : parsePosition(args.to)
-        if (!from || (args?.to !== undefined && !to)) throw new Error('from/to must look like turn:sentence with positive integer IDs')
+        const hasEnd = args?.to != null && !(typeof args.to === "string" && !args.to.trim())
+        const to = hasEnd ? parsePosition(args.to) : null
+        if (!from || (hasEnd && !to)) throw new Error('from/to must look like turn:sentence with positive integer IDs')
         reader.reload?.()
         const opened = openRange({ reader, session: repo, from, to, count: args?.count ?? DEFAULT_COUNT })
         return { text: opened.text, summary: `打开 ${repo} ${opened.start}–${opened.end}` }

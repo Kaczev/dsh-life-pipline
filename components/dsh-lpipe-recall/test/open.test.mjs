@@ -104,3 +104,10 @@ test("默认读取20句，仅返回首尾和跨片段边界的完整坐标", asy
  assert.equal(tool.parameters.properties.count.maximum, 200);
  assert.match((await tool.execute({ repo: "repo", from: "5:1" })).summary, /5:1–5:20/);
 });
+
+test('空终点按count读取，非法非空终点仍拒绝', async () => {
+ const tool = createRecallTools({ reader: readerOf([row(5, '一。二。三。')]) }).find(t => t.name === 'recall_open');
+ assert.deepEqual(tool.parameters.properties.to.type, ['string', 'null']);
+ for (const to of [undefined, null, '', '  ']) assert.match((await tool.execute({ repo: 'repo', from: '5:1', to, count: 2 })).summary, /5:1–5:2/);
+ for (const to of ['oops', 0, false]) await assert.rejects(() => tool.execute({ repo: 'repo', from: '5:1', to }), /positive integer/);
+});
