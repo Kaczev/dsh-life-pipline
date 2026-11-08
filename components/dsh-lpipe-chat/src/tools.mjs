@@ -153,7 +153,7 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
           channel: { type: 'string', enum: ['weixin', 'qq'], description: 'Optional channel filter.' },
           keyword: { type: 'string', description: 'Optional case-insensitive substring filter.' },
           messageId: { type: 'string', description: 'Open one archived message or forwarded record using its ID.' },
-          image: { type: 'string', description: 'View one forwarded image using its attachment ID shown in history. Use alone; downloads up to 8MB.' },
+          image: { type: 'string', description: 'View one forwarded image using its attachment ID shown in history (up to 8MB). When set, other history filters are ignored.' },
           cursor: { type: 'string', description: 'Continue a bounded page; retains the original filters.' },
           limit: { type: 'number', description: 'Maximum rows per page, 1-200. Default 20; byte budget may return fewer.' },
         },
@@ -163,11 +163,11 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
         render: (_args, value) => [{ type: 'text', text: value.summary }, ...(value.attachment ? [{ type: 'image', attachment: value.attachment }] : [])],
       },
       async execute(args, exec) {
-        const rows = store.readMessages();
-        if (args.image !== undefined && args.image !== '') {
-          if (args.messageId || args.cursor || args.channel || args.keyword || args.limit !== undefined) throw new Error('image attachment ID must be used alone');
-          return openForwardImageById(args.image, getAttachments(), { signal: exec?.signal });
+        const imageId = typeof args.image === 'string' ? args.image.trim() : args.image;
+        if (imageId) {
+          return openForwardImageById(imageId, getAttachments(), { signal: exec?.signal });
         }
+        const rows = store.readMessages();
         const selected = args.messageId ? rows.map(row => row.id === args.messageId || row.messageId === args.messageId ? withForwardFiles(row) : row) : rows;
         return historyPage(args, getConfig(), selected);
       },
