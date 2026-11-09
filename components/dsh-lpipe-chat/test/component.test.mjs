@@ -9,7 +9,14 @@ process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'life-chat-component-'));
 const { apply, name } = await import('../src/index.js');
 const { saveConfig: saveMainConfig } = await import('../../../src/config.mjs');
 saveMainConfig({ mainSessionId: 'main-test' });
-const { saveConfig, loadConfig } = await import('../src/config.mjs');
+const { saveConfig, loadConfig, defaultConfig, clampQuiet, clampWindow } = await import('../src/config.mjs');
+
+test('chat defaults merge at eight seconds and collect at fourteen seconds', () => {
+  assert.equal(defaultConfig().quietSeconds, 8);
+  assert.equal(defaultConfig().windowSeconds, 14);
+  assert.equal(clampQuiet(undefined), 8);
+  assert.equal(clampWindow(undefined), 14);
+});
 
 function fakeCtx(registrations) {
   const services = {

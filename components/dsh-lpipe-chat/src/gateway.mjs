@@ -1,3 +1,4 @@
+import { inboundHead } from './identity.mjs';
 import { randomUUID } from 'node:crypto';
 import { stampFor } from 'dsh-life-pipline/clock';
 import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
@@ -56,12 +57,12 @@ export class InboundGateway {
 
   #quietMs() {
     const { quietSeconds } = this.#getConfig();
-    return Math.min(60, Math.max(0.2, Number(quietSeconds) || 1)) * 1000;
+    return Math.min(60, Math.max(0.2, Number(quietSeconds) || 8)) * 1000;
   }
 
   #windowMs() {
     const { windowSeconds } = this.#getConfig();
-    return Math.min(120, Math.max(3, Number(windowSeconds) || 5)) * 1000;
+    return Math.min(120, Math.max(3, Number(windowSeconds) || 14)) * 1000;
   }
 
   /** Both deadlines must pass: the burst is closed and the window is over. */
@@ -197,16 +198,9 @@ export class InboundGateway {
 
   #render(batch) {
     this.#origins = [];
-    const { ownerName } = this.#getConfig();
+    const config = this.#getConfig();
     return batch.map((row) => {
-      const who = String(row.senderName
-        || (row.senderId && ownerName && row.senderId === this.#ownerId(row.channel) ? ownerName : '')
-        || shortId(row.senderId)).replace(/[\r\n\[\]\u0000-\u001f\u007f]/g, ' ');
-      const owner = this.#ownerId(row.channel);
-      const ownerMatch = Boolean(owner && row.senderId && String(row.senderId) === owner);
-      const head = row.conversationKind === 'group'
-        ? `${row.channelLabel} · ${shortId(row.conversationId)} · ${who}`
-        : `${row.channelLabel} · ${who}`;
+      const { head, ownerMatch } = inboundHead(row, config);
       return { head, ownerMatch, text: messageBody(row), at: row.at, images: row.images ?? [] };
     }).reduce((lines, row) => {
       // WeChat shows a time only when the conversation paused; a burst reads as
@@ -227,22 +221,10 @@ export class InboundGateway {
     }, []).join('\n');
   }
 
-  #ownerId(channel) {
-    const config = this.#getConfig();
-    if (channel === 'weixin') return config.weixin?.ownerUserId ?? '';
-    if (channel === 'qq') return config.qq?.ownerOpenId ?? '';
-    return '';
-  }
-
   dispose() {
     this.#disposed = true;
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
     this.#buffer = [];
   }
-}
-
-function shortId(value) {
-  const text = String(value ?? '');
-  return text.length > 8 ? text.slice(-6) : text;
 }

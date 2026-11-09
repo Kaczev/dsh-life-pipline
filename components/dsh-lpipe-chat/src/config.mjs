@@ -43,13 +43,13 @@ export function defaultConfig() {
      * restarts the count, so a run of quick messages arrives as one notice.
      * Range 0.2-60.
      */
-    quietSeconds: 1,
+    quietSeconds: 8,
     /**
      * Big holder: after a notice goes out, messages arriving within this many
      * seconds are collected and delivered together once the window ends.
      * Range 3-120.
      */
-    windowSeconds: 5,
+    windowSeconds: 14,
     outputBytes: 16 * 1024,
     downloadBytes: 512 * 1024 ** 2,
     downloadRetentionDays: 7,

@@ -479,7 +479,7 @@ function ChatSettingsPanel({ rpcCall }) {
       h('div', { style: gridTwo },
         h(Field, {
           id: 'dsh-lpipe-chat-quiet',
-          title: '合并间隔（秒）（默认：1）',
+          title: '合并间隔（秒）（默认：8）',
           value: quietDraft,
           setValue: setQuietDraft,
           type: 'number',
@@ -490,7 +490,7 @@ function ChatSettingsPanel({ rpcCall }) {
         }),
         h(Field, {
           id: 'dsh-lpipe-chat-window',
-          title: '收集窗口（秒）（默认：5）',
+          title: '收集窗口（秒）（默认：14）',
           value: windowDraft,
           setValue: setWindowDraft,
           type: 'number',

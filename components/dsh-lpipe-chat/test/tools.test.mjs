@@ -61,8 +61,8 @@ test('chat_send leaves the context token to the channel and archives the outboun
 test('chat_history filters by channel and keyword', async () => {
   const rows = await tools.chat_history.execute({ channel: 'weixin', keyword: '在' });
   assert.ok(rows.count >= 2);
-  assert.match(rows.summary, /\[weixin\]/);
-  assert.doesNotMatch(rows.summary, /\[qq\]/);
+  assert.match(rows.summary, /\[微信 ·/);
+  assert.doesNotMatch(rows.summary, /\[QQ ·/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(rows)));
   const emptyImage = await tools.chat_history.execute({ channel: 'weixin', keyword: '在', image: '' });
   assert.equal(emptyImage.summary, rows.summary);
