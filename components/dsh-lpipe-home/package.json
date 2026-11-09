@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-home",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Personal folder configuration and main-session prompt for Lpipe.",
   "license": "AGPL-3.0-or-later",
@@ -16,7 +16,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "dsh-life-pipline": "^0.7.5"
+    "dsh-life-core": "^0.1.0"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",

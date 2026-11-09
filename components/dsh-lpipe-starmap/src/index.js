@@ -4,7 +4,7 @@
 // 模型不可用时什么都不点亮，灰记忆就一直是灰的——不猜、不用规则兜底。
 import { isMemorySession } from 'dsh-lpipe-memory/scope'
 import { renameSync, rmSync, statSync, appendFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
+import { appendDiagnostic } from 'dsh-life-core/diagnostics'
 import { join } from 'node:path'
 
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -27,7 +27,10 @@ const TURN_END = 'turn/end'
 /** 灰记忆超过这么多轮就停手：自动补做只收拾刚过去的那几轮，积压的等用户自己开。 */
 export const MAX_AUTO_GREY = 3
 
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx, options = {}) {
+  registerDependencies(ctx);
   const root = options.root ?? starmapRoot()
   const memory = options.reader ?? new MemoryReader({ root: options.memoryRoot ?? memoryRoot() })
   const repo = openRepo({ root })

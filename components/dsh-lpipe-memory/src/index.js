@@ -1,7 +1,7 @@
 // 宿主半边：订阅 session/event，把白名单事件逐条追加进记忆。
 import { isMemorySession } from './scope.mjs'
 import { loadConfig, saveConfig } from './config.mjs'
-import { readSessionTitle } from 'dsh-life-pipline/session-title'
+import { readSessionTitle } from 'dsh-life-core/session-title'
 
 import { captureMedia } from './media.mjs'
 import { migrateIfNeeded } from './compact.mjs'
@@ -23,7 +23,10 @@ export const inject = []
  */
 const TURN_END = 'turn/end'
 
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx, options = {}) {
+  registerDependencies(ctx);
   const root = options.root ?? memoryRoot()
   // 宿主没给 logger 时别把失败吞掉：迁移、落盘出了问题要能看见。
   const warn = (message) => {

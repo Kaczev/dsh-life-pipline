@@ -14,6 +14,7 @@ test('Bili freedom section only reaches current main, never children or ordinary
   let section;
   // Skip unrelated effects: no network, login, timers, or download cleanup.
   apply({ credentials: {}, effect() {}, inject(keys, fn) {
+    if (keys.includes('pluginManager')) return;
     assert.deepEqual(keys, ['systemPrompt']);
     fn({ effect(setup) { setup(); }, systemPrompt: { section(value) { section = value; return () => {}; } } });
   } });

@@ -1,0 +1,2 @@
+# Preserve the pinned upstream bytes and their recorded SHA-256 across Git checkouts.
+* -text

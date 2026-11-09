@@ -1,13 +1,20 @@
 # 导航
 
-`dsh-life-pipline` 是整个 `dsh-lpipe-` 系列的公共包：它自己也是一个插件（bundle），在 **设置** 侧栏提供一页「Lpipe 设置」并声明子槽 `lpipe.settings.panel`；每个组件是独立包、独立 bundle（自带 patch，插件列表里各占一张卡片），并以 `dsh-life-pipline` 为依赖。
+`dsh-life-pipline` 是聚合安装入口，选择生命核心和七条独立管线；所有 `dsh-lpipe-*` 直接依赖 `dsh-life-core`。共享设置与主会话逻辑由核心提供，根 `src/` 只保留兼容转发及聚合激活。
 
-- [README.md](README.md)：npm 上显示的那份（公共包说明）。
+- [生命核心导航](components/dsh-life-core/INDEX.md)：共享设置、隔离、数据路径与前置协调。
+- [聚合激活](src/aggregate.mjs)：选择规范 bundle，避免混装重复插件行；[测试](test/aggregate.test.mjs)。
+- [client/panel.js](client/panel.js)：聚合详情页组件开关，通过独立管理端点调用规范组件；[HTML 参考](不入库/设计/life-aggregate-components.html#aggregate-components)。
+- [即时开关回归](test/components-client.test.mjs)：乐观切换、连续反向操作串行及失败回读。
+- [组件开关回归](test/components-control.test.mjs)：前置顺序、级联关闭和非 applied 失败。
+- [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
+
+- [README.md](README.md)：聚合安装、独立安装与兼容边界。
 - [DEVELOPMENT.md](DEVELOPMENT.md)：开发笔记（结构、显示名与图标、组件说明、安装与配置）。
-- [package.json](package.json)：包名、`icon`、`exports`、`dsh.bundle`（自己那一行）与 `dsh.client`。
-- [cordis.patch.yml](cordis.patch.yml)：公共包自己的挂载行——只有它插这一行，组件不重复插。
-- [client/panel.js](client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
-- [scripts/build-client.mjs](scripts/build-client.mjs)：把 `client/panel.js` 包成宿主的模块壳。
+- [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
+- [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。
+- [components/dsh-life-core/client/panel.js](components/dsh-life-core/client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
+- [scripts/build-client.mjs](scripts/build-client.mjs)：兼容转发到核心的客户端构建脚本。
 - [scripts/install-local.mjs](scripts/install-local.mjs)：把本包与 `components/*` 以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
 - [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、工作区选择即时持久化与失效清空、独立身份的空白 LP 主会话创建及绑定重试（只改名身份匹配的按钮创建会话）；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
 - [src/main-session.mjs](src/main-session.mjs)：动态主会话门禁、工具可见性与执行复核、系统提示词隔离；[回归](test/main-session.test.mjs)。
@@ -18,10 +25,10 @@
 - [assets/icon.png](assets/icon.png) / [locale/](locale/)：插件卡片的图标与显示名。
 - [components/dsh-lpipe-home/INDEX.md](components/dsh-lpipe-home/INDEX.md)：栖所管线，默认未选择，个人文件夹校验、主会话英文提示词、设置块与图标。
 - [components/dsh-lpipe-bili/INDEX.md](components/dsh-lpipe-bili/INDEX.md)：B 站管线，只读浏览、扫码登录、字幕与隔离分镜；设置页与图标已就位。
-- [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），自身也是 bundle，依赖本包。
-- [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖本包。
-- [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖本包。
-- [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖本包与 `dsh-lpipe-memory`。
+- [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），独立设置块只依赖核心。
+- [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖核心。
+- [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖核心。
+- [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖核心与 `dsh-lpipe-memory`。
   - [src/query.mjs](components/dsh-lpipe-starmap/src/query.mjs)：进度星数 = 文星 + 时星，准确／模糊／通用互斥计数；[统计回归](components/dsh-lpipe-starmap/test/progress.test.mjs)，[星数局部 HTML](不入库/设计/dsh-lpipe-starmap-星数.html)。
   - [src/index.js](components/dsh-lpipe-starmap/src/index.js)：新增抽星遵守记忆作用域，面板轮数统计全库历史；[作用域切换回归](components/dsh-lpipe-starmap/test/history-progress.test.mjs)。
   - [src/brightness.mjs](components/dsh-lpipe-starmap/src/brightness.mjs)：基础亮度与通用分类的只读快照。
@@ -52,10 +59,10 @@
 
 - [下载过期清理](components/dsh-lpipe-chat/src/download-cleanup.mjs)：默认 downloads 直属文件按修改时间清理，默认 7 天；[边界与配置测试](components/dsh-lpipe-chat/test/download-cleanup.test.mjs)。
 
-- [components/dsh-lpipe-chat/package.json](components/dsh-lpipe-chat/package.json)：包名、`icon`、`exports`、`dsh.bundle`、`dsh.client`，以及对 `dsh-life-pipline` 的依赖。
+- [components/dsh-lpipe-chat/package.json](components/dsh-lpipe-chat/package.json)：包名、`icon`、`exports`、`dsh.bundle`、`dsh.client`，以及对 `dsh-life-core` 的依赖。
 - [components/dsh-lpipe-chat/cordis.patch.yml](components/dsh-lpipe-chat/cordis.patch.yml)：组件自己的挂载行——这一行让它在插件列表里独立成卡。
 - [components/dsh-lpipe-chat/assets/icon.png](components/dsh-lpipe-chat/assets/icon.png)：组件图标（两个气泡合流，512² 透明 PNG）。
-- [assets/session-mark.png](assets/session-mark.png)：会话栏里主会话标题左侧的小标记（64² 透明 PNG，内联进公共包的客户端）。主会话是公共状态，所以这枚标记归 `dsh-life-pipline` 管。
+- [assets/session-mark.png](assets/session-mark.png)：会话栏里主会话标题左侧的小标记（64² 透明 PNG，内联进公共包的客户端）。主会话是核心公共状态，所以这枚标记归 `dsh-life-core` 管。
 - [assets/session-mark-mono-black.svg](assets/session-mark-mono-black.svg) / [mono-white.svg](assets/session-mark-mono-white.svg)：同一标记的单色版，左气泡实心、右气泡镂空；黑墨配浅色界面、白墨配深色界面，另附 64²/128² 透明 PNG（`-64.png`、`-128.png`）。未接进客户端，彩色版仍在用。
 - [components/dsh-lpipe-chat/locale/en.json](components/dsh-lpipe-chat/locale/en.json) / [zh.json](components/dsh-lpipe-chat/locale/zh.json)：组件显示名「Lpipe Chat」与简介。
 - [components/dsh-lpipe-chat/src/index.js](components/dsh-lpipe-chat/src/index.js)：组件装配、仅主会话的自由聊天／Owner 身份提示词、服务注入与清理。
@@ -78,7 +85,7 @@
 
 ## components/dsh-lpipe-wake
 
-- [components/dsh-lpipe-wake/package.json](components/dsh-lpipe-wake/package.json)：包名、`icon`、`exports`、`dsh.bundle`、`dsh.client`，以及对 `dsh-life-pipline` 的依赖。
+- [components/dsh-lpipe-wake/package.json](components/dsh-lpipe-wake/package.json)：包名、`icon`、`exports`、`dsh.bundle`、`dsh.client`，以及对 `dsh-life-core` 的依赖。
 - [components/dsh-lpipe-wake/cordis.patch.yml](components/dsh-lpipe-wake/cordis.patch.yml)：组件自己的挂载行。
 - [components/dsh-lpipe-wake/src/engine.mjs](components/dsh-lpipe-wake/src/engine.mjs)：三个时间戳与开关的唯一规则（纯函数 `step`）。
 - [components/dsh-lpipe-wake/src/runner.mjs](components/dsh-lpipe-wake/src/runner.mjs)：30 秒心跳、活动读取与 `agent.followup` 投递。
@@ -94,7 +101,7 @@
 
 - `components/dsh-lpipe-memory/assets/icon.png` — 记忆管线图标（三层卡片 + 星点，512² 透明 PNG）
 
-- [components/dsh-lpipe-memory/package.json](components/dsh-lpipe-memory/package.json)：包名、`exports`、`dsh.bundle`，以及对 `dsh-life-pipline` 的依赖。
+- [components/dsh-lpipe-memory/package.json](components/dsh-lpipe-memory/package.json)：包名、`exports`、`dsh.bundle`，以及对 `dsh-life-core` 的依赖。
 - [components/dsh-lpipe-memory/cordis.patch.yml](components/dsh-lpipe-memory/cordis.patch.yml)：组件自己的挂载行。
 - [components/dsh-lpipe-memory/src/paths.mjs](components/dsh-lpipe-memory/src/paths.mjs)：`~/.dsh/life-memory` 的目录规则（一对话一文件夹、按天分卷、图片跟着当天走）。
 - [components/dsh-lpipe-memory/src/day.mjs](components/dsh-lpipe-memory/src/day.mjs)：凌晨 4 点换天的天界计算。

@@ -1,4 +1,4 @@
-import { registerMainTool, registerMainSection } from 'dsh-life-pipline/main-session';
+import { registerMainTool, registerMainSection } from 'dsh-life-core/main-session';
 import { join } from 'node:path';
 import { BiliApi } from './api.mjs';
 import { createLogin } from './login.mjs';
@@ -8,7 +8,10 @@ import { createTools } from './tools.mjs';
 import { registerRpc } from './rpc.mjs';
 export const name='dsh-lpipe-bili';
 export const inject=['tools','credentials','attachments','connection','configEditor'];
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx,config={}) {
+  registerDependencies(ctx);
   ctx.inject(['systemPrompt'], promptCtx => {
     promptCtx.effect(() => registerMainSection(promptCtx, {
       name: 'dsh-lpipe-bili', order: 720, interpolate: false,

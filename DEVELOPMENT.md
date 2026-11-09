@@ -1,10 +1,20 @@
 # dsh-life-pipline · 开发笔记
 
-DeepSeek Harness 的「生活管线」系列。当前阶段只做组件：每个 `dsh-lpipe-` 包都是独立插件，独立设计、独立验收；它们共同依赖公共包 `dsh-life-pipline`，后者提供设置里的「Lpipe 设置」这一页容器。
+DeepSeek Harness 的生命管线系列。根包 `dsh-life-pipline` 是聚合入口；公共逻辑位于 [生命核心](components/dsh-life-core/INDEX.md)，七条管线分别依赖核心并可独立安装。
 
 设计稿在 [`不入库/管线规划.md`](不入库/管线规划.md)，配置页视觉稿在 [`不入库/设计/dsh-life-chat-配置页.html`](不入库/设计/dsh-life-chat-配置页.html)。
 
-## 结构
+## 当前装配规则
+
+根 bundle 只插聚合入口行，由 `src/aggregate.mjs` 使用 `pluginManager.setBundleEnabled()` 选择核心和七条规范 bundle。组件 patch 仍只插自己的行，混装不重复插入。
+
+`components/dsh-life-core` 承接原公共 `src/`、客户端和构建脚本；根 `src/` 保留旧子路径的薄转发。数据目录、公共 RPC 与设置槽保持原值。所有管线依赖核心，星图直接依赖记忆，回忆直接依赖星图与记忆。不要把 npm 依赖误当作已激活的 bundle。
+
+核心与各业务插件都注册前置协调。协调器通过插件管理事件串行处理开关，不轮询；关闭前置会关闭下游，开启下游会补齐前置。管理结果非 `applied` 时记录诊断，不能把持久化确认当作运行成功。
+
+下方结构与装配示例记录拆分前的实现，仅供历史对照；当前路径以核心导航为准。
+
+## 拆分前结构
 
 ```
 dsh-life-pipline/            # 公共包：自己也是一个 bundle 插件

@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { runStoryboard, formatManifest } from 'dsh-video-storyboard/storyboard';
+import { runStoryboard, formatManifest } from './vendor/storyboard/lib/pipeline.js';
 try {
   const result=await runStoryboard({...workerData,cache:false,transcript:'none',maxSheets:4,maxFrames:96});
   const raw=formatManifest(result);

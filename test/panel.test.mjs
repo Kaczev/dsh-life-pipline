@@ -35,7 +35,7 @@ async function loadClient() {
 
 test('the common client half owns the shared Settings page', async () => {
   const { definition, exports } = await loadClient();
-  assert.equal(definition.id, 'dsh-life-pipline');
+  assert.equal(definition.id, 'dsh-life-core');
   assert.equal(exports.name, 'dsh-life-pipline-settings');
   assert.deepEqual([...exports.inject], ['slots', 'connection']);
 
@@ -168,7 +168,7 @@ test('a plugin without slots does not throw', async () => {
 });
 
 test('main-session mark stays in the common bundle and never depends on chat', async () => {
-  const common = await readFile(new URL('../client/panel.js', import.meta.url), 'utf8');
+  const common = await readFile(new URL('../components/dsh-life-core/client/panel.js', import.meta.url), 'utf8');
   const chat = await readFile(new URL('../components/dsh-lpipe-chat/client/panel.js', import.meta.url), 'utf8');
   assert.match(common, /const RPC_ENDPOINT = 'dsh-life-pipline'/);
   assert.doesNotMatch(common, /require\(['"]dsh-lpipe-chat/);

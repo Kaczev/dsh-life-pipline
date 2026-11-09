@@ -6,6 +6,7 @@
 - [src/api.mjs](src/api.mjs)：只读 API、WBI、限流与字幕。
 - [src/login.mjs](src/login.mjs)、[src/vendor/auth.mjs](src/vendor/auth.mjs)：宿主凭据与扫码流程。
 - [src/watch.mjs](src/watch.mjs)、[src/storyboard-worker.mjs](src/storyboard-worker.mjs)：下载和隔离分镜。
+- [内置分镜导航](src/vendor/storyboard/INDEX.md)：固定上游源码、许可证与来源校验；[更新脚本](scripts/vendor-storyboard.mjs)、[快照回归](test/storyboard-vendor.test.mjs)。
 - [src/storage.mjs](src/storage.mjs)：保留时间与清理。
 - [src/rpc.mjs](src/rpc.mjs)：`/api/dsh-lpipe-bili` 的 status、扫码登录与保留时间 RPC。
 - [client/panel.js](client/panel.js)：设置页里的「B 站」块（扫码登录 + 下载保留天数），注册进 `lpipe.settings.panel`；构建到 [lib/client.js](lib/client.js)。

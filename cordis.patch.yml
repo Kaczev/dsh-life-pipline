@@ -1,10 +1,5 @@
-# The common package of the dsh-lpipe- series is a bundle so that a profile can
-# enable it like any other plugin: this row mounts its Host half and the client
-# half that owns the shared 「Lpipe 设置」 page.
-#
-# Components do NOT insert this row themselves. Two bundles inserting the same
-# id would compose two entries with one id, so exactly one package — this one —
-# declares it, and components pull it in as a dependency.
+# Only the aggregate row belongs here; canonical component layers are selected
+# through pluginManager, so standalone + aggregate never insert duplicate ids.
 - insert:
     - id: dsh-life-pipline
       name: dsh-life-pipline

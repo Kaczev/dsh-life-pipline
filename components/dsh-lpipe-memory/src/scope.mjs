@@ -1,4 +1,4 @@
-import { isMainSession, registerMainTool, registerMainSection } from 'dsh-life-pipline/main-session'
+import { isMainSession, registerMainTool, registerMainSection } from 'dsh-life-core/main-session'
 import { loadConfig } from './config.mjs'
 
 /** No anonymous scope and no inheritance; reads the owning memory config on each gate. */

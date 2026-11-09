@@ -1,0 +1,35 @@
+{
+  "name": "dsh-life-core",
+  "version": "0.1.0",
+  "description": "Shared settings, main-session isolation and activity services for Life Pipline.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "index.js",
+  "icon": "assets/icon.png",
+  "files": ["index.js", "src", "client", "lib", "assets", "locale", "LICENSE", "README.md", "cordis.patch.yml"],
+  "exports": {
+    "./internal/config": "./src/config.mjs",
+    "./internal/paths": "./src/paths.mjs",
+    "./internal/rpc": "./src/rpc.mjs",
+    "./internal/away-guard": "./src/away-guard.mjs",
+    "./components": "./src/components.mjs",
+    "./dependencies": "./src/dependencies.mjs",
+    ".": "./index.js",
+    "./clock": "./src/clock.mjs",
+    "./session": "./src/session-activity.mjs",
+    "./main-session": "./src/main-session.mjs",
+    "./session-title": "./src/session-title.mjs",
+    "./diagnostics": "./src/diagnostics.mjs",
+    "./client": "./lib/client.js",
+    "./icon": "./assets/icon.png",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./package.json": "./package.json"
+  },
+  "scripts": {"build-client": "node scripts/build-client.mjs"},
+  "engines": {"node": "^22.19 || >=24", "dsh": ">=0.2.0-rc.2"},
+  "dsh": {
+    "bundle": {"patch": "./cordis.patch.yml"},
+    "client": {"inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-slots"], "platform": "web"}
+  }
+}

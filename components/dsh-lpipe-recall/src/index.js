@@ -1,6 +1,6 @@
 import { isMemorySession, registerMemoryTool, registerMemorySection } from 'dsh-lpipe-memory/scope'
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
-import { appendDiagnostic } from 'dsh-life-pipline/diagnostics'
+import { appendDiagnostic } from 'dsh-life-core/diagnostics'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { MemoryReader } from 'dsh-lpipe-memory/reader'
@@ -348,7 +348,10 @@ export function triggerFromMessages(messages) {
   return null
 }
 
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx, options = {}) {
+  registerDependencies(ctx);
   const recallDir = options.root || recallRoot()
   const memoryDir = options.memoryRoot || memoryRoot()
   const starmapDir = options.starmapRoot || starmapRoot()

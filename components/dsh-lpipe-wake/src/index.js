@@ -1,8 +1,8 @@
-import { registerMainTool, registerMainSection } from 'dsh-life-pipline/main-session';
-import { appendDiagnostic } from 'dsh-life-pipline/diagnostics';
+import { registerMainTool, registerMainSection } from 'dsh-life-core/main-session';
+import { appendDiagnostic } from 'dsh-life-core/diagnostics';
 import { join } from 'node:path';
 
-import { describeActivity, lastActivityAt } from 'dsh-life-pipline/session';
+import { describeActivity, lastActivityAt } from 'dsh-life-core/session';
 
 import { createRunner, createWakeDelivery, statusReader } from './runner.mjs';
 import { createWakeRpcHandler, registerWakeRpc } from './rpc.mjs';
@@ -28,7 +28,10 @@ function loggerFor(ctx) {
  *
  * The main session comes from the series' common settings, never from here.
  */
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx) {
+  registerDependencies(ctx);
   const log = loggerFor(ctx);
 
   let runner = null;

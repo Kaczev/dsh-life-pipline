@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-bili",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Read-only Bilibili browsing, QR login and storyboard viewing for DSH.",
   "main": "src/index.js",
@@ -27,8 +27,7 @@
     "THIRD-PARTY-NOTICES.md"
   ],
   "dependencies": {
-    "dsh-life-pipline": "^0.7.5",
-    "dsh-video-storyboard": "0.7.1",
+    "dsh-life-core": "^0.1.0",
     "qrcode": "1.5.4"
   },
   "scripts": {

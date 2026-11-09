@@ -1,6 +1,6 @@
 import { inboundHead } from './identity.mjs';
 import { randomUUID } from 'node:crypto';
-import { stampFor } from 'dsh-life-pipline/clock';
+import { stampFor } from 'dsh-life-core/clock';
 import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
 import { messageBody, outputLimit, utf8Head } from './content.mjs';
 

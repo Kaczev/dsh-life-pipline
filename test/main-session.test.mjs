@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import { apply } from '../index.js';
+import { apply } from '../components/dsh-life-core/index.js';
 import {isMainSession,registerMainTool,registerMainSection} from '../src/main-session.mjs';
 
 test('main-session gate fails closed, tracks changes, and denies stale tool execution',async t=>{

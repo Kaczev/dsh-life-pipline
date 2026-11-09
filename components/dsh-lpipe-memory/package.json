@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-memory",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "把会话原文逐字投影到长期文件：按会话分文件夹，按天分卷，哈希链可校验。",
   "license": "AGPL-3.0-or-later",
@@ -17,7 +17,7 @@
     "./icon": "./assets/icon.png"
   },
   "dependencies": {
-    "dsh-life-pipline": "^0.7.5"
+    "dsh-life-core": "^0.1.0"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",

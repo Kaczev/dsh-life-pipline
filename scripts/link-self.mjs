@@ -1,8 +1,8 @@
 /**
  * The components import the shared core through its package name
- * (`dsh-life-pipline/clock`), which is how it resolves once published. In a
- * plain checkout there is no `node_modules/dsh-life-pipline`, so tests would
- * fail with ERR_MODULE_NOT_FOUND: this makes the repo its own dependency.
+ * (`dsh-life-core/clock`), which is how it resolves once published. A
+ * plain checkout links the aggregate and every component, including Life Core,
+ * so tests resolve the same package boundaries as a published installation.
  *
  * Idempotent, and a no-op on a machine that already has the link.
  */

@@ -1,4 +1,4 @@
-import { isMainSession, registerMainTool, registerMainSection } from 'dsh-life-pipline/main-session';
+import { isMainSession, registerMainTool, registerMainSection } from 'dsh-life-core/main-session';
 import { startDownloadCleanup } from './download-cleanup.mjs';
 import { registerChatSkill } from './skill.mjs';
 import { loadConfig, saveConfig, updateConfig } from './config.mjs';
@@ -34,7 +34,10 @@ function loggerFor(ctx) {
  * session. Everything the user sends from WeChat or QQ ends up in the main
  * session as `[渠道 · 发送者] 正文`, and answering is optional.
  */
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx, config) {
+  registerDependencies(ctx);
   const log = loggerFor(ctx);
 
   // A patch-row config is authoritative on first run; afterwards the config

@@ -1,3 +1,11 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { wrapClient } from '../components/dsh-life-core/scripts/build-client.mjs';
+
+export async function buildAggregateClient() {
+  const source = new URL('../client/panel.js', import.meta.url);
+  await writeFile(new URL('../lib/client.js', import.meta.url), wrapClient(await readFile(source, 'utf8'), 'dsh-life-pipline'));
+}
+
 import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -17,6 +25,8 @@ const targets = [
     .filter((entry) => entry.isDirectory())
     .map((entry) => join(root, 'components', entry.name, 'scripts', 'build-client.mjs')),
 ];
+
+await buildAggregateClient();
 
 for (const file of targets) {
   // 只有宿主半边、还没有设置页的包（比如刚起步的回忆管线）没有这个脚本，跳过就好。

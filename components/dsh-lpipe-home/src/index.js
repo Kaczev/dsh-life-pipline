@@ -1,10 +1,13 @@
-import { mainSessionId, registerMainSection } from 'dsh-life-pipline/main-session';
+import { mainSessionId, registerMainSection } from 'dsh-life-core/main-session';
 import { homeRoot, loadConfig, normalize, saveConfig, validateHome } from './config.mjs';
 import { homePrompt } from './prompt.mjs';
 import { createHomeRpcHandler, registerHomeRpc } from './rpc.mjs';
 
 export const name = 'dsh-lpipe-home';
+import { registerDependencies } from 'dsh-life-core/dependencies';
+
 export function apply(ctx, options = {}) {
+  registerDependencies(ctx);
   const root = options.root ?? homeRoot();
   ctx.inject(['sessions', 'workingDirectory'], directoryCtx => {
     const workspace = () => {

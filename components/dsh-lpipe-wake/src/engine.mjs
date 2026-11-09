@@ -23,7 +23,7 @@
  * Time is always compared as timestamps (`now >= deadline`), never counted by
  * a timer, so a slow frame or a suspended Host cannot skew a wake.
  */
-import { formatStamp } from 'dsh-life-pipline/clock';
+import { formatStamp } from 'dsh-life-core/clock';
 
 export const DEFAULT_INTERVAL_MS = 2 * 60 * 60 * 1000;
 export const TICK_MS = 30 * 1000;
