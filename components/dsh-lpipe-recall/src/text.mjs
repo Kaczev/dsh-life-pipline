@@ -1,5 +1,6 @@
 import { splitSentences } from 'dsh-lpipe-starmap/segment'
 import { textsOf } from 'dsh-lpipe-starmap/build'
+import { messageBodies } from 'dsh-lpipe-starmap/projection'
 import { eligibleMessage, displaySegments } from './provenance.mjs'
 
 const SKIP = new Set(['runtime-context', 'time-context', 'dsh-lpipe-recall', 'dsh-lpipe-assoc', 'dsh-lpipe-imagine'])
@@ -7,6 +8,7 @@ const SKIP = new Set(['runtime-context', 'time-context', 'dsh-lpipe-recall', 'ds
 /** One policy for stored rows and live events; display omits assistant reasoning. */
 export function recallTexts(row, toolName = null, { reasoning = false } = {}) {
   if (row?.kind === 'user/message' && SKIP.has(row.source?.kind)) return []
+  if (row?.kind === 'user/message') return messageBodies(row)
   if (row?.kind === 'tool/call' || row?.kind === 'tool/result') return textsOf(row, toolName)
   if (row?.kind !== 'user/message' && row?.kind !== 'assistant/message') return []
   return textsOf(reasoning ? row : { ...row, reasoning: '' })
@@ -37,8 +39,9 @@ export function recallPieces(row, prosePieces) {
 /** Display-only whitelist; response windows retain their existing projection. */
 export function displayRows(rows) {
   const results = new Map(rows.filter(row => row.kind === 'tool/result' && row.callId).map(row => [row.callId, row.delivery]))
-  return recallRows(rows).map(row => {
-    const projected = { ...row, recallDelivery: results.get(row.callId) }
+  return recallRows(rows).map((row, index) => {
+    // Structured display offsets refer to the archived text, not matching text.
+    const projected = { ...row, text: row.kind === 'user/message' ? rows[index].text ?? row.text : row.text, recallDelivery: results.get(row.callId) }
     return { ...projected, segments: displaySegments(projected), imageEligible: eligibleMessage(row) }
   })
 }

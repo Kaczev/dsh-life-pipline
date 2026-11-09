@@ -17,6 +17,7 @@ import { foldText } from 'dsh-lpipe-starmap/llm'
 import { memoryRoot, recallRoot, starmapRoot } from './paths.mjs'
 import { renderRecall } from './render.mjs'
 import { recallRows, recallTexts } from './text.mjs'
+import { messageBodies } from 'dsh-lpipe-starmap/projection'
 import { createRecallTools } from './tools.mjs'
 
 export const name = 'dsh-lpipe-recall'
@@ -99,13 +100,11 @@ export function recentText(rows, matchChars) {
  * 不在 `data.text` 上——以前按 `data.text` 取，结果永远是空串，整条管线静默不动。
  */
 export function textOfEvent(data) {
-  if (typeof data?.text === 'string' && data.text.trim()) return data.text
   const content = data?.message?.content ?? data?.content
-  if (!Array.isArray(content)) return ''
-  return content
-    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text)
-    .join('\n')
+  const text = typeof data?.text === 'string' && data.text.trim() ? data.text
+    : typeof content === 'string' ? content
+      : (Array.isArray(content) ? content : []).filter(part => part?.type === 'text' && typeof part.text === 'string').map(part => part.text).join('\n')
+  return messageBodies({ text, source: data?.source }).join('\n')
 }
 
 export function isNaturalWake(source) {
@@ -338,11 +337,8 @@ export function triggerFromMessages(messages) {
     const source = message.source ?? {}
     if (!TRIGGER_KINDS.has(source.kind)) continue
     if (isNaturalWake(source)) return { skip: 'natural-wake' }
-    const text = (message.content ?? [])
-      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-      .map((part) => part.text)
-      .join('\n')
-    if (!text.trim()) continue
+    const text = textOfEvent(message)
+    if (!text.trim()) return { skip: 'empty-text' }
     return { text }
   }
   return null

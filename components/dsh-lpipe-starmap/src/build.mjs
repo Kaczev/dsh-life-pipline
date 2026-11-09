@@ -9,6 +9,7 @@ import { fuzzyStarsIn, starMeta } from './fuzzy.mjs'
 import { cleanStarName, findInSentences, foldText } from './llm.mjs'
 import { PIPELINE_SOURCES, isPipelineTool } from './pipeline.mjs'
 import { splitSentences } from './segment.mjs'
+import { messageBodies, numericTextOf } from './projection.mjs'
 import { starIdOf } from './store.mjs'
 
 /**
@@ -16,6 +17,8 @@ import { starIdOf } from './store.mjs'
  * 名字是算出来的索引，旧规则建的星表没有修补价值，整库重抽最省事。
  */
 // 4：抽星从「词表 + 规则」整个换成模型答对子；换规则时旧星表必须整库作废。
+// Source projection changes are applied by the explicitly planned manual rebuild;
+// keep the version to avoid clearing/replaying the live index before memory selection.
 export const RULES_VERSION = 12
 
 const SYMBOL_ONLY = /^[^\p{L}\p{N}]+$/u
@@ -81,6 +84,7 @@ export function groupTurns(rows) {
 /** 交流正文与思考参与抽星；工具仅保留 chat_send 的发送正文。 */
 export function textsOf(row, toolName = null) {
   if (row?.kind === 'user/message' && PIPELINE_SOURCES.has(row?.source?.kind)) return []
+  if (row?.kind === 'user/message' && row.source?.kind === 'dsh-lpipe-wake') return messageBodies(row)
   if (row?.kind === 'tool/call' && row.name === 'chat_send') {
     try {
       const args = typeof row.arguments === 'string' ? JSON.parse(row.arguments) : row.arguments
@@ -109,9 +113,13 @@ export function sentencesOf(turn) {
       continue
     }
     for (const text of textsOf(row, calledWith)) {
+      const numeric = numericTextOf(row, text)
+      let offset = 0
       for (const sentence of splitSentences(text)) {
         if (!sentence.trim()) continue
-        out.push({ seq: row.seq, row: rowIndex, text: sentence })
+        const start = text.indexOf(sentence, offset)
+        offset = start + sentence.length
+        out.push({ seq: row.seq, row: rowIndex, text: sentence, numericText: numeric.slice(start, offset) })
       }
     }
   }
@@ -200,8 +208,9 @@ export function planTurn(turn, pairs) {
       lines.push(clockOnly === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock: clockOnly })
       continue
     }
-    const numeric = fuzzyStarsIn(sentence.text)
-    if (!numberSoup(sentence.text, numeric.length)) {
+    const numericText = sentence.numericText ?? sentence.text
+    const numeric = fuzzyStarsIn(numericText)
+    if (!numberSoup(numericText.trim(), numeric.length)) {
       for (const star of numeric) {
         const id = starIdOf(star.name)
         if (!ids.includes(id)) ids.push(id)
@@ -210,7 +219,7 @@ export function planTurn(turn, pairs) {
       }
     }
     if (ids.length === 0) continue
-    const clock = clockOf(sentence.text)
+    const clock = clockOf(numericText)
     lines.push(clock === null ? { seq: sentence.seq, row: sentence.row, stars: ids } : { seq: sentence.seq, row: sentence.row, stars: ids, clock })
   }
 

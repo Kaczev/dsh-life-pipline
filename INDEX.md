@@ -30,7 +30,9 @@
 - [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖核心。
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖核心与 `dsh-lpipe-memory`。
   - [src/query.mjs](components/dsh-lpipe-starmap/src/query.mjs)：进度星数 = 文星 + 时星，准确／模糊／通用互斥计数；[统计回归](components/dsh-lpipe-starmap/test/progress.test.mjs)，[星数局部 HTML](不入库/设计/dsh-lpipe-starmap-星数.html)。
-  - [src/index.js](components/dsh-lpipe-starmap/src/index.js)：新增抽星遵守记忆作用域，面板轮数统计全库历史；[作用域切换回归](components/dsh-lpipe-starmap/test/history-progress.test.mjs)。
+  - [src/index.js](components/dsh-lpipe-starmap/src/index.js)：新增轮次的自动抽星遵守记忆作用域，手动启动抽星与原文检查覆盖全库已有历史；面板轮数也统计全库历史；[作用域切换回归](components/dsh-lpipe-starmap/test/history-progress.test.mjs)。
+  - [来源投影](components/dsh-lpipe-starmap/src/projection.mjs)：聊天结构化正文区间、主动唤醒理由与自然唤醒排除；模型保留聊天来源，程序抽模糊星仅看正文。回忆当前真文、历史背景与 BM25 复用正文投影；[抽星回归](components/dsh-lpipe-starmap/test/projection.test.mjs)、[回忆回归](components/dsh-lpipe-recall/test/projection.test.mjs)。本次不自动抬规则版本，筛选记忆后手动重抽。
+  - [抽星提示词](components/dsh-lpipe-starmap/src/llm.mjs)：分来源证据规则、昵称可配准确星、渠道标记与 ID 排除，以及成星标准和 JSON 输出约束。
   - [src/brightness.mjs](components/dsh-lpipe-starmap/src/brightness.mjs)：基础亮度与通用分类的只读快照。
   - [src/match.mjs](components/dsh-lpipe-starmap/src/match.mjs)：文星／时星统一匹配，输出类型、亮度及最后命中位置；[文星测试](components/dsh-lpipe-starmap/test/brightness.test.mjs)。
   - [src/time.mjs](components/dsh-lpipe-starmap/src/time.mjs)：片段时间星视图、时间表达组合、文字定位端点过滤与范性／确性响应；[端点测试](components/dsh-lpipe-starmap/test/time-locator.test.mjs)；[解析测试](components/dsh-lpipe-starmap/test/time.test.mjs)、[回忆接入测试](components/dsh-lpipe-recall/test/time.test.mjs)。

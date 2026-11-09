@@ -355,8 +355,8 @@ export function apply(ctx, options = {}) {
   }
 
   /** 一轮：问模型 → 落星源。模型挂了就记一笔，这一轮保持灰。 */
-  const buildOne = async (sessionId, turn, extractor) => {
-    if (!isMemorySession(sessionId) || !llm) return false
+  const buildOne = async (sessionId, turn, extractor, historical = false) => {
+    if ((!historical && !isMemorySession(sessionId)) || !llm) return false
     const startedAt = Date.now()
     const source = turnSource(turn, textsOf)
     if (!source.trim()) {
@@ -364,7 +364,7 @@ export function apply(ctx, options = {}) {
       return true
     }
     const reply = await extractor.ask(source)
-    if (!isMemorySession(sessionId)) return 'stopped'
+    if (!historical && !isMemorySession(sessionId)) return 'stopped'
     if (reply.usage) {
       noteUsage(root, {
         at: new Date().toISOString(),
@@ -404,8 +404,8 @@ export function apply(ctx, options = {}) {
   }
 
   /** 把某个会话里还没亮的轮次接过来。某一轮炸了只跳过这一轮，不拖累后面的。 */
-  const buildSession = async (sessionId) => {
-    const rows = rowsOf(sessionId)
+  const buildSession = async (sessionId, historical = false) => {
+    const rows = rowsOf(sessionId, historical)
     if (rows.length === 0) return 0
     const turns = groupTurns(rows)
     const last = turns[turns.length - 1]
@@ -425,7 +425,7 @@ export function apply(ctx, options = {}) {
         let ok = false
         let cut = false
         try {
-          const outcome = await buildOne(sessionId, turn, extractor)
+          const outcome = await buildOne(sessionId, turn, extractor, historical)
           cut = outcome === 'stopped'
           ok = outcome === true
           if (ok) built += 1
@@ -477,9 +477,9 @@ export function apply(ctx, options = {}) {
     return built
   }
 
-  const buildAll = async () => {
+  const buildAll = async (historical = false) => {
     let built = 0
-    for (const session of sessions()) built += await buildSession(session.sessionId)
+    for (const session of sessions(historical)) built += await buildSession(session.sessionId, historical)
     return built
   }
 
@@ -490,7 +490,7 @@ export function apply(ctx, options = {}) {
     let lit = 0
     let lastBuiltAt = null
     let lastTurn = null
-    // 面板展示全库历史，与文星／时星总数一致；当前作用域仅限制新增处理。
+    // 面板展示全库历史；仅自动新增处理受当前作用域限制。
     for (const session of sessions(true)) {
       // 数「确实有几轮」，不拿最大轮号当总数：轮号会跳号，1543 里其实只有 1444 轮。
       const countKey = `${session.sessionId}#${session.lastSeq}`
@@ -571,7 +571,7 @@ export function apply(ctx, options = {}) {
   /** 给人看的：这一轮到底写了什么。模型读到的原文，只露首尾。 */
   const peek = (sessionId, turnNumber) => {
     try {
-      const turn = groupTurns(rowsOf(sessionId)).find((item) => item.turn === turnNumber)
+      const turn = groupTurns(rowsOf(sessionId, true)).find((item) => item.turn === turnNumber)
       if (!turn) return { ok: false, error: '记忆里没有这一轮' }
       const source = turnSource(turn, textsOf)
       const seqs = turn.rows.map((row) => row.seq)
@@ -662,7 +662,8 @@ export function apply(ctx, options = {}) {
       // 那样整块「收尾」中途抛错，running 就永远停在 true（面板一直「正在抽星」）。
       let built = 0
       try {
-        built = scope ? await buildSession(scope) : await buildAll()
+        // Manual extraction covers stored history; automatic work retains the live memory scope.
+        built = scope ? await buildSession(scope, manual) : await buildAll(manual)
         const result = { built, ...status(), elapsedMs: Date.now() - started }
         info(`[dsh-lpipe-starmap] 点亮 ${built} 轮，累计 ${repo.turns.size} 轮、${repo.stars.size} 颗星`)
         return result

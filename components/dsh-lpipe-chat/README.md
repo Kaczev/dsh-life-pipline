@@ -4,6 +4,10 @@ DeepSeek Harness 组件：自己握有微信与 QQ 两条通道，把消息合�
 
 本组件只负责往「Lpipe 设置」里添加自己那一块；那个页面由公共包 [`dsh-life-pipline`](https://www.npmjs.com/package/dsh-life-pipline) 注册。**安装本组件前必须先安装 `dsh-life-pipline`**（它同时在本包的 `dependencies` 里），否则设置里不会有「Lpipe 设置」页。
 
+## 致谢
+
+**感谢 dsh-im 的作者与贡献者。** 聊天管线的微信协议实现、二维码加载方式及部分 QQ 回复策略沿用了或参考了 dsh-im 的工作。具体来源、适配内容和 MIT 许可见 [第三方来源清单](THIRD_PARTY/MANIFEST.md)；上游版权与许可随本包保留。
+
 ## 做什么
 
 - **接入**：微信走 iLink 官方机器人协议，QQ 走开放平台机器人，各自扫码登录，凭据只留在 Host 侧。

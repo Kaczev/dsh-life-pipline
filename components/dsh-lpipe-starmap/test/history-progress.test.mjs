@@ -34,5 +34,26 @@ writeFileSync(join(home, 'life-pipline', 'config.json'), JSON.stringify({ mainSe
   rows.get('archive').push({ seq: 4, turn: 9, at: 4000 })
   value = api.queries.progress()
   assert.equal(value.turns, 4, '关闭全会话后依然刷新历史统计')
-  assert.equal(isMemorySession('archive'), false, '只修统计，不扩大处理权限')
+  assert.equal(isMemorySession('archive'), false, '历史统计不能改变自动处理作用域')
+})
+
+test('手动抽星覆盖已有历史，自动补做仍遵守所有对话开关', async () => {
+  saveConfig({ allSessions: false })
+  const root = join(home, 'manual-history')
+  mkdirSync(root)
+  writeFileSync(join(root, 'config.json'), JSON.stringify({ provider: 'test', model: 'test', effortFree: true }))
+  const rows = new Map([
+    ['main', [{ seq: 0, turn: 1, kind: 'user/message', text: '', at: 1000 }]],
+    ['archive', [{ seq: 1, turn: 1, kind: 'user/message', text: '', at: 2000 }]],
+  ])
+  const api = apply({ logger: { info() {}, warn() {} }, inject() {}, effect() {} }, {
+    root, noWarm: true, llm: {},
+    reader: { sessions: () => [...rows.keys()].map(sessionId => ({ sessionId, lastSeq: rows.get(sessionId)[0].seq })), rows: id => rows.get(id), reload() {}, state: { version: 2 } },
+  })
+  assert.equal((await api.rebuild()).built, 1)
+  assert.equal(api.queries.progress().grey, 1)
+  assert.equal((await api.rebuild({ manual: true })).built, 1)
+  assert.equal(api.queries.progress().grey, 0)
+  assert.equal(isMemorySession('archive'), false, '手动抽历史不能打开所有对话记录')
+  assert.equal((await api.rebuild({ manual: true, full: true })).built, 2)
 })

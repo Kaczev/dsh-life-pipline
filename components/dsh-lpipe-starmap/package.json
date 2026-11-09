@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-starmap",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Star map for DSH: turn raw memory into a deterministic index of concepts and the sentences that bind them.",
   "type": "module",
   "main": "src/index.js",
@@ -17,6 +17,7 @@
     "./time": "./src/time.mjs",
     "./match": "./src/match.mjs",
     "./build": "./src/build.mjs",
+    "./projection": "./src/projection.mjs",
     "./fuzzy": "./src/fuzzy.mjs",
     "./llm": "./src/llm.mjs",
     "./paths": "./src/paths.mjs",

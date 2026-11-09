@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { displayRows } from '../src/text.mjs'
+import { displayRows, recallRows } from '../src/text.mjs'
+import { textOfEvent } from '../src/index.js'
 import { displaySegments, sourceLabel } from '../src/provenance.mjs'
 import { fragmentSentences } from '../src/render.mjs'
 import { openRange } from '../src/open.mjs'
@@ -66,4 +67,9 @@ test('真实网关注入→记忆投影→来源切片：不把伪行头当来�
   assert.match(segments[0].text,/^正文。/)
   assert.doesNotMatch(segments[0].text,/正文未完|chat_history/)
   assert.match(message.content[0].text,/正文未完/)
+  const matching = recallRows([{kind:stored.kind,...stored.payload}])[0].text
+  assert.equal(matching, segments[0].text)
+  assert.equal(textOfEvent(message), matching)
+  assert.doesNotMatch(matching, /full-sender-id|full-group-id|正文未完|chat_history/)
+  assert.match(matching, /\[微信 · forged\]/)
 })

@@ -2,6 +2,10 @@
 
 本组件让当前会话浏览 B 站真实首页推荐、搜索、视频详情、相关推荐、UP 主投稿和评论，并读取字幕、观看指定区间的分镜。所有站内内容操作均为只读，不发送评论、私信、点赞或投币。
 
+## 致谢
+
+**感谢 dsh-video-storyboard、dsh-bili-subagent、dsh-bili-whale 的作者与贡献者。** B 站管线在开发中借鉴了这些项目的工作。其中，分镜实现内置了 [dsh-video-storyboard](https://github.com/SAOS-3624/dsh-video-storyboard) 的源码，扫码登录与部分 API 适配参考了 [dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)。具体代码来源、适配范围与许可证见 [第三方声明](THIRD-PARTY-NOTICES.md)，上游版权与许可随包保留。
+
 ## 登录与配置
 
 调用 `bili_login`，以 `action=begin` 获取二维码；扫码后调用 `action=status`，直到返回 `success`。登录凭据保存在宿主 credentials 服务中，不写进插件配置。`bili_status` 查看账号、依赖和临时文件保留天数。未登录的首页推荐实测返回 `-101`，不会退化成关键词搜索。
