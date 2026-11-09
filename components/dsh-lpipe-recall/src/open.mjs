@@ -1,6 +1,6 @@
 import { displayRows, displayPieces } from './text.mjs'
 import { imagesOfRows, imageReferences } from './images.mjs'
-import { pieces, sentenceBody } from './render.mjs'
+import { pieces, sentenceBody, clockOf } from './render.mjs'
 
 export const MAX_SENTENCES = 200
 export const MAX_CHARS = 24000
@@ -53,7 +53,8 @@ export function openRange({ reader, session, from, to = null, count = DEFAULT_CO
     const body = []
     for (const turn of turnList) {
       body.push('')
-      body.push(recallIdOf(session, turn) + ' 本片段共 ' + fragments.get(turn).length + ' 句')
+      const at = rows.find(row => row.turn === turn && row.at != null)?.at
+      body.push(recallIdOf(session, turn) + ' | ' + ((at == null ? '' : clockOf(at)) || '时间未记录') + ' | 本片段共 ' + fragments.get(turn).length + ' 句')
       const fragmentImages = selectedImages.filter(image => image.turn === turn)
       if (fragmentImages.length) body.push(imageReferences(fragmentImages))
       body.push(...sentenceBody(lines.filter(line => line.turn === turn)))

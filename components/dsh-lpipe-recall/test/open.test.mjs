@@ -21,13 +21,22 @@ test('与模糊回忆切句口径一致，纳入短工具结果并排除代码',
 test('跨片段区间包含端点；头部列出所有已读片段和总数', () => {
   const value = open([row(5, '一。二。三。'), row(7, '四。五。'), row(8, '六。')], { from: { turn: 5, sentence: 2 }, to: { turn: 7, sentence: 1 } })
   assert.match(value.text, /本仓库共 3 个片段/)
-  assert.match(value.text, /lpipe_recall_id\[repo:5\] 本片段共 3 句/)
-  assert.match(value.text, /lpipe_recall_id\[repo:7\] 本片段共 2 句/)
+  assert.match(value.text, /lpipe_recall_id\[repo:5\] \| 时间未记录 \| 本片段共 3 句/)
+  assert.match(value.text, /lpipe_recall_id\[repo:7\] \| 时间未记录 \| 本片段共 2 句/)
   assert.match(value.text, /〔DSH · 用户 → 我｜2〕二。/)
   assert.match(value.text, /〔DSH · 用户 → 我｜1〕四。/)
   assert.doesNotMatch(value.text, /五。/)
   assert.match(value.text, /下一页 from=7:2/)
   assert.deepEqual(value.turns, [5, 7])
+})
+
+test('片段头显示本地时间，分页不改用起始句时间，无效时间不编造', () => {
+  const at = new Date(2026, 10, 9, 15, 40).getTime()
+  const rows = [row(5, '一。', { at }), row(5, '二。', { at: at + 60000 }), row(6, '三。', { at: 'bad' })]
+  const first = open(rows, { count: 1 })
+  const next = open(rows, { from: { turn: 5, sentence: 2 }, count: 1 })
+  for (const value of [first, next]) assert.match(value.text, /lpipe_recall_id\[repo:5\] \| 11-09 15:40 \| 本片段共 2 句/)
+  assert.match(open(rows, { from: { turn: 6, sentence: 1 } }).text, /\| 时间未记录 \| 本片段共 1 句/)
 })
 
 test('按 count 翻页跨轮且不重复尾句；同一句区间可读', () => {
