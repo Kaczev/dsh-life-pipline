@@ -25,10 +25,13 @@ export async function sendMediaParts(args, { getConfig, channels, store, sendTex
   for (const { kind, file } of prepared) {
     try {
       const sent = await channels[channel].sendMedia(file, kind, options);
+      const targetId = sent.toUserId || sent.targetId || args.targetId;
+      const scope = sent.scope || options.scope;
+      recallDelivery = { channel, targetId, scope, sent: true };
       const partIds = sent.messageIds || (sent.messageId ? [sent.messageId] : []);
       ids.push(...partIds);
       results.push(`${file.fileName}：已发送${kind === 'image' ? '（动画呈现未验证）' : ''}`);
-      try { store.appendMessage({ channel, direction: 'out', senderId: 'self', text: `〔${kind}：${file.fileName}〕`, messageIds: partIds }); }
+      try { store.appendMessage({ channel, direction: 'out', conversationKind: scope === 'group' ? 'group' : 'dm', conversationId: targetId, senderId: 'self', text: `〔${kind}：${file.fileName}〕`, messageIds: partIds }); }
       catch { results.push('本地归档失败；媒体已发送，不要重发。'); }
     } catch (error) {
       results.push(`${file.fileName}：失败或结果未知：${error.message}；后续未发送，不自动重试`);

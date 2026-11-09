@@ -54,7 +54,7 @@ export function defaultConfig() {
     downloadBytes: 512 * 1024 ** 2,
     downloadRetentionDays: 7,
     /** Only the owner is allowed through. Off = every sender reaches you. */
-    ownerOnly: true,
+    ownerOnly: false,
     /** How the owner is labelled in injected batches. */
     ownerName: '',
     weixin: {

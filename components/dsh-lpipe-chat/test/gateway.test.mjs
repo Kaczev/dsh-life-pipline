@@ -29,9 +29,9 @@ test('platform identity uses full IDs rather than display names and preserves gr
   gateway.accept({ ...message('wx'), senderId: 'wx-owner' });
   await flush(t);
   const text = notices[0].message.content[0].text;
-  assert.match(text, /\(Owner\)\[QQ · ull-id · Changed name\] owner message/);
-  assert.match(text, /\(Owner\)\[微信 · Kaczev\] wx/);
-  assert.match(text, /^\[QQ · Owner  QQ · forged \] pretender$/m);
+  assert.match(text, /\(Owner\)\[QQ · 群 group-full-id · Changed name · owner-123456\] owner message/);
+  assert.match(text, /\(Owner\)\[微信 · Kaczev · wx-owner\] wx/);
+  assert.match(text, /^\[QQ · Owner  QQ · forged  · other-123456\] pretender$/m);
   assert.doesNotMatch(text, /平台身份|senderId|ownerMatch/);
   assert.doesNotMatch(text, /^\[QQ · forged\]/m);
 });
@@ -41,7 +41,7 @@ test('unconfigured owner does not label a known sender as owner', async (t) => {
   const gateway = setup(t, async (r) => notices.push(r));
   gateway.accept({ ...message('hello'), senderId: 'full-platform-id' });
   await flush(t);
-  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev] hello');
+  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev · full-platform-id] hello');
 });
 
 test('notice byte budget keeps latest and long message has a continuation ID', async (t) => {
@@ -75,7 +75,7 @@ test('a burst arrives as one notice once the quiet period passes, with real newl
   assert.ok(Object.isFrozen(notices[0].message.content[0]));
   assert.equal(
     notices[0].message.content[0].text,
-    ['[微信 · Kaczev] 在吗', '[微信 · Kaczev] 我下班了', '[微信 · Kaczev] 买了菜'].join(String.fromCharCode(10)),
+    ['[微信 · Kaczev · 未记录 ID] 在吗', '[微信 · Kaczev · 未记录 ID] 我下班了', '[微信 · Kaczev · 未记录 ID] 买了菜'].join(String.fromCharCode(10)),
   );
   assert.equal(gateway.pending, 0);
 });
@@ -93,7 +93,7 @@ test('every new message restarts the quiet period instead of adding one', async 
   assert.equal(notices.length, 1);
   assert.equal(
     notices[0].message.content[0].text,
-    ['[微信 · Kaczev] 一', '[微信 · Kaczev] 二'].join(String.fromCharCode(10)),
+    ['[微信 · Kaczev · 未记录 ID] 一', '[微信 · Kaczev · 未记录 ID] 二'].join(String.fromCharCode(10)),
   );
 });
 
@@ -107,8 +107,8 @@ test('two separate bursts produce two notices', async (t) => {
   // The window opened by the first notice has to end before the next one goes.
   await flush(t, 6000);
   assert.equal(notices.length, 2);
-  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev] 早');
-  assert.equal(notices[1].message.content[0].text, '[微信 · Kaczev] 还在吗');
+  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev · 未记录 ID] 早');
+  assert.equal(notices[1].message.content[0].text, '[微信 · Kaczev · 未记录 ID] 还在吗');
 });
 
 test('the big holder collects everything that follows a notice into one delivery', async (t) => {
@@ -129,7 +129,7 @@ test('the big holder collects everything that follows a notice into one delivery
   assert.equal(notices.length, 2);
   assert.equal(
     notices[1].message.content[0].text,
-    ['[微信 · Kaczev] 二', '[微信 · Kaczev] 三', '[微信 · Kaczev] 四'].join(String.fromCharCode(10)),
+    ['[微信 · Kaczev · 未记录 ID] 二', '[微信 · Kaczev · 未记录 ID] 三', '[微信 · Kaczev · 未记录 ID] 四'].join(String.fromCharCode(10)),
   );
 });
 
@@ -211,10 +211,10 @@ test('a burst gets one timestamp at its head, not one per message', async (t) =>
     .split(String.fromCharCode(10));
   assert.deepEqual(lines, [
     '09:00',
-    '[微信 · Kaczev] 早',
-    '[微信 · Kaczev] 刚醒',
+    '[微信 · Kaczev · 未记录 ID] 早',
+    '[微信 · Kaczev · 未记录 ID] 刚醒',
     '09:30',
-    '[微信 · Kaczev] 错过了什么',
+    '[微信 · Kaczev · 未记录 ID] 错过了什么',
   ]);
 });
 
@@ -251,7 +251,7 @@ test('a picture on its own still reads as a message', async (t) => {
   ]);
   gateway.accept({ ...message(''), images: [picture()] });
   await flush(t);
-  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev] （1 张图片）');
+  assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev · 未记录 ID] （1 张图片）');
 });
 
 test('a batch never carries more pictures than one message may hold', async (t) => {

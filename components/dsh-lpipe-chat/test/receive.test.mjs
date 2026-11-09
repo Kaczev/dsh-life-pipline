@@ -106,11 +106,11 @@ test('a WeChat message reaches the main session as a labelled prompt', async () 
     assert.equal(prompts[0].sessionId, 'session-main');
     assert.equal(prompts[0].message.source.form, 'notice');
     // The notice may open with a timestamp line; the message itself is last.
-    assert.equal(prompts[0].message.content[0].text.split(String.fromCharCode(10)).pop(), '(Owner)[微信 · Kaczev] 在吗');
+    assert.equal(prompts[0].message.content[0].text.split(String.fromCharCode(10)).pop(), `(Owner)[微信 · Kaczev · ${OWNER}] 在吗`);
     assert.equal(prompts[0].message.source.kind, 'dsh-lpipe-chat');
 
     // And the answer goes back out over the same stubbed transport.
-    const sent = await channel.sendText('嗯，在', { contextToken: 'ctx-1' });
+    const sent = await channel.sendText('嗯，在', { toUserId: OWNER, contextToken: 'ctx-1' });
     assert.deepEqual(sent.messageIds, ['wx-out-1']);
     assert.equal(api.sent.toUserId, OWNER);
     assert.equal(api.sent.contextToken, 'ctx-1');
@@ -197,7 +197,7 @@ test('a refused send drops the channel out of connected', async () => {
   await channel.connect();
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(channel.status.connected, true);
-  await assert.rejects(() => channel.sendText('hi'), /拒绝/);
+  await assert.rejects(() => channel.sendText('hi', { toUserId: OWNER }), /拒绝/);
   assert.equal(channel.status.connected, false, 'a rejected send proves the token is dead');
   assert.match(channel.status.lastError, /拒绝/);
   await channel.stop();
@@ -233,7 +233,7 @@ test('the newest inbound token wins over a caller-supplied one', async () => {
 
     // A stored token from an older bot must not override the live one: the
     // provider accepts the stale token and then drops the message.
-    const sent = await channel.sendText('嗯', { contextToken: 'ctx-stale' });
+    const sent = await channel.sendText('嗯', { toUserId: OWNER, contextToken: 'ctx-stale' });
     assert.equal(api.sent.contextToken, 'ctx-new');
     assert.equal(sent.contextToken, true);
     await channel.stop();
@@ -276,7 +276,7 @@ test('new credentials forget the conversation tokens of the old bot', async () =
       weixin: { ...credentials, botToken: 'tok-2' },
     });
     await channel.connect();
-    const sent = await channel.sendText('嗯');
+    const sent = await channel.sendText('嗯', { toUserId: OWNER });
     assert.ok(!api.sent.contextToken, 'a token from the previous bot is not reused');
     assert.equal(sent.contextToken, false, 'and the caller is told the send had no context');
     await channel.stop();

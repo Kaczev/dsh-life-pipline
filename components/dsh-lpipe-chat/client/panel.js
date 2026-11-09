@@ -35,47 +35,51 @@ const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
   background: COLORS.bg,
-  padding: '12px 14px 8px',
+  padding: '10px 12px',
   marginBottom: 10,
 };
 
 const channelCard = {
   ...card,
-  padding: '12px 14px',
+  padding: '10px 12px',
   marginBottom: 0,
 };
 
-const head = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 };
+const head = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 };
 const badge = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '2px 8px',
+  padding: '1px 7px',
   borderRadius: 999,
   border: '1px solid rgba(7, 193, 96, 0.28)',
   background: 'rgba(7, 193, 96, 0.14)',
   color: COLORS.success,
-  fontSize: 10.5,
+  fontSize: 9.5,
   fontWeight: 600,
+  lineHeight: 1.6,
   whiteSpace: 'nowrap',
 };
 
-const grid = { display: 'grid', gap: 8 };
-const gridTwo = { ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' };
-const gridThree = { ...gridTwo, marginTop: 8 };
-
-const field = { minWidth: 0 };
-const fieldName = {
-  display: 'block',
-  marginBottom: 4,
-  fontSize: 10.5,
-  fontWeight: 650,
-  color: COLORS.muted,
-  overflowWrap: 'anywhere',
+// The form is one five-column strip on wide pages. Media queries live in
+// scopedCss because inline styles cannot express them.
+const ownerRow = { display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' };
+const switchRow = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minHeight: 28,
+  marginLeft: 'auto',
+  paddingBottom: 1,
+  boxSizing: 'border-box',
 };
+const switchText = { fontSize: 11, lineHeight: 1.4, color: COLORS.muted, whiteSpace: 'nowrap' };
+const divider = { height: 1, margin: '9px 0', background: COLORS.border };
 
 const control = {
   display: 'flex',
   alignItems: 'center',
+  height: 28,
+  boxSizing: 'border-box',
   overflow: 'hidden',
   border: `1px solid ${COLORS.borderStrong}`,
   borderRadius: 'var(--dsw-radius-sm)',
@@ -84,12 +88,16 @@ const control = {
 const input = {
   width: '100%',
   minWidth: 0,
+  height: 26,
+  minHeight: 0,
+  boxSizing: 'border-box',
   border: 0,
   outline: 0,
   background: 'transparent',
-  padding: '6px 8px',
+  padding: '0 8px',
   color: COLORS.text,
-  fontSize: 12.5,
+  fontSize: 12,
+  lineHeight: 1.2,
   fontFamily: 'inherit',
   fontVariantNumeric: 'tabular-nums',
 };
@@ -97,13 +105,14 @@ const input = {
 const foot = {
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'flex-end',
-  gap: 8,
-  marginTop: 8,
+  gap: 10,
+  flexWrap: 'wrap',
+  marginTop: 10,
   paddingTop: 8,
   borderTop: `1px solid ${COLORS.border}`,
 };
-const footnote = { margin: '6px 0 0', fontSize: 10, lineHeight: 1.55, color: COLORS.faint };
+const hint = { flex: '1 1 230px', margin: 0, fontSize: 9.5, lineHeight: 1.55, color: COLORS.faint };
+const hintError = { ...hint, color: COLORS.danger };
 
 const channels = {
   display: 'grid',
@@ -114,19 +123,69 @@ const channels = {
 const actions = { display: 'flex', gap: 6, marginLeft: 'auto', flex: 'none' };
 
 const scopedCss = [
-  '.lpipe-chat-control:focus-within{border-color:var(--dsw-alias-state-business-primary)}',
+  '.lpipe-chat-control:focus-within{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px rgba(91,130,255,.17)}',
+  '.lpipe-chat-control-invalid{border-color:var(--dsw-alias-state-error-primary)}',
   '.lpipe-chat-control input[type=number]::-webkit-outer-spin-button,',
   '.lpipe-chat-control input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}',
   '.lpipe-chat-control input[type=number]{appearance:textfield;-moz-appearance:textfield}',
+  '.lpipe-chat-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}',
+  '.lpipe-chat-owner{flex:0 1 208px;min-width:156px}',
+  '.lpipe-chat-field{min-width:0}',
+  '.lpipe-chat-label-line{display:flex;align-items:baseline;justify-content:flex-start;gap:5px;margin-bottom:3px;overflow:hidden;white-space:nowrap}',
+  '.lpipe-chat-label{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:650;line-height:1.3}',
+  '.lpipe-chat-default{flex:none;color:var(--dsw-alias-label-tertiary);font-size:9.5px;letter-spacing:.01em}',
+  '.lpipe-chat-unit{flex:none;padding-right:8px;color:var(--dsw-alias-label-tertiary);font-size:10px}',
+  '.lpipe-chat-switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
+  '.lpipe-chat-card{container-type:inline-size}',
+  '@container (max-width:640px){.lpipe-chat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}',
+  '@container (max-width:460px){.lpipe-chat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lpipe-chat-owner{flex-basis:100%}.lpipe-chat-switch-row{margin-left:0}}',
 ].join('');
+
+function switchStyle(on, disabled) {
+  return {
+    position: 'relative',
+    flex: 'none',
+    width: 34,
+    height: 20,
+    minWidth: 0,
+    minHeight: 0,
+    boxSizing: 'border-box',
+    padding: 0,
+    border: 0,
+    borderRadius: 999,
+    background: on ? COLORS.accent : COLORS.borderStrong,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.55 : 1,
+    transition: 'background .16s ease, opacity .16s ease',
+  };
+}
+
+function knobStyle(on) {
+  return {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    background: 'white',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, .32)',
+    transform: on ? 'translateX(14px)' : 'none',
+    transition: 'transform .16s ease',
+  };
+}
 
 function button(accent) {
   return {
     appearance: 'none',
     fontFamily: 'inherit',
-    fontSize: 11.5,
-    lineHeight: 1.45,
-    padding: '5px 12px',
+    fontSize: 11,
+    height: 26,
+    minWidth: 0,
+    minHeight: 0,
+    boxSizing: 'border-box',
+    lineHeight: '24px',
+    padding: '0 12px',
     borderRadius: 'var(--dsw-radius-sm)',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
@@ -135,7 +194,7 @@ function button(accent) {
     flex: 'none',
     border: `1px solid ${accent || COLORS.borderStrong}`,
     background: accent || 'transparent',
-    color: accent ? '#ffffff' : COLORS.text,
+    color: accent ? 'white' : COLORS.text,
   };
 }
 
@@ -158,11 +217,16 @@ function note(text, tone) {
   }, text);
 }
 
-/** One compact config field: label above, framed input below. */
-function Field({ id, title, value, setValue, type = 'text', min, max, step, disabled, placeholder, maxLength }) {
-  return h('div', { style: field },
-    h('label', { htmlFor: id, style: fieldName }, title),
-    h('div', { className: 'lpipe-chat-control', style: control },
+/** One compact config field: short label + default hint, framed input below. */
+function Field({ id, title, label, hint: defaultValue, unit, value, setValue, type = 'text', min, max, step, disabled, placeholder, maxLength, invalid }) {
+  return h('div', { className: 'lpipe-chat-field' },
+    h('div', { className: 'lpipe-chat-label-line' },
+      h('label', { htmlFor: id, className: 'lpipe-chat-label', title }, label ?? title),
+      defaultValue ? h('span', { className: 'lpipe-chat-default' }, defaultValue) : null),
+    h('div', {
+      className: invalid ? 'lpipe-chat-control lpipe-chat-control-invalid' : 'lpipe-chat-control',
+      style: control,
+    },
       h('input', {
         id,
         type,
@@ -173,9 +237,11 @@ function Field({ id, title, value, setValue, type = 'text', min, max, step, disa
         step,
         value,
         disabled,
+        title,
         style: input,
         onChange: (event) => setValue(event.target.value),
-      })));
+      }),
+      unit ? h('span', { className: 'lpipe-chat-unit', 'aria-hidden': 'true' }, unit) : null));
 }
 
 function ChannelCard({ name, title, accent, state, login, onBegin, onConnect, onCancel, onCode, busy }) {
@@ -245,14 +311,15 @@ function markConnected(status, channel) {
   };
 }
 
+function parseBytes(value) {
+  const match = String(value).trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|G|GB)?$/i);
+  if (!match) return NaN;
+  return Number(match[1]) * ({ B: 1, KB: 1024, MB: 1024 ** 2, G: 1024 ** 3, GB: 1024 ** 3 }[(match[2] || 'B').toUpperCase()]);
+}
+
 function draftPatch(values) {
-  const bytes = (value) => {
-    const match = String(value).trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|G|GB)?$/i);
-    if (!match) return NaN;
-    return Number(match[1]) * ({ B: 1, KB: 1024, MB: 1024 ** 2, G: 1024 ** 3, GB: 1024 ** 3 }[(match[2] || 'B').toUpperCase()]);
-  };
   const [quiet, window, output, download, retention] = values;
-  const q = Number(quiet), w = Number(window), o = bytes(output), d = bytes(download), r = Number(retention);
+  const q = Number(quiet), w = Number(window), o = parseBytes(output), d = parseBytes(download), r = Number(retention);
   if (!Number.isFinite(q) || q < 0.2 || q > 60 || !Number.isFinite(w) || w < 3 || w > 120 || !Number.isSafeInteger(o) || o < 1024 || !Number.isSafeInteger(d) || d < 1 || !Number.isSafeInteger(r) || r < 1 || r > 36500) return null;
   return { quietSeconds: Math.round(q * 10) / 10, windowSeconds: Math.round(w), outputBytes: o, downloadBytes: d, downloadRetentionDays: r };
 }
@@ -377,7 +444,20 @@ function ChatSettingsPanel({ rpcCall }) {
   const pendingPatch = draftPatch([quietDraft, windowDraft, outputDraft, downloadDraft, retentionDraft]);
   if (pendingPatch) pendingPatch.ownerName = ownerDraft.trim();
   const ownerValid = ownerDraft.length <= 200 && !/[\x00-\x1f\x7f\u2028\u2029]/u.test(ownerDraft);
-  const canSave = Boolean(ownerValid && status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ ownerName: '', outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
+  const invalid = {
+    quiet: !(Number.isFinite(Number(quietDraft)) && Number(quietDraft) >= 0.2 && Number(quietDraft) <= 60),
+    window: !(Number.isFinite(Number(windowDraft)) && Number(windowDraft) >= 3 && Number(windowDraft) <= 120),
+    output: !(Number.isSafeInteger(parseBytes(outputDraft)) && parseBytes(outputDraft) >= 1024),
+    download: !(Number.isSafeInteger(parseBytes(downloadDraft)) && parseBytes(downloadDraft) >= 1),
+    retention: !(Number.isSafeInteger(Number(retentionDraft)) && Number(retentionDraft) >= 1 && Number(retentionDraft) <= 36500),
+  };
+  const anyInvalid = Object.values(invalid).some(Boolean);
+  const hintText = !pendingPatch
+    ? '请检查数值范围；大小支持 B、KB、MB、G，按 1024 进位。'
+    : !ownerValid
+      ? 'Owner 名字最多 200 字，不能包含换行或控制字符。'
+      : '大小按 1024 进位 · 仅清理 downloads 直属文件 · 接收开关立即保存';
+  const canSave = Boolean(ownerValid && status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ ownerOnly: false, ownerName: '', outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
   const save = async (patch) => {
     if (!canSave) return;
     setBusy(true);
@@ -391,6 +471,16 @@ function ChatSettingsPanel({ rpcCall }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const toggleOwnerOnly = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      adopt(await call('chat.config.save', { ownerOnly: !status.config.ownerOnly }));
+      setError('');
+    } catch (cause) { setError(cause.message); }
+    finally { setBusy(false); }
   };
 
   // Rebuilding the channel from the stored credentials. When the server side
@@ -448,7 +538,7 @@ function ChatSettingsPanel({ rpcCall }) {
   };
 
   const header = h('div', { style: head },
-    h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
+    h('h3', { style: { margin: 0, fontSize: 14, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
     h('span', { style: badge }, '聊天管线'));
 
   if (!status) {
@@ -469,11 +559,38 @@ function ChatSettingsPanel({ rpcCall }) {
   return h('section', null,
     h('style', null, scopedCss),
     header,
-    h('div', { style: card },
-      h('div', { style: { marginBottom: 8 } }, h(Field, { id: 'dsh-lpipe-chat-owner', title: 'Owner 名字', value: ownerDraft, setValue: setOwnerDraft, placeholder: '可留空', maxLength: 200, disabled: busy })),
-      h('div', { style: gridTwo },
+    h('div', { className: 'lpipe-chat-card', style: card },
+      h('div', { style: ownerRow },
+        h('div', { className: 'lpipe-chat-owner' },
+          h(Field, {
+            id: 'dsh-lpipe-chat-owner',
+            label: 'Owner 名字',
+            title: 'Owner 名字仅作称呼，不用于身份验证',
+            value: ownerDraft,
+            setValue: setOwnerDraft,
+            placeholder: '可留空',
+            maxLength: 200,
+            disabled: busy,
+          })),
+        h('div', { className: 'lpipe-chat-switch-row', style: switchRow },
+          h('span', { style: switchText }, '只接收 Owner 的消息'),
+          h('button', {
+            type: 'button',
+            role: 'switch',
+            className: 'lpipe-chat-switch',
+            'aria-label': '只接收 Owner 的消息',
+            'aria-checked': status.config.ownerOnly === true,
+            disabled: busy,
+            onClick: toggleOwnerOnly,
+            style: switchStyle(status.config.ownerOnly === true, busy),
+          }, h('span', { style: knobStyle(status.config.ownerOnly === true), 'aria-hidden': 'true' })))),
+      h('div', { style: divider }),
+      h('div', { className: 'lpipe-chat-grid' },
         h(Field, {
           id: 'dsh-lpipe-chat-quiet',
+          label: '合并间隔',
+          hint: '默认 8',
+          unit: '秒',
           title: '合并间隔（秒）（默认：8）',
           value: quietDraft,
           setValue: setQuietDraft,
@@ -482,9 +599,13 @@ function ChatSettingsPanel({ rpcCall }) {
           max: 60,
           step: 0.1,
           disabled: busy,
+          invalid: invalid.quiet,
         }),
         h(Field, {
           id: 'dsh-lpipe-chat-window',
+          label: '收集窗口',
+          hint: '默认 14',
+          unit: '秒',
           title: '收集窗口（秒）（默认：14）',
           value: windowDraft,
           setValue: setWindowDraft,
@@ -493,24 +614,33 @@ function ChatSettingsPanel({ rpcCall }) {
           max: 120,
           step: 1,
           disabled: busy,
-        })),
-      h('div', { style: gridThree },
+          invalid: invalid.window,
+        }),
         h(Field, {
           id: 'dsh-lpipe-chat-output',
+          label: '通知／历史',
+          hint: '默认 16KB',
           title: '通知／历史上限（默认：16KB）',
           value: outputDraft,
           setValue: setOutputDraft,
           disabled: busy,
+          invalid: invalid.output,
         }),
         h(Field, {
           id: 'dsh-lpipe-chat-download',
+          label: '下载上限',
+          hint: '默认 512MB',
           title: '文件下载上限（默认：512MB）',
           value: downloadDraft,
           setValue: setDownloadDraft,
           disabled: busy,
+          invalid: invalid.download,
         }),
         h(Field, {
           id: 'dsh-lpipe-chat-retention',
+          label: '保留天数',
+          hint: '默认 7',
+          unit: '天',
           title: '下载保留天数（天）（默认：7）',
           value: retentionDraft,
           setValue: setRetentionDraft,
@@ -519,29 +649,30 @@ function ChatSettingsPanel({ rpcCall }) {
           max: 36500,
           step: 1,
           disabled: busy,
+          invalid: invalid.retention,
         })),
       h('div', { style: foot },
-        h('button', {
-          type: 'button',
-          style: { ...button(canSave ? COLORS.accent : null), opacity: canSave ? 1 : 0.42 },
-          disabled: !canSave,
-          onClick: () => save({
-            ownerName: ownerDraft,
-            quietSeconds: Number(quietDraft),
-            windowSeconds: Number(windowDraft),
-            outputBytes: outputDraft,
-            downloadBytes: downloadDraft,
-            downloadRetentionDays: Number(retentionDraft),
-          }),
-        }, busy ? '保存中…' : '保存'),
-        h('button', {
-          type: 'button',
-          style: button(),
-          disabled: busy,
-          onClick: () => { resetDrafts(status.config); setError(''); },
-        }, '取消')),
-      h('p', { style: footnote },
-        '大小支持 B、KB、MB、G，按 1024 进位。默认 downloads 中的文件按最后修改时间清理，启动时及每小时检查；不清理子目录或自定义下载目录。Owner 名字仅作称呼，不用于身份验证；六项一起保存。')),
+        h('p', { style: anyInvalid || !ownerValid ? hintError : hint }, hintText),
+        h('div', { style: actions },
+          h('button', {
+            type: 'button',
+            style: { ...button(canSave ? COLORS.accent : null), opacity: canSave ? 1 : 0.42 },
+            disabled: !canSave,
+            onClick: () => save({
+              ownerName: ownerDraft,
+              quietSeconds: Number(quietDraft),
+              windowSeconds: Number(windowDraft),
+              outputBytes: outputDraft,
+              downloadBytes: downloadDraft,
+              downloadRetentionDays: Number(retentionDraft),
+            }),
+          }, busy ? '保存中…' : '保存'),
+          h('button', {
+            type: 'button',
+            style: button(),
+            disabled: busy,
+            onClick: () => { resetDrafts(status.config); setError(''); },
+          }, '取消')))),
 
     h('div', { style: channels },
       h(ChannelCard, {

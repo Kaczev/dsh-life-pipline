@@ -88,9 +88,9 @@ test('a QQ private message reaches the main session with the sender label', asyn
     assert.equal(events[0].conversationKind, 'dm');
     assert.equal(events[0].messageId, 'msg-1');
     // The notice may open with a timestamp line; the message itself is last.
-    assert.equal(prompts[0].content[0].text.split(String.fromCharCode(10)).pop(), '(Owner)[QQ · Kaczev] 在机房');
+    assert.equal(prompts[0].content[0].text.split(String.fromCharCode(10)).pop(), `(Owner)[QQ · Kaczev · ${OWNER}] 在机房`);
 
-    const sent = await channel.sendText('收到', {});
+    const sent = await channel.sendText('收到', { targetId: OWNER });
     assert.deepEqual(sent, { messageId: 'qq-out-1', scope: 'c2c', targetId: OWNER });
     assert.deepEqual(bot.lastSend.target, { scope: 'c2c', targetId: OWNER });
     gateway.dispose();
@@ -118,7 +118,7 @@ test('a QQ group message keeps the group identity and replies into the group', a
   });
 });
 
-test('QQ drops bots, empty text and strangers', async () => {
+test('QQ drops bots and empty text but accepts other senders by default', async () => {
   await withHome({ appId: '123', appSecret: 'sec', ownerOpenId: OWNER }, async () => {
     const bot = fakeBot();
     const events = [];
@@ -128,12 +128,12 @@ test('QQ drops bots, empty text and strangers', async () => {
     await bot.emit('message', {}, { kind: 'c2c', senderId: OWNER, content: '   ', messageId: 'm' });
     await bot.emit('message', {}, { kind: 'c2c', senderId: OWNER, content: 'bot', messageId: 'm', senderIsBot: true });
     await bot.emit('message', {}, { kind: 'c2c', senderId: 'STRANGER', content: 'hi', messageId: 'm' });
-    assert.deepEqual(events, []);
+    assert.equal(events.length, 1);
     await channel.stop();
   });
 });
 
-test('QQ without a known owner drops everything instead of guessing', async () => {
+test('QQ accepts messages without configured owner when filtering is disabled', async () => {
   await withHome({ appId: '123', appSecret: 'sec' }, async () => {
     const bot = fakeBot();
     const events = [];
@@ -144,7 +144,7 @@ test('QQ without a known owner drops everything instead of guessing', async () =
       kind: 'c2c', senderId: OWNER, senderName: 'Kaczev',
       content: '我是主人', messageId: 'm-1', timestamp: 1_793_728_666_199,
     });
-    assert.deepEqual(events, []);
+    assert.equal(events.length, 1);
     await channel.stop();
   });
 });
@@ -203,7 +203,7 @@ test('a bot removed from the friends list says so without losing the connection'
       onInbound: () => {},
     });
     await channel.connect();
-    await assert.rejects(() => channel.sendText('你好'), /好友/);
+    await assert.rejects(() => channel.sendText('你好', { targetId: OWNER }), /好友/);
     // The socket is fine; only the relationship is missing. Keeping the light
     // green means "reconnect" would be the wrong advice.
     assert.equal(channel.status.connected, true);
@@ -226,7 +226,7 @@ test('a deregistered bot stops reading as connected the moment it refuses a send
     await channel.connect();
     assert.equal(channel.status.connected, true);
 
-    await assert.rejects(() => channel.sendText('你好'), /重新扫码/);
+    await assert.rejects(() => channel.sendText('你好', { targetId: OWNER }), /重新扫码/);
     assert.equal(channel.status.connected, false);
     assert.match(channel.status.lastError, /已失效/);
     await channel.stop();

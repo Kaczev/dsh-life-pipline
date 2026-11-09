@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, saveConfig, updateConfig } from '../src/config.mjs';
 import { createChatRpcHandler } from '../src/rpc.mjs';
+import { QqChannel } from '../src/qq/channel.mjs';
 import { apply } from '../src/index.js';
 
 function isolated(t) {
@@ -42,6 +43,10 @@ test('unreadable legacy file is not marked migrated and can be retried', t => {
 test('chat section is main-only, follows reassignment and dynamically reads Owner name', t => {
   const root = isolated(t); mkdirSync(join(root, 'life-pipline'));
   const setMain = id => writeFileSync(join(root, 'life-pipline', 'config.json'), JSON.stringify({ mainSessionId: id }));
+  let botName = '';
+  const descriptor = Object.getOwnPropertyDescriptor(QqChannel.prototype, 'botName');
+  Object.defineProperty(QqChannel.prototype, 'botName', { configurable: true, get: () => botName });
+  t.after(() => Object.defineProperty(QqChannel.prototype, 'botName', descriptor));
   let section;
   const ctx = { logger: { warn() {}, info() {} }, effect() {}, inject(keys, fn) {
     if (keys.includes('systemPrompt')) fn({ systemPrompt: { section(value) { section = value; } } });
@@ -50,6 +55,13 @@ test('chat section is main-only, follows reassignment and dynamically reads Owne
   const text = id => section.text({ scope: { id, parentSession: 'main' } });
   assert.equal(text('main'), ''); setMain('main');
   assert.match(text('main'), /Legacy/);
+  assert.doesNotMatch(text('main'), /Your QQ bot account/);
+  botName = 'Kaseria';
+  const withName = text('main');
+  assert.ok(withName.indexOf('A burst may contain several messages.') < withName.indexOf('Your QQ bot account'));
+  assert.ok(withName.indexOf('Your QQ bot account') < withName.indexOf('Always choose and explicitly supply targetId'));
+  assert.equal((withName.match(/Your QQ bot account/g) || []).length, 1);
+  assert.equal((withName.match(/### /g) || []).length, 4);
   assert.match(text('main'), /only with the verified Owner in a private destination/);
   assert.equal(text('other'), ''); assert.equal(text('child'), ''); assert.equal(section.text({}), '');
   updateConfig(c => ({ ...c, ownerName: 'Updated' })); assert.match(text('main'), /Updated/);

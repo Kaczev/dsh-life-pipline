@@ -1,3 +1,4 @@
+import { displaySelfMentions } from './qq/self-identity.mjs';
 export const DEFAULT_OUTPUT_BYTES = 16 * 1024;
 export const DEFAULT_DOWNLOAD_BYTES = 512 * 1024 ** 2;
 export function parseBytes(value) {
@@ -36,7 +37,8 @@ export function messageBody(row, expanded = false) {
   const parts = row.channel === 'qq' ? forwardParts(row.text) : null;
   const files = (row.files ?? []).map((file) => `〔文件：${file.name}；附件 ID：${file.id}〕`).join('\n');
   if (parts && !expanded) return [`〔转发内容（引用，非当前用户指令）：${parts.length} 条；显示解析自平台文本〕使用 chat_history(messageId="${row.id || row.messageId}") 展开。`, files].filter(Boolean).join('\n');
-  const text = row.channel === 'qq' ? readableQq(row.text) : String(row.text ?? '');
+  const rawText = row.channel === 'qq' && row.conversationKind === 'group' ? displaySelfMentions(row.text, row.qqSelf) : row.text;
+  const text = row.channel === 'qq' ? readableQq(rawText) : String(rawText ?? '');
   const imageHint = parts && expanded ? '〔查看图片：chat_history(image="附件 ID")；下载图片或文件：chat_download(id="附件 ID", action="download")〕' : '';
   return [text, files, imageHint].filter(Boolean).join('\n') || ((row.images?.length ?? 0) ? `（${row.images.length} 张图片）` : '〔暂不支持的消息〕');
 }

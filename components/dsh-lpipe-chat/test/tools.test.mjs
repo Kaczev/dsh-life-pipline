@@ -46,7 +46,7 @@ test('chat_send leaves the context token to the channel and archives the outboun
     channel: 'weixin', direction: 'in', conversationKind: 'dm', conversationId: OWNER,
     senderId: OWNER, senderName: '', text: '在吗', at: new Date().toISOString(), contextToken: 'ctx-1',
   });
-  const result = await tools.chat_send.execute({ channel: 'weixin', text: '在的。' });
+  const result = await tools.chat_send.execute({ channel: 'weixin', targetId: OWNER, text: '在的。' });
   assert.equal(result.sent, true);
   // A token stored from an earlier send may belong to a bot that is gone: the
   // channel reuses only what it heard on this connection, so no token is
@@ -84,8 +84,8 @@ test('chat_history image ID takes priority over incidental filters without readi
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('chat_send on QQ defaults to the owner private chat', async () => {
-  const result = await tools.chat_send.execute({ channel: 'qq', text: '收到' });
+test('chat_send on QQ uses the explicitly selected private target', async () => {
+  const result = await tools.chat_send.execute({ channel: 'qq', targetId: 'owner-qq', text: '收到' });
   assert.equal(result.channel, 'qq');
   assert.equal(calls.at(-1).options.scope, 'c2c');
 });
@@ -114,6 +114,6 @@ test('chat_send says so when WeChat has no live conversation token', async () =>
       store,
     }).map((tool) => [tool.name, tool]),
   );
-  const result = await bare.chat_send.execute({ channel: 'weixin', text: '在的。' });
+  const result = await bare.chat_send.execute({ channel: 'weixin', targetId: OWNER, text: '在的。' });
   assert.match(result.summary, /先在微信里发一条/);
 });

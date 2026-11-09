@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { QQBot, ApiError } from '@tencent-connect/qqbot-nodejs';
 import { startQrConnect } from '@tencent-connect/qqbot-connector';
 
+import { QqSelfIdentity } from './self-identity.mjs';
 import { registerFile } from '../files.mjs';
 import { toIso } from '../time.mjs';
 import { MAX_IMAGES_PER_MESSAGE, downloadImage } from '../images.mjs';
@@ -83,6 +84,13 @@ export class QqChannel {
   #log;
   #onInbound;
   #bot = null;
+  #identity = null;
+  #names = new Map();
+  #saveBotName;
+  get botName() {
+    const qq = this.#config().qq ?? {};
+    return this.#names.get(qq.appId) || qq.botNames?.[qq.appId] || '';
+  }
   #login = null;
   #status = { connected: false, appId: '', lastError: '' };
   #lastProbeAt = 0;
@@ -102,6 +110,7 @@ export class QqChannel {
     readyTimeoutMs = READY_TIMEOUT_MS,
     fetchToken = defaultFetchToken,
     now = Date.now,
+    saveBotName = () => {},
   }) {
     this.#createBot = createBot;
     this.#config = config;
@@ -110,6 +119,7 @@ export class QqChannel {
     this.#readyTimeoutMs = readyTimeoutMs;
     this.#fetchToken = fetchToken;
     this.#now = now;
+    this.#saveBotName = saveBotName;
   }
 
   get status() {
@@ -150,6 +160,8 @@ export class QqChannel {
 
   #markDead(reason) {
     this.#status = { ...this.#status, connected: false, lastError: reason };
+    this.#identity?.close();
+    this.#identity = null;
     const current = this.#bot;
     this.#bot = null;
     try {
@@ -213,6 +225,7 @@ export class QqChannel {
       if (this.#bot !== bot) return;
       this.#status = { ...this.#status, connected: true, appId: qq.appId, lastError: '' };
       settle();
+      void this.#identity?.loadName();
     };
     on('ready', markUp);
     on('resumed', markUp);
@@ -227,12 +240,21 @@ export class QqChannel {
       // Pictures download before they are archived, so this is async; a broken
       // attachment must never take the message down with it.
       if (this.#bot !== bot) return;
-      void this.#accept(message).catch((error) => {
+      return this.#accept(message).catch((error) => {
         this.#log.warn?.(`[life-chat] qq inbound failed: ${error?.message ?? error}`);
       });
     });
 
     this.#bot = bot;
+    this.#identity = new QqSelfIdentity(bot, this.#now, {
+      name: this.botName,
+      onName: (name) => {
+        if (this.#bot !== bot) return;
+        this.#names.set(qq.appId, name);
+        try { this.#saveBotName(qq.appId, name); }
+        catch (error) { this.#log?.warn?.(`[life-chat] qq: could not persist bot name: ${error?.message ?? error}`); }
+      },
+    });
     this.#status = { ...this.#status, appId: qq.appId, lastError: '' };
     // `start()` may never settle when the socket cannot come up, so readiness —
     // not the start promise — decides whether this connect succeeded.
@@ -247,7 +269,11 @@ export class QqChannel {
       await ready;
     } catch (error) {
       const reason = String(error?.message ?? error);
-      if (this.#bot === bot) this.#bot = null;
+      if (this.#bot === bot) {
+        this.#bot = null;
+        this.#identity?.close();
+        this.#identity = null;
+      }
       this.#status = { ...this.#status, connected: false, lastError: reason };
       try {
         bot.stop?.();
@@ -286,6 +312,8 @@ export class QqChannel {
       ? String(message.groupOpenid ?? message.channelId ?? senderId)
       : senderId;
     const scope = group ? 'group' : 'c2c';
+    const qqSelf = group ? await this.#identity?.forGroup(conversationId) : null;
+    if (this.#bot !== bot) return;
     const at = toIso(message.timestamp);
     this.#syncRouteOwner();
     const msgId = String(message.messageId ?? '').trim();
@@ -308,8 +336,9 @@ export class QqChannel {
       conversationKind: group ? 'group' : 'dm',
       conversationId,
       senderId,
-      senderName: String(message.senderName ?? ''),
+      senderName: String(message.senderName || message.raw?.author?.username || ''),
       text,
+      ...(qqSelf ? { qqSelf } : {}),
       files: fileItems.map((item) => registerFile('qq', item)),
       images,
       at: toIso(message.timestamp),
@@ -380,9 +409,8 @@ export class QqChannel {
   async #send(kind, payload, { scope = 'c2c', targetId, msgId } = {}) {
     const bot = this.#bot;
     if (!bot) throw new Error('QQ is not connected yet');
-    const qq = this.#config().qq ?? {};
-    const target = targetId || (scope === 'c2c' ? qq.ownerOpenId : '');
-    if (!target) throw new Error('QQ has no target: specify the group or set the owner openid');
+    const target = typeof targetId === 'string' ? targetId : '';
+    if (!target.trim() || target !== target.trim()) throw new Error('QQ targetId is required: explicitly choose the recipient ID');
     const route = this.#replyRoute(scope, target, msgId);
     const proactive = { scope, targetId: target };
     // Reserve before awaiting: concurrent sends cannot overspend one msg_id.
@@ -508,6 +536,8 @@ export class QqChannel {
 
   async stop() {
     this.cancelLogin();
+    this.#identity?.close();
+    this.#identity = null;
     const bot = this.#bot;
     this.#bot = null;
     this.#status = { ...this.#status, connected: false };

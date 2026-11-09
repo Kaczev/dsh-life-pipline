@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-recall",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "回忆管线（Lpipe Recall）：把与眼前这段话相关的旧记忆，模糊地摆到模型面前。",
   "type": "module",
   "main": "./src/index.js",

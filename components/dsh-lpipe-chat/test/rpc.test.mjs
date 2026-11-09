@@ -51,6 +51,17 @@ function fixture({ login = null, live = { connected: true, lastError: '' }, conn
   return { handle, calls, config: () => config };
 }
 
+test('Owner-only filter saves booleans atomically', async () => {
+  const { handle, config } = fixture();
+  assert.equal((await handle('chat.config.save', { ownerOnly: false })).ok, true);
+  assert.equal(config().ownerOnly, false);
+  assert.equal((await handle('chat.config.save', { ownerOnly: 'true', quietSeconds: 12 })).ok, false);
+  assert.equal(config().ownerOnly, false);
+  assert.equal(config().quietSeconds, 1);
+  assert.equal((await handle('chat.config.save', { ownerOnly: true })).ok, true);
+  assert.equal(config().ownerOnly, true);
+});
+
 test('status never leaks channel secrets', async () => {
   const { handle } = fixture({ login: { state: 'pending', qrUrl: 'https://qr' } });
   const result = await handle('chat.status', {});

@@ -190,20 +190,22 @@ export class WeixinChannel {
     return weixinInboundImages(message, { fetchImpl: this.#fetchImpl, log: this.#log, signal });
   }
 
-  async sendMedia(file, kind) {
+  async sendMedia(file, kind, { targetId } = {}) {
     if (!['image', 'file'].includes(kind)) throw new Error('微信暂不支持原生表情发送；请选择明确的 image 或 file。');
-    const { botToken, ownerUserId, baseUrl } = this.#credentials();
-    if (!botToken || !ownerUserId) throw new Error('WeChat is not connected yet');
+    const { botToken, baseUrl } = this.#credentials();
+    if (typeof targetId !== 'string' || !targetId.trim() || targetId !== targetId.trim()) throw new Error('WeChat targetId is required');
+    if (!botToken) throw new Error('WeChat is not connected yet');
     const result = await this.#api[kind === 'image' ? 'sendImage' : 'sendFile']({
-      baseUrl, token: botToken, toUserId: ownerUserId, file,
-      contextToken: this.#contextTokens.get(ownerUserId) || '',
+      baseUrl, token: botToken, toUserId: targetId, file,
+      contextToken: this.#contextTokens.get(targetId) || '',
     });
-    return { messageIds: result?.providerMessageIds ?? [], toUserId: ownerUserId };
+    return { messageIds: result?.providerMessageIds ?? [], toUserId: targetId };
   }
 
   async sendText(text, { toUserId, contextToken } = {}) {
-    const { botToken, ownerUserId, baseUrl } = this.#credentials();
-    const target = toUserId || ownerUserId;
+    const { botToken, baseUrl } = this.#credentials();
+    const target = toUserId;
+    if (typeof target !== 'string' || !target.trim() || target !== target.trim()) throw new Error('WeChat toUserId is required');
     if (!botToken || !target) throw new Error('WeChat is not connected yet');
     // What this channel heard last beats a caller's stale guess.
     const token = this.#contextTokens.get(target) || contextToken || '';

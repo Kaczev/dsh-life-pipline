@@ -46,11 +46,11 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
               attachmentId: { type: 'string', description: 'Received file attachment ID; explicitly downloads it before sending.' },
             }, required: ['kind'] } },
           scope: { type: 'string', enum: ['c2c', 'group'], description: 'QQ only: private chat (default) or group.' },
-          targetId: { type: 'string', description: 'QQ only: user or group openid. Defaults to the owner for private chat; required for group chat.' },
+          targetId: { type: 'string', minLength: 1, description: 'Required full recipient ID from a notice or chat_history: WeChat user ID or QQ user/group OpenID. No default recipient.' },
           msgId: { type: 'string', description: 'QQ only: select a known inbound message to reply to. Omit to use the latest eligible message for this target; expired or exhausted routes use proactive delivery.' },
           completed: { type: 'boolean', description: 'Set true when this message is the whole answer for this turn: the turn ends here and nothing more is said in the Harness UI. Leave it out when you still have work to do after sending.' },
         },
-        required: ['channel'],
+        required: ['channel', 'targetId'],
       },
       output: {
         schema: {
@@ -69,6 +69,9 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
         presentationMeta: (_args, value) => value.recallDelivery ? { recallDelivery: value.recallDelivery } : {},
       },
       execute: async function send(args, exec) {
+        if (typeof args?.targetId !== 'string' || !args.targetId.trim()) throw new Error('targetId is required: explicitly choose the recipient ID');
+        if (args.targetId !== args.targetId.trim()) throw new Error('targetId must not contain surrounding whitespace');
+        if (args.channel === 'weixin' && args.scope === 'group') throw new Error('WeChat group delivery is not supported');
         if (args.media?.length) return sendMediaParts(args, {
           getConfig, channels, store,
           sendText: send,
@@ -85,7 +88,7 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
           // The channel reuses the token it last heard on this conversation;
           // passing a stored one here would resurrect a token from an older
           // bot, which the provider accepts and then silently drops.
-          const sent = await channels.weixin.sendText(text, {});
+          const sent = await channels.weixin.sendText(text, { toUserId: args.targetId });
           const archiveWarning = archive({
             channel: 'weixin',
             direction: 'out',

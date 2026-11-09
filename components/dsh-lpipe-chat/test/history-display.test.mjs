@@ -6,12 +6,12 @@ const row = (minute, extra = {}) => ({ id: `m${minute}`, at: new Date(2026, 10, 
 test('history uses notice identities and actual outgoing destination, never display-name ownership', () => {
   const rows = [row(0), row(1, { senderId: 'stranger', senderName: 'Kaczev' }), row(2, { direction: 'out', conversationId: 'verified-owner' }), row(3, { direction: 'out' }), row(4, { direction: 'out', conversationKind: 'group', conversationId: 'group-1234567890' })];
   const result = historyPage({}, config, rows).summary;
-  assert.match(result, /\(Owner\)\[QQ · Kaczev\]/);
-  assert.match(result, /\n\[QQ · Kaczev\]/);
-  assert.match(result, /\[QQ · 我 → Kaczev\]/);
-  assert.match(result, /\[QQ · 我 → 接收对象未记录\]/);
-  assert.match(result, /\[QQ · 我 → 群 567890\]/);
-  assert.doesNotMatch(result, /verified-owner|T07:|\.000Z/);
+  assert.match(result, /\(Owner\)\[QQ · Kaczev · verified-owner\]/);
+  assert.match(result, /\n\[QQ · Kaczev · stranger\]/);
+  assert.match(result, /\[QQ · 我 → Kaczev · verified-owner\]/);
+  assert.match(result, /\[QQ · 我 → 接收对象未记录 · 未记录 ID\]/);
+  assert.match(result, /\[QQ · 我 → 群 group-1234567890\]/);
+  assert.doesNotMatch(result, /T07:|\.000Z/);
 });
 test('five-minute separators measure from displayed stamp, not previous message; pages restart dates', () => {
   const rows = [0, 2, 4, 5, 7, 10].map(minute => row(minute));

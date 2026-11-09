@@ -48,17 +48,17 @@ const counter = () => {
 
 test('chat_send offers completed as an optional switch', () => {
   const schema = tools.chat_send.parameters;
-  assert.deepEqual(schema.required, ['channel']);
+  assert.deepEqual(schema.required, ['channel', 'targetId']);
   assert.equal(schema.properties.completed.type, 'boolean');
 });
 
 test('chat_send ends the turn only when completed is true', async () => {
   const first = counter();
-  await tools.chat_send.execute({ channel: 'qq', text: '第一句' }, first);
+  await tools.chat_send.execute({ channel: 'qq', targetId: 'owner-qq', text: '第一句' }, first);
   assert.equal(first.turns, 0, 'a message on its own keeps the turn open');
 
   const second = counter();
-  await tools.chat_send.execute({ channel: 'qq', text: '第二句', completed: true }, second);
+  await tools.chat_send.execute({ channel: 'qq', targetId: 'owner-qq', text: '第二句', completed: true }, second);
   assert.equal(second.turns, 1);
 });
 
@@ -81,7 +81,7 @@ test('chat_send does not end the turn when the message never left', async () => 
   );
   const state = counter();
   await assert.rejects(
-    broken.chat_send.execute({ channel: 'weixin', text: '在吗', completed: true }, state),
+    broken.chat_send.execute({ channel: 'weixin', targetId: OWNER, text: '在吗', completed: true }, state),
     /拒绝了回复消息/,
   );
   assert.equal(state.turns, 0, 'a failed send must not close the turn');

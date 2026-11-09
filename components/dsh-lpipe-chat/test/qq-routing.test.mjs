@@ -7,12 +7,12 @@ test('QQ media shares passive quota, preserves GIF bytes and never retries rejec
   const f = fixture(); await f.channel.connect(); await f.receive();
   const bytes = Buffer.from('GIF89a'); const seen = [];
   f.bot.sendImage = async (target, source) => { seen.push({ target, source }); return { id: 'image' }; };
-  await f.channel.sendMedia({ bytes, fileName: 'animation.gif' }, 'image');
+  await f.channel.sendMedia({ bytes, fileName: 'animation.gif' }, 'image', { targetId: 'owner' });
   assert.equal(seen[0].target.msgId, 'in'); assert.equal(seen[0].source.buffer, bytes);
-  await Promise.all(Array.from({ length: 4 }, () => f.channel.sendText('hi')));
+  await Promise.all(Array.from({ length: 4 }, () => f.channel.sendText('hi', { targetId: 'owner' })));
   assert.equal(f.calls.filter(c => c.target.msgId).length, 3);
   f.bot.sendFile = async () => { seen.push('file'); throw new ApiError('rejected', 400, { code: 40034001 }); };
-  await assert.rejects(f.channel.sendMedia({ bytes, fileName: 'file' }, 'file'));
+  await assert.rejects(f.channel.sendMedia({ bytes, fileName: 'file' }, 'file', { targetId: 'owner' }));
   assert.equal(seen.filter(x => x === 'file').length, 1); await f.channel.stop();
 });
 
@@ -44,17 +44,20 @@ test('QQ automatically uses the newest authorized message for exactly this targe
   await f.receive({ kind: 'group', messageId: 'group-in' });
   await f.receive({ senderId: 'stranger', messageId: 'foreign' });
   await f.receive({ senderIsBot: true, messageId: 'bot' });
-  await f.channel.sendText('hi');
+  await assert.rejects(f.channel.sendText('hi'), /targetId is required/);
+  await assert.rejects(f.channel.sendMedia({ bytes: Buffer.from('x') }, 'file'), /targetId is required/);
+  assert.equal(f.calls.length, 0);
+  await f.channel.sendText('hi', { targetId: 'owner' });
   assert.deepEqual(f.calls.at(-1).target, { scope: 'c2c', targetId: 'owner', msgId: 'latest' });
   await f.channel.sendText('hi', { scope: 'group', targetId: 'group' });
   assert.equal(f.calls.at(-1).target.msgId, 'group-in');
   await f.channel.sendText('hi', { targetId: 'other' });
   assert.deepEqual(f.calls.at(-1).target, { scope: 'c2c', targetId: 'other' });
-  await f.channel.sendText('hi', { msgId: 'first' });
+  await f.channel.sendText('hi', { targetId: 'owner', msgId: 'first' });
   assert.equal(f.calls.at(-1).target.msgId, 'first');
-  await f.channel.sendText('hi', { msgId: 'unknown' });
+  await f.channel.sendText('hi', { targetId: 'owner', msgId: 'unknown' });
   assert.equal(f.calls.at(-1).target.msgId, undefined);
-  await assert.rejects(f.channel.sendText('hi', { scope: 'group' }), /specify the group/);
+  await assert.rejects(f.channel.sendText('hi', { scope: 'group' }), /targetId is required/);
   await f.channel.stop();
 });
 
@@ -62,12 +65,12 @@ for (const [scope, window, limit] of [['c2c', 60 * 60_000, 4], ['group', 5 * 60_
   test(`QQ ${scope} expires at the safety margin and counts concurrent replies`, async () => {
     const f = fixture(); await f.channel.connect();
     await f.receive({ kind: scope });
-    const target = scope === 'group' ? { scope, targetId: 'group' } : {};
+    const target = scope === 'group' ? { scope, targetId: 'group' } : { targetId: 'owner' };
     await Promise.all(Array.from({ length: limit + 1 }, () => f.channel.sendText('hi', target)));
     assert.equal(f.calls.filter(c => c.target.msgId).length, limit);
     await f.receive(); // duplicate does not reset the c2c budget
     if (scope === 'c2c') {
-      await f.channel.sendText('hi'); assert.equal(f.calls.at(-1).target.msgId, undefined);
+      await f.channel.sendText('hi', { targetId: 'owner' }); assert.equal(f.calls.at(-1).target.msgId, undefined);
     }
     await f.receive({ kind: scope, messageId: 'fresh' });
     f.advance(window - 30_001);
@@ -82,10 +85,10 @@ test('QQ route cache does not cross credentials or trust a future timestamp', as
   const f = fixture(); await f.channel.connect();
   await f.receive({ timestamp: Date.now() + 86400_000 });
   f.advance(60 * 60_000);
-  await f.channel.sendText('hi'); assert.equal(f.calls.at(-1).target.msgId, undefined);
+  await f.channel.sendText('hi', { targetId: 'owner' }); assert.equal(f.calls.at(-1).target.msgId, undefined);
   await f.receive({ messageId: 'new' });
   f.config.qq.appSecret = 'changed';
-  await f.channel.sendText('hi'); assert.equal(f.calls.at(-1).target.msgId, undefined);
+  await f.channel.sendText('hi', { targetId: 'owner' }); assert.equal(f.calls.at(-1).target.msgId, undefined);
   await f.channel.stop();
 });
 
@@ -102,8 +105,8 @@ for (const [name, error, count] of [
       if (f.calls.length === 1) throw error;
       return { id: 'fallback' };
     };
-    if (count === 2) await f.channel.sendText('hi');
-    else await assert.rejects(f.channel.sendText('hi'));
+    if (count === 2) await f.channel.sendText('hi', { targetId: 'owner' });
+    else await assert.rejects(f.channel.sendText('hi', { targetId: 'owner' }));
     assert.equal(f.calls.length, count);
     if (count === 2) assert.equal(f.calls[1].target.msgId, undefined);
     await f.channel.stop();

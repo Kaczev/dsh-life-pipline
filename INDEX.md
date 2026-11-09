@@ -48,6 +48,8 @@
 
 ## components/dsh-lpipe-chat
 
+- [显式收件人回归](components/dsh-lpipe-chat/test/explicit-target.test.mjs)：微信／QQ 不默认发给 Owner，文字／媒体目标一致、完整 ID 与未知昵称展示。
+
 - [下载过期清理](components/dsh-lpipe-chat/src/download-cleanup.mjs)：默认 downloads 直属文件按修改时间清理，默认 7 天；[边界与配置测试](components/dsh-lpipe-chat/test/download-cleanup.test.mjs)。
 
 - [components/dsh-lpipe-chat/package.json](components/dsh-lpipe-chat/package.json)：包名、`icon`、`exports`、`dsh.bundle`、`dsh.client`，以及对 `dsh-life-pipline` 的依赖。
@@ -60,15 +62,16 @@
 - [components/dsh-lpipe-chat/test/owner-client.test.mjs](components/dsh-lpipe-chat/test/owner-client.test.mjs)：Owner 输入框保存、清空、取消与非法值禁用回归。
 - [components/dsh-lpipe-chat/test/owner.test.mjs](components/dsh-lpipe-chat/test/owner.test.mjs)：旧 Home 名字一次性迁移、Chat 优先与清空、RPC 校验、主会话切换隔离。
 - [components/dsh-lpipe-chat/src/qrcode.mjs](components/dsh-lpipe-chat/src/qrcode.mjs)：热重载安全的二维码 CommonJS 加载器；[重复重载测试](components/dsh-lpipe-chat/test/qrcode-loading.test.mjs)。
+- [QQ 自身身份](components/dsh-lpipe-chat/src/qq/self-identity.mjs)：自动读取机器人名字与每群自身 OpenID，限时缓存、失败退避及连接结束隔离；[提及与缓存测试](components/dsh-lpipe-chat/test/qq-self-identity.test.mjs)。
 - [components/dsh-lpipe-chat/src/qq/channel.mjs](components/dsh-lpipe-chat/src/qq/channel.mjs)：QQ 连接与按目标隔离的被动回复窗口、额度及明确拒绝后的单次主动降级；[路由测试](components/dsh-lpipe-chat/test/qq-routing.test.mjs)。
 - [components/dsh-lpipe-chat/src/gateway.mjs](components/dsh-lpipe-chat/src/gateway.mjs)：入站窗口合并、通知消息构造与重试；完整平台 ID 在内部匹配主人，仅对匹配消息显示 `(Owner)` 前缀，保留群聊范围。
 - [components/dsh-lpipe-chat/src/content.mjs](components/dsh-lpipe-chat/src/content.mjs)：大小单位、UTF-8 截断及 QQ 文本显示投影。
 - [components/dsh-lpipe-chat/src/history.mjs](components/dsh-lpipe-chat/src/history.mjs)：有界历史、长消息续读与稳定快照游标；本地时间按距上次标记五分钟、跨天及每页首条显示。
-- [components/dsh-lpipe-chat/src/identity.mjs](components/dsh-lpipe-chat/src/identity.mjs)：通知与历史共用入站身份头，出站使用实际归档目标；[展示回归](components/dsh-lpipe-chat/test/history-display.test.mjs)。
+- [components/dsh-lpipe-chat/src/identity.mjs](components/dsh-lpipe-chat/src/identity.mjs)：通知与历史共用完整用户／群 ID 身份头，出站使用实际归档目标；[展示回归](components/dsh-lpipe-chat/test/history-display.test.mjs)。
 - [components/dsh-lpipe-chat/src/files.mjs](components/dsh-lpipe-chat/src/files.mjs)：附件引用、显式限额下载及安全命名。
 - [components/dsh-lpipe-chat/src/forward.mjs](components/dsh-lpipe-chat/src/forward.mjs)：转发图片／文件原位类型 ID、隐藏附件链接及按图片 ID 读取。
 - [components/dsh-lpipe-chat/src/skill.mjs](components/dsh-lpipe-chat/src/skill.mjs)：插件作用域技能注册；[英文技能](components/dsh-lpipe-chat/skills/lpipe-chat-media/SKILL.md)。
-- [components/dsh-lpipe-chat/src/media.mjs](components/dsh-lpipe-chat/src/media.mjs)：组合媒体发送及逐项失败结果；[升级测试](components/dsh-lpipe-chat/test/upgrades.test.mjs)。
+- [components/dsh-lpipe-chat/src/media.mjs](components/dsh-lpipe-chat/src/media.mjs)：组合媒体发送、实际目标归档及逐项失败结果；[升级测试](components/dsh-lpipe-chat/test/upgrades.test.mjs)。
 - [components/dsh-lpipe-chat/src/notice.mjs](components/dsh-lpipe-chat/src/notice.mjs)：主会话恢复、忙时注入与空闲唤醒。
 - [components/dsh-lpipe-chat/client/panel.js](components/dsh-lpipe-chat/client/panel.js)：chat 自己那块设置（包含从 Home 移来的 Owner 名字；注册进 `lpipe.settings.panel`）；构建到 `lib/client.js`。
 - [components/dsh-lpipe-chat/test/](components/dsh-lpipe-chat/test/)：窗口合并、投递、接收过滤、客户端与主题回归。

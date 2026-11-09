@@ -17,13 +17,13 @@ export function sourceLabel(row, origin = null) {
     const delivery = row.recallDelivery
     const target = delivery?.targetId || args.targetId
     const group = (delivery?.scope ?? args.scope) === 'group'
-    return `${channel(delivery?.channel ?? args.channel)} · 我 → ${target ? `${group ? '群 ' : ''}${clean(target)}` : '接收对象未记录'}（${delivery?.sent === true ? '发送成功' : delivery?.sent === false ? '发送未完成' : '发送状态未记录'}）`
+    return `${channel(delivery?.channel ?? args.channel)} · 我 → ${target ? `${group ? '群 ' : ''}${clean(target)}` : '接收对象未记录 · 未记录 ID'}（${delivery?.sent === true ? '发送成功' : delivery?.sent === false ? '发送未完成' : '发送状态未记录'}）`
   }
   if (row.source?.kind === 'dsh-lpipe-wake') return '唤醒管线 · 主动唤醒 → 我'
   if (row.source?.kind === 'dsh-lpipe-chat') {
-    const who = origin?.senderName || origin?.senderId || '发送者未记录'
-    const room = origin?.conversationKind === 'group' ? `群 ${clean(origin.conversationId || '未记录')}` : origin?.conversationKind === 'dm' ? '私聊' : '会话未记录'
-    return `${channel(origin?.channel)} · ${clean(who)}${origin?.senderId && origin?.senderName ? ` (${clean(origin.senderId)})` : ''} → 我 · ${room}`
+    const who = origin?.senderName || '未知昵称'
+    const room = origin?.conversationKind === 'group' ? `群 ${clean(origin.conversationId || '未记录 ID')}` : origin?.conversationKind === 'dm' ? '私聊' : '会话未记录'
+    return `${channel(origin?.channel)} · ${clean(who)} · ${clean(origin?.senderId || '未记录 ID')} → 我 · ${room}`
   }
   return 'DSH · 用户 → 我'
 }
@@ -43,7 +43,7 @@ export function displaySegments(row) {
     if (hit) {
       if (current.text) out.push(current)
       const fields = hit[2].split(' · ')
-      current = { text: hit[3], source: sourceLabel(row, { channel: hit[1] === 'QQ' ? 'qq' : 'weixin', senderName: fields.at(-1), conversationKind: fields.length > 1 ? 'group' : 'dm', conversationId: fields.length > 1 ? fields.slice(0, -1).join(' · ') : undefined }), segment: out.length }
+      current = { text: hit[3], source: sourceLabel(row, { channel: hit[1] === 'QQ' ? 'qq' : 'weixin', senderName: fields.at(-1), conversationKind: fields.length > 1 ? 'group' : 'dm', conversationId: undefined }), segment: out.length }
     } else current.text += (current.text ? '\n' : '') + line
   }
   if (current.text) out.push(current)
