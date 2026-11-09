@@ -64,6 +64,22 @@ test('unexpected creation identity never renames or binds an ordinary session', 
   assert.equal(renames, 0);
 });
 
+test('workspace selection saves immediately without changing main session and rejects missing IDs atomically', async () => {
+  let config = { mainSessionId: 'main', unknown: 42 };
+  const handle = createPipelineRpcHandler({ getConfig: () => config,
+    update: change => { config = change(config); }, workspaces: { get: id => id === 'w' ? {} : undefined } });
+  assert.equal((await handle('pipeline.config.save', { lastWorkspaceId: 'w' })).value.lastWorkspaceId, 'w');
+  assert.deepEqual(config, { mainSessionId: 'main', unknown: 42, lastWorkspaceId: 'w' });
+  for (const lastWorkspaceId of ['missing', null, 7]) {
+    assert.equal((await handle('pipeline.config.save', { mainSessionId: 'other', lastWorkspaceId })).ok, false);
+    assert.equal(config.mainSessionId, 'main'); assert.equal(config.lastWorkspaceId, 'w');
+  }
+  const reopened = createPipelineRpcHandler({ getConfig: () => config, update: change => { config = change(config); }, workspaces: { get: () => ({}) } });
+  assert.equal((await reopened('pipeline.status')).value.lastWorkspaceId, 'w');
+  assert.equal((await handle('pipeline.config.save', { lastWorkspaceId: '' })).value.lastWorkspaceId, '');
+  assert.equal(config.mainSessionId, 'main');
+});
+
 test('removed workspace clears remembered choice without changing main session', async () => {
   let config = { mainSessionId: 'main', lastWorkspaceId: 'removed', unknown: 42 };
   const handle = createPipelineRpcHandler({ getConfig: () => config,

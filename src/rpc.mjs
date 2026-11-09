@@ -86,10 +86,16 @@ export function createPipelineRpcHandler({ getConfig, update, sessions, workspac
       return { ok: true, value: readSessionTitle(sessions, input.sessionId) };
     }
 
-    if (!Object.hasOwn(input, 'mainSessionId')) {
-      return failure('pipeline/bad-request', '没有可保存的字段。');
+    const hasMain = Object.hasOwn(input, 'mainSessionId');
+    const hasWorkspace = Object.hasOwn(input, 'lastWorkspaceId');
+    if (!hasMain && !hasWorkspace) return failure('pipeline/bad-request', '没有可保存的字段。');
+    if (hasWorkspace && (typeof input.lastWorkspaceId !== 'string' || (input.lastWorkspaceId && !workspaces?.get(input.lastWorkspaceId)))) {
+      return failure('pipeline/bad-request', '所选工作区已不存在，请刷新。');
     }
-    update((current) => ({ ...current, mainSessionId: String(input.mainSessionId ?? '').trim() }));
+    update((current) => ({ ...current,
+      ...(hasMain ? { mainSessionId: String(input.mainSessionId ?? '').trim() } : {}),
+      ...(hasWorkspace ? { lastWorkspaceId: input.lastWorkspaceId } : {}),
+    }));
     return { ok: true, value: status() };
   };
 }

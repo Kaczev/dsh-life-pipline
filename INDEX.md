@@ -9,7 +9,7 @@
 - [client/panel.js](client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：把 `client/panel.js` 包成宿主的模块壳。
 - [scripts/install-local.mjs](scripts/install-local.mjs)：把本包与 `components/*` 以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
-- [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、独立身份的空白 LP 主会话创建及绑定重试（只改名身份匹配的按钮创建会话）；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
+- [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、工作区选择即时持久化与失效清空、独立身份的空白 LP 主会话创建及绑定重试（只改名身份匹配的按钮创建会话）；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
 - [src/main-session.mjs](src/main-session.mjs)：动态主会话门禁、工具可见性与执行复核、系统提示词隔离；[回归](test/main-session.test.mjs)。
 - [src/diagnostics.mjs](src/diagnostics.mjs)：四类诊断日志共用的 2 MiB 完整记录尾部保留；[测试](test/diagnostics.test.mjs)。
 - [保存按钮局部 HTML](不入库/设计/lpipe-save-button-states.html)：只有有效未保存改动时强调色亮起，初始、改回原值和保存成功后禁用淡化；[跨管线回归](test/save-buttons.test.mjs)。
