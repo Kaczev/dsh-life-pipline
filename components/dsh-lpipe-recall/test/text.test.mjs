@@ -37,7 +37,7 @@ test('模糊选句、深读、BM25统一排除普通工具并保留发送正文'
   assert.deepEqual(original.map(line => line.text), ['发给你的正文。'])
   const deep = openRange({ reader, session: 's', from: { turn: 1, sentence: 1 }, count: 200 })
   assert.match(deep.text, /发给你的正文/)
-  assert.doesNotMatch(deep.text, /普通工具|发送状态|回忆输出/)
+  assert.doesNotMatch(deep.text, /普通工具|发送状态。|回忆输出/)
   const data = lexicalCorpus({ reader, repo: { turns: new Map([['s#1', candidate]]) } })
   assert.equal(data.documents.get('s#1').tf.has('工具'), false)
   assert.equal(data.documents.get('s#1').tf.has('正文'), true)

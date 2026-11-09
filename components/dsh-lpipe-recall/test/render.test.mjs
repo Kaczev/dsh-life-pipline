@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clockOf, looksLikeCode, renderRecall, sentenceScore, shortSession, stripCodeBlocks } from '../src/render.mjs'
+import { clockOf, looksLikeCode, renderRecall, sentenceScore, shortSession, stripCodeBlocks, sentenceBody } from '../src/render.mjs'
 
 const flicker = new Map([
   ['s_a', { id: 's_a', name: '记忆管线', kind: 'exact', score: 1.8, at: 0 }],
@@ -12,6 +12,17 @@ const readerOf = (rowsBySession) => ({
 })
 
 const config = { sentencesPerFragment: 2 }
+
+test('连续摘录与深读同排版；相同来源不同消息仍有边界，首尾漏句才省略', () => {
+  const line = (id, rowIndex = 0, segment = 0) => ({ id, rowIndex, segment, source: '来源', text: `句${id}。` })
+  const consecutive = [line(1), line(2), line(3, 1), line(4, 1, 1)]
+  assert.deepEqual(sentenceBody(consecutive, {total:4, omitted:true}), sentenceBody(consecutive))
+  assert.equal(sentenceBody(consecutive).filter(s => s.startsWith('〔')).length, 3)
+  assert.deepEqual(sentenceBody([line(2),line(4)], {total:5,omitted:true}), [
+    '……','〔来源｜2〕句2。……','〔来源｜4〕句4。……',
+  ])
+  assert.deepEqual(sentenceBody([line(3),line(4)]), ['〔来源｜3〕句3。','句4。'])
+})
 
 test('句子打分：准确星与时间都能点亮，但只有时间不算', () => {
   assert.ok(sentenceScore('记忆管线正在落盘', flicker).score > 1)
@@ -45,9 +56,9 @@ test('模糊回忆照抄原句、用省略号连接，并带上是哪一段', ()
     config,
   })
   assert.match(block, /〔回忆 · 模糊〕/)
-  assert.match(block, /第 1 段/)
+  assert.match(block, /本片段共 4 句，展示 2 句/)
   assert.match(block, /lpipe_recall_id\[session-aadf6fa4-1234:7\]/, '片段 id 是固定格式')
-  assert.match(block, /〔1〕记忆管线开工。/, '每一句前面挂句子 id，recall_open 才指得准')
+  assert.match(block, /〔DSH · 我 → 用户｜1〕记忆管线开工。/, '每个连续摘录头带起始句子 id')
   assert.match(block, /……/)
   assert.ok(block.includes('记忆管线开工'))
   assert.ok(!block.includes('今天天气不错'), '没点亮星的句子不该出现')
@@ -135,5 +146,5 @@ test('选最亮四句而非覆盖最多星，并保持原句序号顺序', () =>
   const text=renderRecall({candidates:[{session:'s',turn:1,stars:['a','b'],at:0}],flicker,
     reader:readerOf({s:[{turn:1,kind:'user/message',text:'亮星甲。亮星乙。弱星丙。亮星丁。亮星戊。'}]}),config:{sentencesPerFragment:4}})
   assert.ok(!text.includes('弱星丙'))
-  assert.match(text,/〔1〕亮星甲。……〔2〕亮星乙。……〔4〕亮星丁。……〔5〕亮星戊。/)
+  assert.match(text,/〔DSH · 用户 → 我｜1〕亮星甲。\n亮星乙。……\n〔DSH · 用户 → 我｜4〕亮星丁。\n亮星戊。/)
 })

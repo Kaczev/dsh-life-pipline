@@ -24,7 +24,6 @@ const PANEL_SLOT = 'lpipe.settings.panel';
 const VALIDATE_MS = 400;
 const SAVED_MS = 1800;
 
-const OWNER_LABEL = 'Owner 名字';
 const LOCATION_LABEL = '栖所位置';
 const PATH_LABEL = '自定义绝对路径';
 const DISABLED_TEXT = '未选择栖所，管线停用，不注入提示词';
@@ -232,7 +231,6 @@ function statusView(status) {
 function draftOf(config) {
   const source = config && typeof config === 'object' ? config : {};
   return {
-    ownerName: typeof source.ownerName === 'string' ? source.ownerName : '',
     location: ['none', 'workspace', 'custom'].includes(source.location) ? source.location : 'none',
     customPath: typeof source.customPath === 'string' ? source.customPath : '',
   };
@@ -240,10 +238,9 @@ function draftOf(config) {
 
 /** The payload for save/validate: trimmed; the typed path survives a mode switch. */
 function patchOf(draft) {
-  const ownerName = String(draft?.ownerName ?? '').trim();
   const customPath = String(draft?.customPath ?? '').trim();
   const location = ['none', 'workspace', 'custom'].includes(draft?.location) ? draft.location : 'none';
-  return { ownerName, location, customPath };
+  return { location, customPath };
 }
 
 function SegmentedControl({ value, disabled, onChange }) {
@@ -338,7 +335,7 @@ function HomeSettingsPanel({ rpcCall }) {
 
   // Validate the editable draft on a short delay, so a half-typed path is not
   // reported as a failure on every keystroke.
-  const draftKey = `${draft.ownerName}\u0000${draft.location}\u0000${draft.customPath}`;
+  const draftKey = `${draft.location}\u0000${draft.customPath}`;
   const adoptedKey = React.useRef('');
   React.useEffect(() => {
     if (!hasReadableConfig(snapshot) || !hydrated.current) return undefined;
@@ -420,19 +417,6 @@ function HomeSettingsPanel({ rpcCall }) {
     header,
     h('div', { style: card },
       h('div', { style: grid },
-        h('div', { style: field },
-          h('label', { htmlFor: 'dsh-lpipe-home-owner', style: label }, OWNER_LABEL),
-          h('div', { className: 'lpipe-home-control', style: control },
-            h('input', {
-              id: 'dsh-lpipe-home-owner',
-              type: 'text',
-              value: draft.ownerName,
-              placeholder: '可留空',
-              disabled: busy,
-              maxLength: 200,
-              style: input,
-              onChange: (event) => update({ ownerName: event.target.value }),
-            }))),
         h('div', { style: field },
           h('span', { style: label }, LOCATION_LABEL),
           h(SegmentedControl, {

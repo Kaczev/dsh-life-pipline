@@ -129,6 +129,11 @@ export function createChatRpcHandler({ getConfig, update, channels, sessions }) 
 
     if (method === 'chat.config.save') {
       const patch = {};
+      if (Object.hasOwn(input, 'ownerName')) {
+        if (typeof input.ownerName !== 'string' || input.ownerName.length > 200 || /[\x00-\x1f\x7f\u2028\u2029]/u.test(input.ownerName)) return failure('chat/bad-request', 'Owner 名字必须是最多 200 字符的单行文字。');
+        patch.ownerName = input.ownerName.trim();
+        patch.ownerNameMigratedFromHome = true;
+      }
       if (Object.hasOwn(input, 'windowSeconds')) {
         const seconds = Number(input.windowSeconds);
         if (!Number.isFinite(seconds) || seconds < 3 || seconds > 120) {

@@ -1,5 +1,6 @@
 import { splitSentences } from 'dsh-lpipe-starmap/segment'
 import { textsOf } from 'dsh-lpipe-starmap/build'
+import { eligibleMessage, displaySegments } from './provenance.mjs'
 
 const SKIP = new Set(['runtime-context', 'time-context', 'dsh-lpipe-recall', 'dsh-lpipe-assoc', 'dsh-lpipe-imagine'])
 
@@ -31,4 +32,17 @@ export function recallPieces(row, prosePieces) {
     return splitSentences(row.text ?? '').map(part => typeof part === 'string' ? part : part?.text).filter(text => typeof text === 'string' && text.trim())
   }
   return prosePieces(row.text ?? '')
+}
+
+/** Display-only whitelist; response windows retain their existing projection. */
+export function displayRows(rows) {
+  const results = new Map(rows.filter(row => row.kind === 'tool/result' && row.callId).map(row => [row.callId, row.delivery]))
+  return recallRows(rows).map(row => {
+    const projected = { ...row, recallDelivery: results.get(row.callId) }
+    return { ...projected, segments: displaySegments(projected), imageEligible: eligibleMessage(row) }
+  })
+}
+export function displayPieces(row, prosePieces) {
+  return (row.segments ?? []).flatMap(segment => recallPieces({ ...row, text: segment.text }, prosePieces)
+    .map(text => ({ text, source: segment.source, segment: segment.segment })))
 }

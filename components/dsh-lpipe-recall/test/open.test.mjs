@@ -23,8 +23,8 @@ test('跨片段区间包含端点；头部列出所有已读片段和总数', ()
   assert.match(value.text, /本仓库共 3 个片段/)
   assert.match(value.text, /lpipe_recall_id\[repo:5\] 本片段共 3 句/)
   assert.match(value.text, /lpipe_recall_id\[repo:7\] 本片段共 2 句/)
-  assert.match(value.text, /lpipe_recall_id\[repo:5:2\] 二。/)
-  assert.match(value.text, /lpipe_recall_id\[repo:7:1\] 四。/)
+  assert.match(value.text, /〔DSH · 用户 → 我｜2〕二。/)
+  assert.match(value.text, /〔DSH · 用户 → 我｜1〕四。/)
   assert.doesNotMatch(value.text, /五。/)
   assert.match(value.text, /下一页 from=7:2/)
   assert.deepEqual(value.turns, [5, 7])
@@ -92,14 +92,14 @@ test('recall_fragments 传递查询与会话，支持异步组装，空查询报
   assert.match((await empty.execute({ query: '雪糕' })).text, /没有想起什么/)
 })
 
-test("默认读取20句，仅返回首尾和跨片段边界的完整坐标", async () => {
+test("默认读取20句，来源头给出连续文字的起始坐标", async () => {
  const rows = [row(5, "一。".repeat(25)), row(6, "二。三。四。")];
  assert.equal(open(rows).end, "5:20");
  const value = open(rows, { from: { turn: 5, sentence: 23 }, to: { turn: 6, sentence: 3 } });
- assert.equal((value.text.match(/lpipe_recall_id\[repo:\d+:\d+\]/g) ?? []).length, 4);
+ assert.equal((value.text.match(/lpipe_recall_id\[repo:\d+:\d+\]/g) ?? []).length, 0);
  assert.doesNotMatch(value.text, /〔5:24〕|〔6:2〕|lpipe_recall_id\[repo:5:24\]|lpipe_recall_id\[repo:6:2\]/);
- assert.match(value.text, /lpipe_recall_id\[repo:5:25\]/);
- assert.match(value.text, /lpipe_recall_id\[repo:6:1\]/);
+ assert.match(value.text, /〔DSH · 用户 → 我｜23〕一。\n一。\n一。/);
+ assert.match(value.text, /〔DSH · 用户 → 我｜1〕二。\n三。\n四。/);
  const tool = createRecallTools({ reader: readerOf(rows) }).find(t => t.name === "recall_open");
  assert.equal(tool.parameters.properties.count.maximum, 200);
  assert.match((await tool.execute({ repo: "repo", from: "5:1" })).summary, /5:1–5:20/);

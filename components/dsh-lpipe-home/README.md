@@ -4,7 +4,7 @@
 
 ## 设置
 
-设置页里的「Lpipe Home」块只暴露三项：Owner 名字、栖所位置（未选择／工作区／自定义）、自定义绝对路径；自定义路径只在选中「自定义」时出现。
+设置页里的「Lpipe Home」块只暴露两项：栖所位置（未选择／工作区／自定义）、自定义绝对路径；自定义路径只在选中「自定义」时出现。
 
 - 未选择时状态行是灰色的「未选择栖所，管线停用，不注入提示词」。
 - 选择后目录校验不通过时标红，并显示后端返回的原因；路径只用于展示，截断显示。
@@ -20,7 +20,7 @@
 - `home.config.save`：提交一个或多个配置字段，返回保存后的 `{config,status}`。
 - `home.validate`：提交完整草稿配置，只验证，不保存；返回 `{config,status}`。
 
-`config` 为 `{location: "none" | "workspace" | "custom", customPath: string, ownerName: string}`。默认未选择、路径和名字空白。工作区来自公共配置指定主会话的有效工作目录，不来自设置页会话。不配置微信号或 QQ 号。
+`config` 为 `{location: "none" | "workspace" | "custom", customPath: string}`。默认未选择、路径空白。Owner 名字由聊天管线配置和注入；旧名字由 Chat 在首次读取时兼容迁移，不覆盖 Chat 已有名字。工作区来自公共配置指定主会话的有效工作目录，不来自设置页会话。不配置微信号或 QQ 号。
 
 `status` 为 `{state: "disabled" | "invalid" | "active", valid: boolean, path: string, resolvedPath: string, error: string}`。未选择显示停用；选了位置但目录无效时显示红色错误。保存无效目录仍会成功保存配置，但 `valid` 为 false，不表示管线已生效。配置文件损坏时 `config` 为 null，状态为 invalid；界面应显示错误，不能伪装成空白默认值。
 

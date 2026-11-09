@@ -5,17 +5,17 @@ import { randomUUID } from 'node:crypto';
 
 export const homeRoot = () => join(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'), 'life-home');
 export const configFile = (root = homeRoot()) => join(root, 'config.json');
-export const DEFAULT_CONFIG = Object.freeze({ location: 'none', customPath: '', ownerName: '' });
+export const DEFAULT_CONFIG = Object.freeze({ location: 'none', customPath: '' });
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 export function normalize(raw) {
   if (!record(raw)) throw new TypeError('栖所配置必须是对象。');
   const config = { ...DEFAULT_CONFIG, ...raw };
   if (!['none', 'workspace', 'custom'].includes(config.location)) throw new TypeError('请选择有效的栖所位置类型。');
-  for (const [key, limit] of [['customPath', 32768], ['ownerName', 200]]) {
+  for (const [key, limit] of [['customPath', 32768]]) {
     if (typeof config[key] !== 'string' || config[key].length > limit || /[\x00-\x1f\x7f\u2028\u2029]/u.test(config[key])) throw new TypeError(`${key} 必须是有效的单行文字。`);
     config[key] = config[key].trim();
   }
-  return { location: config.location, customPath: config.customPath, ownerName: config.ownerName };
+  return { location: config.location, customPath: config.customPath };
 }
 export function loadConfig(root = homeRoot()) {
   try { return normalize(JSON.parse(readFileSync(configFile(root), 'utf8'))); }

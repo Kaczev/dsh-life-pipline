@@ -41,7 +41,7 @@ test('both locales carry the series title and a description', async () => {
   assert.equal(en.meta.title, 'Lpipe Home');
   for (const locale of [zh, en]) {
     assert.ok(locale.meta.description.length > 0);
-    for (const key of ['ownerName', 'location', 'customPath']) {
+    for (const key of ['location', 'customPath']) {
       assert.equal(typeof locale[key], 'string');
       assert.ok(locale[key].length > 0);
     }

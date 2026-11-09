@@ -90,7 +90,8 @@ export function loadConfig() {
   let merged = defaultConfig();
   try {
     merged = merge(defaultConfig(), JSON.parse(readFileSync(configPath(), 'utf8')));
-  } catch {
+  } catch (error) {
+    if (error.code !== 'ENOENT') return merged;
     merged = defaultConfig();
   }
   // The common package owns this value now. Adopt a legacy local value once,
@@ -100,6 +101,19 @@ export function loadConfig() {
     merged.mainSessionId = common;
   } else if (merged.mainSessionId) {
     writeCommon(merged.mainSessionId);
+  }
+  if (!merged.ownerNameMigratedFromHome) {
+    // Adopt once; an intentional empty name must never resurrect the old value.
+    if (!String(merged.ownerName ?? '').trim()) {
+      try {
+        const legacy = JSON.parse(readFileSync(join(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'), 'life-home', 'config.json'), 'utf8'));
+        if (typeof legacy.ownerName === 'string' && legacy.ownerName.length <= 200 && !/[\x00-\x1f\x7f\u2028\u2029]/u.test(legacy.ownerName)) merged.ownerName = legacy.ownerName.trim();
+      } catch (error) {
+        if (error.code !== 'ENOENT') return merged; // Retry later; never discard unreadable legacy data.
+      }
+    }
+    merged.ownerNameMigratedFromHome = true;
+    saveConfig({ ...merged, mainSessionId: '' });
   }
   return merged;
 }

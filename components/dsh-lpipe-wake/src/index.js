@@ -118,11 +118,12 @@ export function apply(ctx) {
         order: 705,
         interpolate: false,
         text: [
+          '## Lpipe Wake — Self-wake and planned wake',
           'Wake notices arrive as dsh-lpipe-wake background messages.',
-          '（自己醒来）means I stopped for a while and am being given the turn on my own: nothing is required, and doing nothing is a valid answer.',
-          '（主动醒来）means a moment I planned earlier with wake_set has come; it carries the reason I wrote for it.',
-          'A turn started by a dsh-lpipe-wake notice may run while the user is away from the computer: do not call ask_user_question in such a turn, because its options can only be clicked in the Harness UI.',
-        ].join(' '),
+          '（自己醒来）means you stopped for a while and now have a turn to yourself. Nothing is required; doing nothing is valid.',
+          '（主动醒来）means a moment you planned with wake_set has arrived. The notice includes the reason you wrote for it.',
+          'In a wake-notice turn, do not use ask_user_question: the user may be away, and its controls require the Harness UI.',
+        ].join('\n\n'),
       });
     } catch (error) {
       log.warn(`[life-wake] system prompt guidance unavailable: ${error?.message ?? error}`);

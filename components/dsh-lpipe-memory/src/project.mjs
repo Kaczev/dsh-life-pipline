@@ -125,6 +125,8 @@ export function project(event) {
     step,
     payload: payloadWith(parts, {
       text,
+      callId: data.callId ?? data.message?.toolCallId ?? data.message?.source?.callId ?? null,
+      delivery: data.meta?.recallDelivery ?? undefined,
       isError: data.message?.isError === true || undefined,
       error: data.error ? { name: data.error.name, code: data.error.code, reason: data.error.reason ?? '' } : undefined,
     }),

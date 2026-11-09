@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readSessionTitle } from './session-title.mjs';
 
 export const PIPELINE_RPC_ENDPOINT = 'dsh-life-pipline';
@@ -57,14 +58,19 @@ export function createPipelineRpcHandler({ getConfig, update, sessions, workspac
         entry = attempts.get(input.requestId);
         if (!entry) {
           if (attempts.size >= 100) return failure('pipeline/limit', '本次运行的创建记录已达上限，请重启后重试。');
-          entry = { workspaceId: input.workspaceId, promise: createSession({ workspaceId: input.workspaceId }) };
+          // Own the identity before invoking the shared controller. Never rename
+          // an ambient/reused Session returned by an unrelated creation path.
+          const sessionId = `session-${randomUUID()}`;
+          entry = { workspaceId: input.workspaceId, sessionId,
+            promise: Promise.resolve().then(() => createSession({ workspaceId: input.workspaceId, sessionId })) };
           attempts.set(input.requestId, entry);
         }
       }
       let created;
       try { created = await entry.promise; }
       catch { return failure('pipeline/create-failed', '创建结果未确认；请检查会话列表，不要重复创建。'); }
-      const sessionId = created.sessionId;
+      const sessionId = created?.sessionId;
+      if (sessionId !== entry.sessionId) return failure('pipeline/session-mismatch', '创建返回了其他会话，已停止设置标题和绑定。请检查会话列表。');
       if (!entry.named && renameSession) {
         try { await renameSession({ sessionId, title: 'LP 主会话' }); entry.named = true; }
         catch { return { ok: true, value: { sessionId, bound: false, error: '空会话已创建，但设置标题失败。请重试，不会重复创建。' } }; }

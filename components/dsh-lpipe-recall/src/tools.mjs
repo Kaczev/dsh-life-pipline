@@ -1,4 +1,4 @@
-import { loadRecallImage } from './images.mjs'
+import { imagesOfRows, loadRecallImage } from './images.mjs'
 import { DEFAULT_COUNT, MAX_SENTENCES, openRange, parsePosition } from './open.mjs'
 
 /**
@@ -58,7 +58,7 @@ export function createRecallTools({ reader, compose = null, attachments = null }
           repo: { type: 'string', description: '记忆仓库 ID，即模糊回忆 lpipe_recall_id 中第一个冒号之前的部分。' },
           from: { type: 'string', description: '起点“片段ID:句子ID”，例如 858:12（包含该句）。' },
           to: { type: ["string", "null"], description: '可选终点“片段ID:句子ID”（包含该句），可跨片段；省略、空字符串或 null 均按 count 读取。' },
-          imagesOffset: { type: 'integer', minimum: 0, description: '图片清单偏移，默认 0；每次最多列出 24 张引用。' },
+          imagesOffset: { type: 'integer', minimum: 0, description: '图片清单偏移，默认 0；默认列出所读片段的全部图片引用，受总输出字数上限约束。' },
           count: { type: 'integer', minimum: 1, maximum: MAX_SENTENCES, description: '省略 to 时读取的句数，默认 20，范围 1–200；输出最多 24000 字符。' },
         },
         required: ['repo', 'from'],
@@ -109,7 +109,7 @@ export function createRecallTools({ reader, compose = null, attachments = null }
         reader.reload?.()
         const rows = reader.rows(args.repo).filter(row => row.turn === args.fragment)
         const attachment = await loadRecallImage({ reader, attachments, rows, image: args.image })
-        return { text: '〔回忆 · 图片〕仓库 ' + args.repo + '，片段 ' + args.fragment + '，图片 ' + args.image + '（历史资料）', attachment }
+        return { text: '〔回忆 · 图片〕仓库 ' + args.repo + '，片段 ' + args.fragment + '，图片 ' + args.image + '（历史资料）｜' + imagesOfRows(rows).find(image => image.id === args.image)?.source, attachment }
       },
     },
   ]

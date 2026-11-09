@@ -3,7 +3,6 @@
     "title": "栖所管线（Lpipe Home）",
     "description": "为 LP 主会话指定个人文件夹；未选择或目录无效时停用，不注入提示词。"
   },
-  "ownerName": "Owner 名字",
   "location": "栖所位置",
   "customPath": "自定义绝对路径"
 }

@@ -28,6 +28,8 @@ export class InboundGateway {
   // Timestamp of the newest message already spoken for, so a restart does not
   // re-announce a stamp the owner has already seen.
   #lastAt = null;
+  #origins = [];
+  #imageOrigins = [];
 
   constructor({ getConfig, log, deliver, saveImages = null, lastAt = null }) {
     this.#getConfig = getConfig;
@@ -111,7 +113,8 @@ export class InboundGateway {
       const omitted = batch.length - shown.length;
       const prefix = omitted ? `〔前面 ${omitted} 条未展示；用 chat_history 查看〕\n` : '';
       const tail = `\n〔正文未完；用 chat_history(messageId="${shown[0]?.id || shown[0]?.messageId || ''}") 续读〕`;
-      if (Buffer.byteLength(body) > budget - 512) body = utf8Head(body, budget - 512 - Buffer.byteLength(tail)) + tail;
+      const visibleBody = Buffer.byteLength(body) > budget - 512 ? utf8Head(body, budget - 512 - Buffer.byteLength(tail)) : body;
+       body = visibleBody + (visibleBody.length < body.length ? tail : '');
       const { refs, note } = await this.#persistImages(shown);
       body = prefix + body;
       const publish = (extra, images) => {
@@ -125,6 +128,8 @@ export class InboundGateway {
           source: Object.freeze({
             kind: 'dsh-lpipe-chat', form: 'notice',
             summary: `微信 / QQ 入站消息 · ${batch.length} 条`, channels,
+             recallOrigins: Object.freeze(this.#origins.filter(s => s.start < visibleBody.length).map(s => Object.freeze({ ...s, start: s.start + prefix.length, end: Math.min(s.end, visibleBody.length) + prefix.length }))),
+             recallImages: Object.freeze(this.#imageOrigins.slice(0, images.length).map(origin => Object.freeze(origin))),
           }),
         });
       };
@@ -160,6 +165,7 @@ export class InboundGateway {
    */
   async #persistImages(batch) {
     const wanted = [];
+    this.#imageOrigins = [];
     let imageBytes = 0; let omitted = 0;
     for (const row of batch) {
       for (const image of row.images ?? []) {
@@ -167,6 +173,7 @@ export class InboundGateway {
         if (wanted.length >= MAX_IMAGES_PER_MESSAGE || imageBytes + size > 16 * 1024 * 1024) { omitted++; continue; }
         imageBytes += size;
         wanted.push(image);
+        this.#imageOrigins.push({ channel: row.channel, senderName: row.senderName || '', senderId: row.senderId || '', conversationKind: row.conversationKind, conversationId: row.conversationId || '' });
       }
     }
     const omittedNote = omitted ? `（另有 ${omitted} 张图片超过本批 4 张／16MB 预算，未附加。）` : '';
@@ -189,6 +196,7 @@ export class InboundGateway {
   }
 
   #render(batch) {
+    this.#origins = [];
     const { ownerName } = this.#getConfig();
     return batch.map((row) => {
       const who = String(row.senderName
@@ -209,7 +217,10 @@ export class InboundGateway {
       // The pictures travel as image parts; the line still has to read like a
       // message when there are no words around them.
       const body = row.text || (count > 0 ? `（${count} 张图片）` : '');
-      lines.push(`${row.ownerMatch ? '(Owner)' : ''}[${row.head}] ${body}`);
+      const start = lines.join('\n').length + (lines.length ? 1 : 0) + `${row.ownerMatch ? '(Owner)' : ''}[${row.head}] `.length;
+       lines.push(`${row.ownerMatch ? '(Owner)' : ''}[${row.head}] ${body}`);
+       const original = batch[this.#origins.length];
+       this.#origins.push({ start, end: lines.join('\n').length, channel: original.channel, senderName: original.senderName || '', senderId: original.senderId || '', conversationKind: original.conversationKind, conversationId: original.conversationId || '' });
       const parsed = Date.parse(row.at);
       if (Number.isFinite(parsed)) this.#lastAt = parsed;
       return lines;

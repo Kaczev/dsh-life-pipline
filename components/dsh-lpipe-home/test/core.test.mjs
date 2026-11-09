@@ -19,9 +19,9 @@ test('save patches preserve unknown keys, rejects bad fields and corrupt data', 
   const root = temp();
   try {
     writeFileSync(configFile(root), JSON.stringify({ future: 1 }));
-    saveConfig({ ownerName: ' Owner ' }, root);
-    assert.equal(loadConfig(root).ownerName, 'Owner'); assert.equal(JSON.parse(readFileSync(configFile(root))).future, 1);
-    for (const patch of [{ location: 'bad' }, { ownerName: 'x\ny' }, { qq: '123' }, { location: null }]) assert.throws(() => saveConfig(patch, root));
+    saveConfig({ customPath: ' path ' }, root);
+    assert.equal(loadConfig(root).customPath, 'path'); assert.equal(JSON.parse(readFileSync(configFile(root))).future, 1);
+    for (const patch of [{ location: 'bad' }, { customPath: 'x\ny' }, { qq: '123' }, { location: null }]) assert.throws(() => saveConfig(patch, root));
     writeFileSync(configFile(root), 'broken'); assert.throws(() => saveConfig({ location: 'none' }, root)); assert.equal(readFileSync(configFile(root), 'utf8'), 'broken');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -41,8 +41,10 @@ test('existing directory, workspace changes and deletion are checked afresh', ()
 test('English prompt quotes data, restricts sending and grants in-folder edits', () => {
   const config = { ...DEFAULT_CONFIG, ownerName: 'A " B' }; const status = { state: 'active', valid: true, resolvedPath: 'C:\\personal' };
   const text = homePrompt(config, status);
-  assert.ok(text.startsWith('## Personal home folder\n')); assert.ok(text.includes(JSON.stringify(config.ownerName)));
-  assert.match(text, /create, overwrite, and delete/); assert.match(text, /verified private destination/); assert.match(text, /symbolic links/); assert.match(text, /A group is not a private destination/);
+  assert.ok(text.startsWith('## Personal home folder\n')); assert.ok(!text.includes(JSON.stringify(config.ownerName)));
+  assert.match(text, /space to use freely/);
+  assert.match(text, /without a user request/);
+  assert.match(text, /create, edit, overwrite, move, and delete/); assert.match(text, /verified private destination/); assert.match(text, /symbolic links/); assert.match(text, /A group is not a private destination/);
   assert.ok(!homePrompt(DEFAULT_CONFIG, status).includes("owner's configured name"));
 });
 test('component scopes live prompt to current main, follows its cwd and stops after unset', async () => {
@@ -58,6 +60,14 @@ test('component scopes live prompt to current main, follows its cwd and stops af
     apply(ctx, { root: join(root, 'settings') }); assert.equal(section.text({ scope: { id: 'main' } }), '');
     saveConfig({ location: 'workspace' }, join(root, 'settings'));
     assert.match(section.text({ scope: { id: 'main' } }), /^## Personal home folder/); assert.equal(requested, 'main');
+    assert.equal(section.text({ scope: { id: 'child', parentSession: 'main' } }), '');
+    assert.equal(section.text({}), '');
+    writeFileSync(commonFile, JSON.stringify({ mainSessionId: 'other' }));
+    assert.equal(section.text({ scope: { id: 'main' } }), '');
+    assert.equal(section.text({ scope: { id: 'other' } }), ''); // no resolvable workspace for new main
+    writeFileSync(commonFile, JSON.stringify({ mainSessionId: '' }));
+    assert.equal(section.text({ scope: { id: 'main' } }), '');
+    writeFileSync(commonFile, JSON.stringify({ mainSessionId: 'main' }));
     assert.equal(section.text({ scope: { id: 'child' } }), ''); cwd = join(root, 'missing'); assert.equal(section.text({ scope: { id: 'main' } }), '');
     cwd = root; saveConfig({ location: 'none' }, join(root, 'settings')); assert.equal(section.text({ scope: { id: 'main' } }), '');
     assert.equal(route.path, '/api/dsh-lpipe-home');

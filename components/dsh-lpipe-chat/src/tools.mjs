@@ -61,10 +61,12 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
             channel: { type: 'string' },
             messageIds: { type: 'array', items: { type: 'string' } },
             summary: { type: 'string' },
+            recallDelivery: { type: 'object', properties: { channel: { type: 'string' }, targetId: { type: 'string' }, scope: { type: 'string' }, sent: { type: 'boolean' } } },
           },
           required: ['sent', 'channel', 'summary'],
         },
         render: (_args, value) => [{ type: 'text', text: value.summary }],
+        presentationMeta: (_args, value) => value.recallDelivery ? { recallDelivery: value.recallDelivery } : {},
       },
       execute: async function send(args, exec) {
         if (args.media?.length) return sendMediaParts(args, {
@@ -102,6 +104,7 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
             sent: true,
             channel,
             messageIds: sent.messageIds,
+            recallDelivery: { channel, targetId: sent.toUserId || '', scope: 'c2c', sent: true },
             summary: `已通过微信发出 ${text.length} 字${warning ? `（${warning}）` : ''}。${archiveWarning}`,
           };
         }
@@ -125,7 +128,8 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
           sent: true,
           channel,
           messageIds: sent.messageId ? [sent.messageId] : [],
-          summary: `已通过 QQ 发出 ${text.length} 字。${archiveWarning}`,
+          recallDelivery: { channel, targetId: sent.targetId || '', scope: sent.scope, sent: true },
+            summary: `已通过 QQ 发出 ${text.length} 字。${archiveWarning}`,
         };
       },
     },

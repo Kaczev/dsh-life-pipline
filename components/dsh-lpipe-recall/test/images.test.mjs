@@ -13,27 +13,32 @@ const reader = { rows: repo => repo === 'repo' ? rows : [], media: (seq, hash) =
 
 test('图片引用稳定、片段内去重，只发现图片，不读取媒体', () => {
   assert.equal(imagesOfRows(rows).length, 1)
-  assert.equal(imagesOfRows([{ parts: [{ ...part, type: 'file' }] }]).length, 1)
+  assert.equal(imagesOfRows([{ kind: 'user/message', parts: [{ ...part, type: 'file' }] }]).length, 1)
   assert.equal(imagesOfRows([{ parts: [{ ...part, mediaType: 'application/pdf' }] }]).length, 0)
   assert.equal(imagesOfRows([{ parts: [{ type: 'image', mediaError: 'missing' }] }]).length, 0)
   const opened = openRange({ reader, session: 'repo', from: { turn: 5, sentence: 1 }, count: 1 })
   assert.match(opened.text, new RegExp(id))
-  assert.match(opened.text, /记忆行 8/)
+  assert.match(opened.text, /〔图片 1 张〕/); assert.doesNotMatch(opened.text, /记忆行/)
   const imageOnly = openRange({ reader, session: 'repo', from: { turn: 6, sentence: 1 } })
   assert.match(imageOnly.text, /共 0 句/)
   assert.match(imageOnly.text, new RegExp(id))
 })
 
-test('清单按24张分页，模糊回忆仅提示数量', () => {
+test('深读列全图片，模糊回忆最多九张并提示续查', () => {
   const many = { rows: () => [{ ...rows[0], parts: Array.from({ length: 30 }, (_, i) => ({ ...part, sha256: i.toString(16).padStart(64, '0') })) }] }
   const first = openRange({ reader: many, session: 'repo', from: { turn: 5, sentence: 1 } })
-  assert.match(first.text, /共 30 张/)
-  assert.match(first.text, /imagesOffset=24/)
+  assert.match(first.text, /〔图片 30 张〕/)
+  assert.equal((first.text.match(/（[a-f0-9]{64}）/g) ?? []).length, 30); assert.doesNotMatch(first.text, /imagesOffset=/)
   const second = openRange({ reader: many, session: 'repo', from: { turn: 5, sentence: 1 }, imagesOffset: 24 })
-  assert.equal((second.text.match(/图片 [a-f0-9]{64}/g) ?? []).length, 6)
-  const text = renderRecall({ candidates: [{ session: 'repo', turn: 5, excerpt: { imageCount: 1, total: 1, lines: [{ id: 1, text: '看图。' }] } }], reader, config: {}, flicker: new Map() })
-  assert.match(text, /含 1 张图片/)
-  assert.doesNotMatch(text, new RegExp(id))
+  assert.equal((second.text.match(/（[a-f0-9]{64}）/g) ?? []).length, 6)
+  const text = renderRecall({ candidates: [{ session: 'repo', turn: 5, excerpt: { images: [{id}], imageCount: 1, total: 1, lines: [{ id: 1, text: '看图。' }] } }], reader, config: {}, flicker: new Map() })
+  assert.match(text, /〔图片 1 张〕/)
+  assert.match(text, new RegExp(id))
+  const fuzzy = renderRecall({ candidates: [{session:'repo',turn:5,at:new Date(2026,10,9,4,43).getTime()}], reader:many, config:{sentencesPerFragment:2}, flicker:new Map([['image',{name:'图片',kind:'exact',score:1}]]) })
+  assert.match(fuzzy, /\| 11-09 04:43 \| 本片段/)
+  assert.match(fuzzy, /〔图片 30 张〕/)
+  assert.equal((fuzzy.match(/（[a-f0-9]{64}）/g) ?? []).length, 9)
+  assert.match(fuzzy, /……（用 recall_open 读取本片段的完整图片清单）/)
 })
 
 test('按需返回一张持久图片引用，验证所属片段、缺失和校验错误', async () => {
@@ -54,7 +59,7 @@ test('按需返回一张持久图片引用，验证所属片段、缺失和校�
 })
 
 
-test('图文按片段和原消息顺序返回，图片不冒充所选句子的附件', () => {
+test('图片引用统一置于所属片段头，不穿插消息正文', () => {
   const secondId = 'b'.repeat(64)
   const thirdId = 'c'.repeat(64)
   const records = [
@@ -66,14 +71,14 @@ test('图文按片段和原消息顺序返回，图片不冒充所选句子的�
   ]
   const r = { rows: () => records }
   const text = openRange({ reader: r, session: 'repo', from: { turn: 5, sentence: 1 }, count: 1 }).text
-  assert.ok(text.indexOf('第一条。') < text.indexOf(id))
-  assert.ok(text.indexOf(id) < text.indexOf('记忆行 12'))
-  assert.ok(text.indexOf('记忆行 12') < text.indexOf(secondId))
-  assert.match(text, /记忆行 12〕（本次未读取该消息文字）/)
+  assert.ok(text.indexOf(id) < text.indexOf('第一条。'))
+  assert.ok(text.indexOf(id) < text.indexOf(secondId))
+  assert.ok(text.indexOf(secondId) < text.indexOf('第一条。'))
+  assert.doesNotMatch(text, /记忆行|本次未读取/)
   assert.doesNotMatch(text, /稍后的说明|工具输出不能显示/)
-  assert.match(text, /工具结果｜记忆行 13/)
+  assert.doesNotMatch(text, /记忆行 13|工具结果/)
   const across = openRange({ reader: r, session: 'repo', from: { turn: 5, sentence: 4 }, to: { turn: 6, sentence: 1 } }).text
-  assert.ok(across.indexOf('图片 ' + thirdId) < across.indexOf('lpipe_recall_id[repo:6]'))
-  assert.ok(across.indexOf('lpipe_recall_id[repo:6]') < across.lastIndexOf('图片 ' + id))
+  assert.doesNotMatch(across, new RegExp(thirdId))
+  assert.ok(across.indexOf('lpipe_recall_id[repo:6]') < across.lastIndexOf('（' + id + '）'))
   assert.throws(() => openRange({ reader: { rows: () => [rows[1]] }, session: 'repo', from: { turn: 6, sentence: 1 }, count: 0 }), /count/)
 })

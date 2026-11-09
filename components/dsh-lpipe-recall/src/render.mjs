@@ -1,5 +1,5 @@
-import { recallRows, recallPieces } from './text.mjs'
-import { imagesOfRows } from './images.mjs'
+import { displayRows, displayPieces } from './text.mjs'
+import { imagesOfRows, imageReferences } from './images.mjs'
 import { FUZZY_FLOOR, NUMBER_FLOOR } from './match.mjs'
 import { fuzzyScore, fuzzyStarsIn } from 'dsh-lpipe-starmap/fuzzy'
 import { foldText } from 'dsh-lpipe-starmap/llm'
@@ -87,7 +87,7 @@ export function sentenceScore(text, flicker) {
 
 export function fragmentSentences({ reader, candidate, flicker, limit }) {
   const fragmentRows = reader.rows(candidate.session).filter((row) => row.turn === candidate.turn)
-  const rows = recallRows(fragmentRows)
+  const rows = displayRows(fragmentRows)
   // 只拿「这一段自己的命中星」来给句子打分。
   //
   // 用整窗的点亮星会让别的句子莫名其妙地排前面：那些星是照亮了别的片段的，
@@ -97,12 +97,12 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
   // 句子 id = 句在这一片段里的序号（1 起）。它只是片段内的坐标，跨片段没有意义——
   // 模型要深挖时报的是「仓库 + 片段 + 句子」三个 id，缺一个都定位不到。
   const all = []
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
     const text = typeof row.text === 'string' ? row.text : ''
     if (!text) continue
-    for (const sentence of recallPieces(row, pieces)) {
+    for (const { text: sentence, source, segment } of displayPieces(row, pieces)) {
       const { score, exact, ids } = sentenceScore(sentence, local)
-      all.push({ id: all.length + 1, score: score + (candidate.timeStrength ?? 0), exact, ids, at: row.at ?? candidate.at, text: sentence })
+      all.push({ id: all.length + 1, score: score + (candidate.timeStrength ?? 0), exact, ids, at: row.at ?? candidate.at, text: sentence, source, segment, rowIndex })
     }
   }
   const top = all.filter((entry) => entry.score > 0)
@@ -111,9 +111,10 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
     .sort((a, b) => a.id - b.id)
   return {
     imageCount: imagesOfRows(fragmentRows).length,
+    images: imagesOfRows(fragmentRows),
     total: all.length,
     lines: top.map((entry) => ({
-      id: entry.id,
+      id: entry.id, source: entry.source, segment: entry.segment, rowIndex: entry.rowIndex,
       text: entry.text.length > MAX_SENTENCE_CHARS ? `${entry.text.slice(0, MAX_SENTENCE_CHARS)}…` : entry.text,
     })),
   }
@@ -128,25 +129,39 @@ export function fragmentSentences({ reader, candidate, flicker, limit }) {
 export function renderRecall({ candidates, flicker, reader, config, footer = '' }) {
   if (!Array.isArray(candidates) || candidates.length === 0) return ''
   const blocks = []
-  for (const [index, candidate] of candidates.entries()) {
-    const { total, lines, imageCount = 0 } = candidate.excerpt ?? fragmentSentences({
-      reader,
-      candidate,
-      flicker,
-      limit: config.sentencesPerFragment,
+  for (const candidate of candidates) {
+    const { total, lines, images = [] } = candidate.excerpt ?? fragmentSentences({
+      reader, candidate, flicker, limit: config.sentencesPerFragment,
     })
     if (lines.length === 0) continue
-    const when = clockOf(candidate.at)
-    // 片段 id 是固定格式：`lpipe_recall_id[仓库:片段]`。程序靠它在上下文里认出
-    // 「这一段已经摆过了」，模型复制它去喂 recall_open。句子的 id 不在这里给——
-    // 模糊回忆本来就只摆几句，位置靠前、靠后的信息足够，精确定位是准确回忆的事。
-    const head = `第 ${index + 1} 段｜${fragmentId(candidate.session, candidate.turn)}${when ? `, ${when}` : ''}, 共 ${total} 句，展示 ${lines.length} 句${imageCount ? `，含 ${imageCount} 张图片（recall_open 可取引用）` : ''}`
-    // 每一句前面挂它的句子 id：`recall_open` 要的是「片段 id + 句子 id」，
-    // 只给片段，模型没法指定从哪句开始翻。
-    blocks.push(`${head}\n……${lines.map((line) => `〔${line.id}〕${line.text}`).join('……')}……`)
+    const body = [fragmentId(candidate.session, candidate.turn) + ' | ' + (clockOf(candidate.at) || '时间未记录') + ' | 本片段共 ' + total + ' 句，展示 ' + lines.length + ' 句']
+    if (images.length) body.push(imageReferences(images, { limit: 9, continuation: '……（用 recall_open 读取本片段的完整图片清单）' }))
+    body.push(...sentenceBody(lines, { total, omitted: true }))
+    blocks.push(body.join('\n'))
   }
   if (blocks.length === 0) return ''
   const opening = '〔回忆 · 模糊〕下面几段来自更早的记忆，不是这次对话里说过的话。也许相关，也许只是像。'
   const tail = footer ? `\n${footer}` : ''
   return `${opening}\n\n${blocks.join('\n\n')}${tail}`
+}
+
+/** Shared message/source boundaries; fuzzy excerpts add omissions only for real gaps. */
+export function sentenceBody(lines, { total = 0, omitted = false } = {}) {
+  const body = []
+  let previous = null
+  for (const line of lines) {
+    const gap = omitted && line.id > (previous?.id ?? 0) + 1
+    if (gap) {
+      if (previous) body[body.length - 1] += '……'
+      else body.push('……')
+    }
+    if (!previous || gap || line.rowIndex !== previous.rowIndex || line.segment !== previous.segment || line.source !== previous.source) {
+      body.push('〔' + (line.source ?? '来源未记录') + '｜' + line.id + '〕' + line.text)
+    } else {
+      body.push(line.text)
+    }
+    previous = line
+  }
+  if (omitted && previous && previous.id < total) body[body.length - 1] += '……'
+  return body
 }

@@ -7,7 +7,7 @@
 - [src/prompt.mjs](src/prompt.mjs)：英文 `##` 提示词。
 - [src/index.js](src/index.js)：主会话工作区解析、作用域及生命周期。
 - [src/rpc.mjs](src/rpc.mjs)：配置读写和草稿验证。
-- [client/panel.js](client/panel.js)：设置块（Owner 名字、栖所位置、自定义路径、状态行）。
+- [client/panel.js](client/panel.js)：设置块（栖所位置、自定义路径、状态行；Owner 名字已迁到 Chat）。
 - [lib/client.js](lib/client.js)：构建产物，由 `scripts/build-client.mjs` 生成，不手改。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：把 `client/panel.js` 包成 `window.__ModuleLoader__` 模块。
 - [assets/icon.png](assets/icon.png)：512² 透明图标，扁平渐变房屋，与系列其它管线一致。

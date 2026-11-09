@@ -9,7 +9,7 @@
 - [client/panel.js](client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：把 `client/panel.js` 包成宿主的模块壳。
 - [scripts/install-local.mjs](scripts/install-local.mjs)：把本包与 `components/*` 以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
-- [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、空白 LP 主会话创建及绑定重试；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
+- [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、独立身份的空白 LP 主会话创建及绑定重试（只改名身份匹配的按钮创建会话）；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
 - [src/main-session.mjs](src/main-session.mjs)：动态主会话门禁、工具可见性与执行复核、系统提示词隔离；[回归](test/main-session.test.mjs)。
 - [src/diagnostics.mjs](src/diagnostics.mjs)：四类诊断日志共用的 2 MiB 完整记录尾部保留；[测试](test/diagnostics.test.mjs)。
 - [保存按钮局部 HTML](不入库/设计/lpipe-save-button-states.html)：只有有效未保存改动时强调色亮起，初始、改回原值和保存成功后禁用淡化；[跨管线回归](test/save-buttons.test.mjs)。
@@ -35,9 +35,10 @@
   - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：环境权重与预算、准确真文准入、亮度排序与原文选句。
   - [src/environment.mjs](components/dsh-lpipe-recall/src/environment.mjs)：片段时间、全库 BM25 与展示摘录前缀掩盖；[测试](components/dsh-lpipe-recall/test/environment.test.mjs)。
   - [src/tools.mjs](components/dsh-lpipe-recall/src/tools.mjs)：`recall_fragments` / `recall_open` / `recall_image` 定义与执行。
-  - [src/text.mjs](components/dsh-lpipe-recall/src/text.mjs)：响应窗口与回忆展示共用的交流文字投影（工具仅保留发送正文）；[测试](components/dsh-lpipe-recall/test/text.test.mjs)。
+  - [src/text.mjs](components/dsh-lpipe-recall/src/text.mjs)：响应窗口投影与独立的展示白名单（工具仅展示发送正文）；[测试](components/dsh-lpipe-recall/test/text.test.mjs)。
+  - [src/provenance.mjs](components/dsh-lpipe-recall/src/provenance.mjs)：展示白名单、历史缺省与渠道／收发双方标记；[跨组件回归](components/dsh-lpipe-recall/test/provenance.test.mjs)，[显示参考](不入库/设计/recall-provenance.html)。
   - [src/images.mjs](components/dsh-lpipe-recall/src/images.mjs)：图片元数据引用、所属片段校验与按需读取；[测试](components/dsh-lpipe-recall/test/images.test.mjs)。
-  - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额。
+  - [src/open.mjs](components/dsh-lpipe-recall/src/open.mjs)：跨片段坐标、句子读取与输出限额；与 `render.mjs` 共用来源头起始句 ID 和连续原句排版，图片 ID 统一放片段头（模糊回忆最多 9 张，深读列全，受总字数限制）。
   - [src/rpc.mjs](components/dsh-lpipe-recall/src/rpc.mjs)：`/api/dsh-lpipe-recall` 的 `recall.config` / `recall.config.save`。
   - [src/index.js](components/dsh-lpipe-recall/src/index.js)：组装、主动回忆系统指引、预注入、RPC 注册及可见回忆结果去重。
   - [client/panel.js](components/dsh-lpipe-recall/client/panel.js)：设置页里的「回忆管线」块（六项，自动换行，支持 K/M 简写）；构建到 [lib/client.js](components/dsh-lpipe-recall/lib/client.js)。
@@ -55,7 +56,9 @@
 - [assets/session-mark.png](assets/session-mark.png)：会话栏里主会话标题左侧的小标记（64² 透明 PNG，内联进公共包的客户端）。主会话是公共状态，所以这枚标记归 `dsh-life-pipline` 管。
 - [assets/session-mark-mono-black.svg](assets/session-mark-mono-black.svg) / [mono-white.svg](assets/session-mark-mono-white.svg)：同一标记的单色版，左气泡实心、右气泡镂空；黑墨配浅色界面、白墨配深色界面，另附 64²/128² 透明 PNG（`-64.png`、`-128.png`）。未接进客户端，彩色版仍在用。
 - [components/dsh-lpipe-chat/locale/en.json](components/dsh-lpipe-chat/locale/en.json) / [zh.json](components/dsh-lpipe-chat/locale/zh.json)：组件显示名「Lpipe Chat」与简介。
-- [components/dsh-lpipe-chat/src/index.js](components/dsh-lpipe-chat/src/index.js)：组件装配、服务注入与清理。
+- [components/dsh-lpipe-chat/src/index.js](components/dsh-lpipe-chat/src/index.js)：组件装配、仅主会话的自由聊天／Owner 身份提示词、服务注入与清理。
+- [components/dsh-lpipe-chat/test/owner-client.test.mjs](components/dsh-lpipe-chat/test/owner-client.test.mjs)：Owner 输入框保存、清空、取消与非法值禁用回归。
+- [components/dsh-lpipe-chat/test/owner.test.mjs](components/dsh-lpipe-chat/test/owner.test.mjs)：旧 Home 名字一次性迁移、Chat 优先与清空、RPC 校验、主会话切换隔离。
 - [components/dsh-lpipe-chat/src/qrcode.mjs](components/dsh-lpipe-chat/src/qrcode.mjs)：热重载安全的二维码 CommonJS 加载器；[重复重载测试](components/dsh-lpipe-chat/test/qrcode-loading.test.mjs)。
 - [components/dsh-lpipe-chat/src/qq/channel.mjs](components/dsh-lpipe-chat/src/qq/channel.mjs)：QQ 连接与按目标隔离的被动回复窗口、额度及明确拒绝后的单次主动降级；[路由测试](components/dsh-lpipe-chat/test/qq-routing.test.mjs)。
 - [components/dsh-lpipe-chat/src/gateway.mjs](components/dsh-lpipe-chat/src/gateway.mjs)：入站窗口合并、通知消息构造与重试；完整平台 ID 在内部匹配主人，仅对匹配消息显示 `(Owner)` 前缀，保留群聊范围。
@@ -66,7 +69,7 @@
 - [components/dsh-lpipe-chat/src/skill.mjs](components/dsh-lpipe-chat/src/skill.mjs)：插件作用域技能注册；[英文技能](components/dsh-lpipe-chat/skills/lpipe-chat-media/SKILL.md)。
 - [components/dsh-lpipe-chat/src/media.mjs](components/dsh-lpipe-chat/src/media.mjs)：组合媒体发送及逐项失败结果；[升级测试](components/dsh-lpipe-chat/test/upgrades.test.mjs)。
 - [components/dsh-lpipe-chat/src/notice.mjs](components/dsh-lpipe-chat/src/notice.mjs)：主会话恢复、忙时注入与空闲唤醒。
-- [components/dsh-lpipe-chat/client/panel.js](components/dsh-lpipe-chat/client/panel.js)：chat 自己那块设置（注册进 `lpipe.settings.panel`）；构建到 `lib/client.js`。
+- [components/dsh-lpipe-chat/client/panel.js](components/dsh-lpipe-chat/client/panel.js)：chat 自己那块设置（包含从 Home 移来的 Owner 名字；注册进 `lpipe.settings.panel`）；构建到 `lib/client.js`。
 - [components/dsh-lpipe-chat/test/](components/dsh-lpipe-chat/test/)：窗口合并、投递、接收过滤、客户端与主题回归。
 
 ## components/dsh-lpipe-wake
@@ -80,6 +83,7 @@
 - [components/dsh-lpipe-wake/client/panel.js](components/dsh-lpipe-wake/client/panel.js)：设置里的「唤醒管线」块（自然 / 主动各一个开关），注册进 `lpipe.settings.panel`。
 - [components/dsh-lpipe-wake/assets/icon.png](components/dsh-lpipe-wake/assets/icon.png)：组件图标（青绿色日出与蓝色地平线，512² 透明 PNG）。
 - [components/dsh-lpipe-wake/assets/](components/dsh-lpipe-wake/assets/) 与 [locale/](components/dsh-lpipe-wake/locale/)：图标与显示名「Lpipe Wake / 唤醒管线」。
+- [唤醒提示词](components/dsh-lpipe-wake/src/index.js)：带二级标题的自然／计划唤醒说明，仅注入当前主会话；[回归](components/dsh-lpipe-wake/test/prompt.test.mjs)。
 - [components/dsh-lpipe-wake/test/wake.test.mjs](components/dsh-lpipe-wake/test/wake.test.mjs)：规则、心跳、RPC、工具与客户端回归。
 
 ## components/dsh-lpipe-memory

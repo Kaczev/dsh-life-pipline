@@ -138,29 +138,25 @@ test('the draft falls back to an unconfigured home without inventing a folder', 
   const { exports } = await loadClient();
   const { draftOf, patchOf } = exports.__test__;
 
-  assert.deepEqual(structuredClone(draftOf(null)), { ownerName: '', location: 'none', customPath: '' });
+  assert.deepEqual(structuredClone(draftOf(null)), { location: 'none', customPath: '' });
   assert.deepEqual(structuredClone(draftOf({ location: 'nowhere', ownerName: 7, customPath: null })), {
-    ownerName: '',
     location: 'none',
     customPath: '',
   });
   assert.deepEqual(structuredClone(draftOf({ location: 'custom', ownerName: ' Kaczev ', customPath: 'D:\\栖所' })), {
-    ownerName: ' Kaczev ',
     location: 'custom',
     customPath: 'D:\\栖所',
   });
 
   assert.deepEqual(structuredClone(patchOf({ ownerName: ' Kaczev ', location: 'custom', customPath: ' D:\\栖所 ' })), {
-    ownerName: 'Kaczev',
     location: 'custom',
     customPath: 'D:\\栖所',
   });
   assert.deepEqual(structuredClone(patchOf({ ownerName: '', location: 'workspace', customPath: 'D:\\旧路径' })), {
-    ownerName: '',
     location: 'workspace',
     customPath: 'D:\\旧路径',
   });
-  assert.deepEqual(structuredClone(patchOf({})), { ownerName: '', location: 'none', customPath: '' });
+  assert.deepEqual(structuredClone(patchOf({})), { location: 'none', customPath: '' });
 });
 
 test('the three locations are always visible and marked pressed', async () => {

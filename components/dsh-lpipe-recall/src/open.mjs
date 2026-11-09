@@ -1,6 +1,6 @@
-import { recallRows, recallPieces } from './text.mjs'
-import { imagesOfRows, imageListing } from './images.mjs'
-import { pieces } from './render.mjs'
+import { displayRows, displayPieces } from './text.mjs'
+import { imagesOfRows, imageReferences } from './images.mjs'
+import { pieces, sentenceBody } from './render.mjs'
 
 export const MAX_SENTENCES = 200
 export const MAX_CHARS = 24000
@@ -29,11 +29,11 @@ export const recallIdOf = (session, turn, sentence = null) =>
 
 function fragmentsOf(rows) {
   const fragments = new Map()
-  for (const [rowIndex, row] of recallRows(rows).entries()) {
+  for (const [rowIndex, row] of displayRows(rows).entries()) {
     if (!Number.isSafeInteger(row.turn) || row.turn < 1) continue
     if (!fragments.has(row.turn)) fragments.set(row.turn, [])
     const lines = fragments.get(row.turn)
-    for (const text of recallPieces(row, pieces)) lines.push({ turn: row.turn, id: lines.length + 1, text, at: row.at ?? null, rowIndex })
+    for (const piece of displayPieces(row, pieces)) lines.push({ turn: row.turn, id: lines.length + 1, ...piece, at: row.at ?? null, rowIndex })
   }
   return fragments
 }
@@ -48,27 +48,16 @@ export function openRange({ reader, session, from, to = null, count = DEFAULT_CO
   const fragments = fragmentsOf(rows)
   if (!Number.isSafeInteger(imagesOffset) || imagesOffset < 0) throw new Error('imagesOffset must be a non-negative integer')
   const groupedBody = (lines, turnList) => {
-    const allImages = turnList.flatMap(turn => rows.filter(row => row.turn === turn).flatMap((row) => imagesOfRows([row]).map(image => ({ ...image, rowIndex: rows.indexOf(row) }))))
-    const selectedImages = allImages.slice(imagesOffset, imagesOffset + 24)
+    const allImages = turnList.flatMap(turn => imagesOfRows(rows.filter(row => row.turn === turn)))
+    const selectedImages = allImages.slice(imagesOffset)
     const body = []
     for (const turn of turnList) {
+      body.push('')
       body.push(recallIdOf(session, turn) + ' 本片段共 ' + fragments.get(turn).length + ' 句')
-      for (const [rowIndex, row] of rows.entries()) {
-        if (row.turn !== turn) continue
-        const messageLines = lines.filter(line => line.rowIndex === rowIndex)
-        const messageImages = selectedImages.filter(image => image.rowIndex === rowIndex)
-        if (!messageLines.length && !messageImages.length) continue
-        const speaker = row.kind === 'user/message' ? '用户' : row.kind === 'assistant/message' ? '助手' : row.kind === 'tool/call' ? '工具调用' : '工具结果'
-        body.push('〔' + speaker + '｜记忆行 ' + (row.seq ?? rowIndex + 1) + '〕' + (!messageLines.length && messageImages.length ? '（本次未读取该消息文字）' : ''))
-        for (const line of messageLines) {
-          const index = lines.indexOf(line)
-          const boundary = index === 0 || index === lines.length - 1 || lines[index - 1]?.turn !== line.turn || lines[index + 1]?.turn !== line.turn
-          body.push(boundary ? recallIdOf(session, line.turn, line.id) + ' ' + line.text : line.text)
-        }
-        if (messageImages.length) body.push(imageListing(messageImages))
-      }
+      const fragmentImages = selectedImages.filter(image => image.turn === turn)
+      if (fragmentImages.length) body.push(imageReferences(fragmentImages))
+      body.push(...sentenceBody(lines.filter(line => line.turn === turn)))
     }
-    if (allImages.length) body.push('图片清单共 ' + allImages.length + ' 张（仅引用，尚未加载）')
     if (imagesOffset + selectedImages.length < allImages.length) body.push('更多图片：imagesOffset=' + (imagesOffset + selectedImages.length))
     return body
   }
@@ -94,8 +83,8 @@ export function openRange({ reader, session, from, to = null, count = DEFAULT_CO
     const next = clipped ? last : all[lines.length]
     const body = groupedBody(lines, [...new Set(lines.map(line => line.turn))])
     const note = clipped ? `…（已截断：单句过长，${last.turn}:${last.id} 未完整返回）` : truncated ? '…（已截断：达到本次读取上限）' : ''
-    const continuation = next && !clipped ? `下一页 from=${next.turn}:${next.id}` : ''
-    return [`〔回忆 · 原文〕本仓库共 ${turns.length} 个片段`, ...body, note, continuation].filter(Boolean).join('\n')
+    const continuation = next && !clipped ? `\n下一页 from=${next.turn}:${next.id}` : ''
+    return [`〔回忆 · 原文〕本仓库共 ${turns.length} 个片段`, body.join('\n'), note, continuation].filter(Boolean).join('\n')
   }
   for (const line of wanted.slice(0, MAX_SENTENCES)) {
     if (format([...picked, line]).length > maxChars) break

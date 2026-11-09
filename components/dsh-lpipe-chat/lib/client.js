@@ -164,13 +164,15 @@ function note(text, tone) {
 }
 
 /** One compact config field: label above, framed input below. */
-function Field({ id, title, value, setValue, type = 'text', min, max, step, disabled }) {
+function Field({ id, title, value, setValue, type = 'text', min, max, step, disabled, placeholder, maxLength }) {
   return h('div', { style: field },
     h('label', { htmlFor: id, style: fieldName }, title),
     h('div', { className: 'lpipe-chat-control', style: control },
       h('input', {
         id,
         type,
+        placeholder,
+        maxLength,
         min,
         max,
         step,
@@ -269,6 +271,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const [outputDraft, setOutputDraft] = React.useState('16KB');
   const [downloadDraft, setDownloadDraft] = React.useState('512MB');
   const [retentionDraft, setRetentionDraft] = React.useState('7');
+  const [ownerDraft, setOwnerDraft] = React.useState('');
   const hydrated = React.useRef(false);
   const [login, setLogin] = React.useState({});
 
@@ -284,6 +287,7 @@ function ChatSettingsPanel({ rpcCall }) {
   }, [rpcCall]);
 
   const resetDrafts = (config) => {
+    setOwnerDraft(String(config.ownerName ?? ''));
     setQuietDraft(String(config.quietSeconds));
     setWindowDraft(String(config.windowSeconds));
     setOutputDraft(config.outputBytes === 16384 ? '16KB' : String(config.outputBytes ?? '16KB'));
@@ -376,7 +380,9 @@ function ChatSettingsPanel({ rpcCall }) {
   }, [reload]);
 
   const pendingPatch = draftPatch([quietDraft, windowDraft, outputDraft, downloadDraft, retentionDraft]);
-  const canSave = Boolean(status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
+  if (pendingPatch) pendingPatch.ownerName = ownerDraft.trim();
+  const ownerValid = ownerDraft.length <= 200 && !/[\x00-\x1f\x7f\u2028\u2029]/u.test(ownerDraft);
+  const canSave = Boolean(ownerValid && status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ ownerName: '', outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
   const save = async (patch) => {
     if (!canSave) return;
     setBusy(true);
@@ -469,6 +475,7 @@ function ChatSettingsPanel({ rpcCall }) {
     h('style', null, scopedCss),
     header,
     h('div', { style: card },
+      h('div', { style: { marginBottom: 8 } }, h(Field, { id: 'dsh-lpipe-chat-owner', title: 'Owner 名字', value: ownerDraft, setValue: setOwnerDraft, placeholder: '可留空', maxLength: 200, disabled: busy })),
       h('div', { style: gridTwo },
         h(Field, {
           id: 'dsh-lpipe-chat-quiet',
@@ -524,6 +531,7 @@ function ChatSettingsPanel({ rpcCall }) {
           style: { ...button(canSave ? COLORS.accent : null), opacity: canSave ? 1 : 0.42 },
           disabled: !canSave,
           onClick: () => save({
+            ownerName: ownerDraft,
             quietSeconds: Number(quietDraft),
             windowSeconds: Number(windowDraft),
             outputBytes: outputDraft,
@@ -538,7 +546,7 @@ function ChatSettingsPanel({ rpcCall }) {
           onClick: () => { resetDrafts(status.config); setError(''); },
         }, '取消')),
       h('p', { style: footnote },
-        '大小支持 B、KB、MB、G，按 1024 进位。默认 downloads 中的文件按最后修改时间清理，启动时及每小时检查；不清理子目录或自定义下载目录。五项一起保存。')),
+        '大小支持 B、KB、MB、G，按 1024 进位。默认 downloads 中的文件按最后修改时间清理，启动时及每小时检查；不清理子目录或自定义下载目录。Owner 名字仅作称呼，不用于身份验证；六项一起保存。')),
 
     h('div', { style: channels },
       h(ChannelCard, {

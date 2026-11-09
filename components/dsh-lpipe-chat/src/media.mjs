@@ -13,11 +13,12 @@ export async function sendMediaParts(args, { getConfig, channels, store, sendTex
     if (size > parseBytes(getConfig().downloadBytes ?? DEFAULT_DOWNLOAD_BYTES)) throw new Error('发送文件超过大小上限');
     prepared.push({ kind: item.kind, file: { bytes: readFileSync(path), fileName: basename(path) } });
   }
-  const results = []; const ids = []; const channel = args.channel;
+  const results = []; const ids = []; const channel = args.channel; let recallDelivery;
   const options = { scope: args.scope || 'c2c', targetId: args.targetId, msgId: args.msgId };
   if (String(args.text ?? '').trim()) {
     try {
       const sent = await sendText({ ...args, media: undefined, completed: false }, exec);
+      recallDelivery = sent.recallDelivery;
       results.push('文字：已发送'); ids.push(...(sent.messageIds || []));
     } catch (error) { return { sent: false, channel, messageIds: ids, summary: `文字失败，未继续发送媒体：${error.message}；不自动重试。` }; }
   }
@@ -31,9 +32,9 @@ export async function sendMediaParts(args, { getConfig, channels, store, sendTex
       catch { results.push('本地归档失败；媒体已发送，不要重发。'); }
     } catch (error) {
       results.push(`${file.fileName}：失败或结果未知：${error.message}；后续未发送，不自动重试`);
-      return { sent: false, channel, messageIds: ids, summary: results.join('\n') };
+      return { sent: false, channel, messageIds: ids, ...(recallDelivery ? { recallDelivery } : {}), summary: results.join('\n') };
     }
   }
   if (args.completed === true) exec?.concludeTurn?.();
-  return { sent: true, channel, messageIds: ids, summary: results.join('\n') };
+  return { sent: true, channel, messageIds: ids, ...(recallDelivery ? { recallDelivery } : {}), summary: results.join('\n') };
 }

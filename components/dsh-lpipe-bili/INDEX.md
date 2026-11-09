@@ -1,7 +1,7 @@
 # B 站管线导航
 
 - [README.md](README.md)：用法、设置页、RPC、存储和验证边界。
-- [src/index.js](src/index.js)：宿主注册和生命周期。
+- [src/index.js](src/index.js)：宿主注册、仅主会话的自由浏览系统提示词和生命周期；[作用域回归](test/prompt.test.mjs)。
 - [src/tools.mjs](src/tools.mjs)：十个模型工具与图像交付。
 - [src/api.mjs](src/api.mjs)：只读 API、WBI、限流与字幕。
 - [src/login.mjs](src/login.mjs)、[src/vendor/auth.mjs](src/vendor/auth.mjs)：宿主凭据与扫码流程。
