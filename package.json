@@ -1,6 +1,6 @@
 {
   "name": "dsh-life-pipline",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "All-in-one Life Pipline installer: Life Core and seven independently switchable pipelines.",
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -53,7 +53,7 @@
     "dsh-lpipe-chat": "^0.7.8",
     "dsh-lpipe-home": "^0.2.2",
     "dsh-lpipe-bili": "^0.2.3",
-    "dsh-lpipe-wake": "^0.2.6",
+    "dsh-lpipe-wake": "^0.2.7",
     "dsh-lpipe-memory": "^0.1.3",
     "dsh-lpipe-starmap": "^0.1.6",
     "dsh-lpipe-recall": "^0.1.9"
