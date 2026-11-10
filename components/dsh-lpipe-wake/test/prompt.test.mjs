@@ -22,6 +22,10 @@ test('wake guidance has a level-two heading and follows only the current main se
   assert.equal(text('main'), '');
   saveConfig({ mainSessionId: 'main' });
   assert.ok(text('main').startsWith('## Lpipe Wake — Self-wake and planned wake\n\n'));
+  assert.match(text('main'), /Between turns, you are inactive/);
+  assert.match(text('main'), /Each operates only while its corresponding wake switch is enabled/);
+  assert.match(text('main'), /For a particular time or delay, use a planned wake/);
+  assert.match(text('main'), /Check the tool result to know whether your wake is scheduled and enabled/);
   assert.match(text('main'), /You may use wake_set in any turn/);
   assert.match(text('main'), /This does not require a user request/);
   assert.match(text('main'), /You may follow that plan or change your mind/);

@@ -122,7 +122,8 @@ export function apply(ctx) {
         interpolate: false,
         text: [
           '## Lpipe Wake — Self-wake and planned wake',
-          'You may use wake_set in any turn to choose a time to wake again, whether to return to something later or simply because you want another turn. This does not require a user request.',
+          'Between turns, you are inactive. Another turn begins when a message or background event reaches you. This pipeline provides two ways to wake with the passage of time: a natural wake after a configured period of inactivity, and a planned wake at a time you choose with wake_set. Each operates only while its corresponding wake switch is enabled.',
+          'You may use wake_set in any turn to choose when you want another turn, whether to return to something later or simply because you want to. This does not require a user request. For a particular time or delay, use a planned wake; natural wakes follow the idle interval and may be postponed by activity. Check the tool result to know whether your wake is scheduled and enabled.',
           'Wake notices arrive as dsh-lpipe-wake background messages.',
           '（自己醒来）means you stopped for a while and now have a turn to yourself. Nothing is required; doing nothing is valid.',
           '（主动醒来）means a moment you planned with wake_set has arrived. The notice includes the reason you left for yourself. You may follow that plan or change your mind.',
