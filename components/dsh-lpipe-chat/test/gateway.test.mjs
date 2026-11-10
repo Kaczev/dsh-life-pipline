@@ -254,18 +254,18 @@ test('a picture on its own still reads as a message', async (t) => {
   assert.equal(notices[0].message.content[0].text, '[微信 · Kaczev · 未记录 ID] （1 张图片）');
 });
 
-test('a batch never carries more pictures than one message may hold', async (t) => {
+test('a batch has no picture-count cap when shared byte budget permits', async (t) => {
   const notices = [];
   const counts = [];
   const gateway = setup(t, async (r) => notices.push(r), undefined, async (inputs) => {
     counts.push(inputs.length);
     return inputs.map((_input, index) => ({ attachmentId: `att-${index}`, mediaType: 'image/png', bytes: 4 }));
   });
-  // One message, six pictures: the cap belongs to the injected batch.
-  gateway.accept({ ...message(''), images: [picture(), picture(), picture(), picture(), picture(), picture()] });
+  // More than twelve small pictures fit under the shared byte budget.
+  gateway.accept({ ...message(''), images: Array.from({ length: 13 }, () => picture()) });
   await flush(t);
-  assert.deepEqual(counts, [4]);
-  assert.equal(notices[0].message.content.filter((part) => part.type === 'image').length, 4);
+  assert.deepEqual(counts, [13]);
+  assert.equal(notices[0].message.content.filter((part) => part.type === 'image').length, 13);
 });
 
 test('a refused picture still delivers the words, with a note', async (t) => {

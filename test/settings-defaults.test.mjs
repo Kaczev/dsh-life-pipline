@@ -13,7 +13,7 @@ test('配置标题的固定默认值与宿主一致，空白模型选择不冒�
  for (const label of [
   `合并间隔（秒）（默认：${chat.quietSeconds}）`,
   `收集窗口（秒）（默认：${chat.windowSeconds}）`,
-  `通知／历史上限（默认：${chat.outputBytes / 1024}KB）`,
+  `通知／历史文字与图片共享上限（默认：${chat.outputBytes / 1024 ** 2}MB；不限制图片数量）`,
   `文件下载上限（默认：${chat.downloadBytes / 1024 ** 2}MB）`,
   `下载保留天数（天）（默认：${chat.downloadRetentionDays}）`,
  ]) assert.ok(source('chat').includes(label), label)

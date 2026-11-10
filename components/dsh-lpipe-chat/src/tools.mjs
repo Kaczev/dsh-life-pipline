@@ -1,3 +1,5 @@
+import { outputLimit } from './content.mjs';
+import { openArchivedImage, imageHistoryHints } from './image-archive.mjs';
 import { openForwardImageById, withForwardFiles } from './forward.mjs';
 import { sendMediaParts } from './media.mjs';
 import { join } from 'node:path';
@@ -152,7 +154,7 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
     },
     {
       name: 'chat_history',
-      description: 'Read the locally archived WeChat/QQ messages, both directions, newest last. Use it when a batch references something said earlier or when the owner asks what was talked about.',
+      description: 'Read archived WeChat/QQ messages and discover image IDs for pictures omitted from notices or needed from earlier messages.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -160,7 +162,7 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
           channel: { type: 'string', enum: ['weixin', 'qq'], description: 'Optional channel filter.' },
           keyword: { type: 'string', description: 'Optional case-insensitive substring filter.' },
           messageId: { type: 'string', description: 'Open one archived message or forwarded record using its ID.' },
-          image: { type: 'string', description: 'View one forwarded image using its attachment ID shown in history (up to 8MB). When set, other history filters are ignored.' },
+          image: { type: 'string', description: 'View one picture using its image ID from history, including QQ forwarded image attachment IDs. Message IDs are not accepted. Other history filters are ignored.' },
           cursor: { type: 'string', description: 'Continue a bounded page; retains the original filters.' },
           limit: { type: 'number', description: 'Maximum rows per page, 1-200. Default 20; byte budget may return fewer.' },
         },
@@ -172,10 +174,15 @@ export function createChatTools({ getConfig, update, channels, store, getAttachm
       async execute(args, exec) {
         const imageId = typeof args.image === 'string' ? args.image.trim() : args.image;
         if (imageId) {
-          return openForwardImageById(imageId, getAttachments(), { signal: exec?.signal });
+          const archived = await openArchivedImage(imageId, store.readMessages(), getAttachments(), { signal: exec?.signal, maxBytes: outputLimit(getConfig()) - 512 });
+          return archived ?? openForwardImageById(imageId, getAttachments(), { signal: exec?.signal, maxBytes: outputLimit(getConfig()) - 512 });
         }
         const rows = store.readMessages();
-        const selected = args.messageId ? rows.map(row => row.id === args.messageId || row.messageId === args.messageId ? withForwardFiles(row) : row) : rows;
+        const selected = rows.map(row => {
+          const expanded = args.messageId && (row.id === args.messageId || row.messageId === args.messageId) ? withForwardFiles(row) : row;
+          const hints = imageHistoryHints(row);
+          return hints ? { ...expanded, text: [expanded.text, hints].filter(Boolean).join('\n') } : expanded;
+        });
         return historyPage(args, getConfig(), selected);
       },
     },

@@ -69,14 +69,14 @@ test('chat_history filters by channel and keyword', async () => {
   assert.equal(tools.chat_history.parameters.properties.image.type, 'string');
 });
 
-test('chat_history image ID takes priority over incidental filters without reading history', async () => {
+test('chat_history image ID takes priority over incidental filters and keeps forwarded images working', async () => {
   const { registerFile } = await import('../src/files.mjs');
   const ref = registerFile('qq', { filename: 'image.gif', type: '图片', url: 'https://multimedia.nt.qq.com.cn/download?test=1' });
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => { calls++; return new Response(Buffer.from('GIF89a000000000000')); };
   try {
-    const history = createChatTools({ getConfig: loadConfig, channels, store: { readMessages() { throw new Error('must not read archive'); } },
+    const history = createChatTools({ getConfig: loadConfig, channels, store: { readMessages() { return []; } },
       getAttachments: () => ({ saveImage: async () => ({ attachmentId: 'viewed' }) }) }).find(tool => tool.name === 'chat_history');
     const result = await history.execute({ channel: 'qq', cursor: '', image: ` ${ref.id} `, keyword: '', limit: 1, messageId: '' });
     assert.equal(result.attachment.attachmentId, 'viewed');

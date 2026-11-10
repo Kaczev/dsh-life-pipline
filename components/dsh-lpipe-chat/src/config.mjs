@@ -50,7 +50,7 @@ export function defaultConfig() {
      * Range 3-120.
      */
     windowSeconds: 14,
-    outputBytes: 16 * 1024,
+    outputBytes: 48 * 1024 ** 2,
     downloadBytes: 512 * 1024 ** 2,
     downloadRetentionDays: 7,
     /** Only the owner is allowed through. Off = every sender reaches you. */

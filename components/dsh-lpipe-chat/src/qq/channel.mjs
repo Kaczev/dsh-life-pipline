@@ -5,7 +5,7 @@ import { startQrConnect } from '@tencent-connect/qqbot-connector';
 import { QqSelfIdentity } from './self-identity.mjs';
 import { registerFile } from '../files.mjs';
 import { toIso } from '../time.mjs';
-import { MAX_IMAGES_PER_MESSAGE, downloadImage } from '../images.mjs';
+
 
 const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
 const PASSIVE_WINDOW_MS = { c2c: 60 * 60_000, group: 5 * 60_000 };
@@ -358,11 +358,11 @@ export class QqChannel {
   async #imagesOf(message) {
     const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
     const images = [];
-    for (const attachment of attachments.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+    for (const attachment of attachments) {
       const type = String(attachment?.content_type ?? '');
       if (!type.startsWith('image/')) continue;
       try {
-        const image = await downloadImage(attachment?.url, { name: attachment?.filename });
+        const image = { remote: { channel: 'qq', url: String(attachment?.url ?? '') }, mediaType: type };
         images.push({ ...image, name: String(attachment?.filename ?? '') });
       } catch (error) {
         this.#log.warn?.(`[life-chat] qq: inbound image failed: ${error?.message ?? error}`);

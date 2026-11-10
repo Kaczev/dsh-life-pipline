@@ -27,7 +27,7 @@ function saves(node) {
 }
 for (const spec of [
   {path:'components/dsh-life-core/client/panel.js', name:'CommonBlock', baseline(s){s[3]={mainSessionId:'session-a'};s[4]='session-a';}, edit(s){s[4]='session-b';}, revert(s){s[4]='session-a';}},
-  {path:'components/dsh-lpipe-chat/client/panel.js', name:'ChatSettingsPanel', baseline(s){s[0]={config:{quietSeconds:1,windowSeconds:5,outputBytes:16384,downloadBytes:536870912,downloadRetentionDays:7},channels:{}};}, edit(s){s[7]='8';}, revert(s){s[7]='7';}, invalid(s){s[7]='0';}},
+  {path:'components/dsh-lpipe-chat/client/panel.js', name:'ChatSettingsPanel', baseline(s){s[0]={config:{quietSeconds:1,windowSeconds:5,outputBytes:50331648,downloadBytes:536870912,downloadRetentionDays:7},channels:{}};}, edit(s){s[7]='8';}, revert(s){s[7]='7';}, invalid(s){s[7]='0';}},
   {path:'components/dsh-lpipe-bili/client/panel.js', name:'BiliSettingsPanel', baseline(s){s[0]={downloadRetentionDays:7};}, edit(s){s[4]='8';}, revert(s){s[4]='7';}, invalid(s){s[4]='0';}},
   {path:'components/dsh-lpipe-home/client/panel.js', name:'HomeSettingsPanel', baseline(s){s[0]={config:{location:'none',customPath:''}};s[5]=false;}, edit(s){s[1]={...s[1],location:'workspace'};}, revert(s){s[1]={...s[1],location:'none'};}},
 ]) {
@@ -42,7 +42,7 @@ for (const spec of [
     p.states[busyIndex]=false;
     spec.revert(p.states); assert.equal(saves(p.render())[0].props.disabled,true);
     if(spec.name==='ChatSettingsPanel') {
-      p.states[5]='16384'; p.states[6]='512 MB';
+      p.states[5]='50331648'; p.states[6]='512 MB';
       assert.equal(saves(p.render())[0].props.disabled,true, 'equivalent byte notation is not a change');
     }
     if(spec.invalid){spec.invalid(p.states); assert.equal(saves(p.render())[0].props.disabled,true);}

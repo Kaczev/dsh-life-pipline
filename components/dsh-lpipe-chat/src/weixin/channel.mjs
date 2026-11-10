@@ -8,7 +8,7 @@ import {
   splitWeixinText,
   weixinMessageId,
 } from './vendor/weixin-api.mjs';
-import { MAX_IMAGES_PER_MESSAGE, MAX_IMAGE_BYTES, toInboundImage } from '../images.mjs';
+import { MAX_IMAGE_BYTES, toInboundImage } from '../images.mjs';
 
 const defaultApi = createWeixinApi();
 const TERMINAL = new Set(['connected', 'failed', 'expired', 'cancelled']);
@@ -187,7 +187,7 @@ export class WeixinChannel {
    * image drops that image and is reported, never the message around it.
    */
   #imagesOf(message, signal) {
-    return weixinInboundImages(message, { fetchImpl: this.#fetchImpl, log: this.#log, signal });
+    return (message?.item_list ?? []).filter(item => item.image_item).map((item, index) => ({ name: index ? `image-${index + 1}` : 'image', remote: { channel: 'weixin', imageItem: item.image_item } }));
   }
 
   async sendMedia(file, kind, { targetId } = {}) {
@@ -432,7 +432,7 @@ function sleep(ms, signal) {
 export async function weixinInboundImages(message, { fetchImpl = fetch, log = null, signal } = {}) {
   const items = extractWeixinImages(message, { fetchImpl });
   const images = [];
-  for (const item of items.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+  for (const item of items) {
     try {
       const bytes = await item.load({ signal, maxBytes: MAX_IMAGE_BYTES });
       const image = toInboundImage(bytes, { name: item.name });

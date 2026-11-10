@@ -1,5 +1,5 @@
 import { displaySelfMentions } from './qq/self-identity.mjs';
-export const DEFAULT_OUTPUT_BYTES = 16 * 1024;
+export const DEFAULT_OUTPUT_BYTES = 48 * 1024 ** 2;
 export const DEFAULT_DOWNLOAD_BYTES = 512 * 1024 ** 2;
 export function parseBytes(value) {
   const match = String(value).trim().match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|G|GB)?$/i);

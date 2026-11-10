@@ -17,7 +17,7 @@ test('Owner field lives in Chat, saves through Chat RPC and supports clear, canc
   let config = { ownerName: 'Owner', quietSeconds: 1, windowSeconds: 5, outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 };
   const render = () => { cursor = refCursor = 0; return module.exports.__test__.ChatSettingsPanel({ rpcCall: async (method, payload) => { calls.push({ method, payload }); config = { ...config, ...payload, ownerName: payload.ownerName.trim(), outputBytes: 16384, downloadBytes: 536870912 }; return { ok: true, value: { config, channels: {} } }; } }); };
   const find = (node, predicate) => !node || typeof node !== 'object' ? null : predicate(node) ? node : (node.children ?? []).flat(Infinity).map(child => find(child, predicate)).find(Boolean);
-  render(); states[0] = { config, channels: {} }; states[8] = 'Owner';
+  render(); states[0] = { config, channels: {} }; states[5] = '16KB'; states[8] = 'Owner';
   const save = tree => find(tree, n => n.type === 'button' && n.children.includes('保存'));
   let tree = render(); assert.equal(save(tree).props.disabled, true);
   const field = find(tree, n => n.props.id === 'dsh-lpipe-chat-owner'); assert.ok(field);

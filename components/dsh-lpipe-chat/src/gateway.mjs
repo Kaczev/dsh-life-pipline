@@ -1,7 +1,8 @@
+import { resolveInboundImage } from './image-archive.mjs';
 import { inboundHead } from './identity.mjs';
 import { randomUUID } from 'node:crypto';
 import { stampFor } from 'dsh-life-core/clock';
-import { MAX_IMAGES_PER_MESSAGE } from './images.mjs';
+
 import { messageBody, outputLimit, utf8Head } from './content.mjs';
 
 /**
@@ -116,10 +117,10 @@ export class InboundGateway {
       const tail = `\n〔正文未完；用 chat_history(messageId="${shown[0]?.id || shown[0]?.messageId || ''}") 续读〕`;
       const visibleBody = Buffer.byteLength(body) > budget - 512 ? utf8Head(body, budget - 512 - Buffer.byteLength(tail)) : body;
        body = visibleBody + (visibleBody.length < body.length ? tail : '');
-      const { refs, note } = await this.#persistImages(shown);
+      const { refs, note, imageBytes = 0 } = await this.#persistImages(shown, Math.max(0, budget - Buffer.byteLength(prefix + body) - 512));
       body = prefix + body;
       const publish = (extra, images) => {
-        const text = utf8Head([body, note, extra].filter(Boolean).join('\n'), budget);
+        const text = utf8Head([body, note, extra].filter(Boolean).join('\n'), images.length ? Math.max(0, budget - imageBytes) : budget);
         const content = [{ type: 'text', text }];
         for (const ref of images) content.push({ type: 'image', attachment: ref });
         return Object.freeze({
@@ -164,20 +165,26 @@ export class InboundGateway {
    * message, so the cap applies across all of it, not per channel message.
    * Failing to store them never blocks the words around them.
    */
-  async #persistImages(batch) {
+  async #persistImages(batch, budget) {
     const wanted = [];
     this.#imageOrigins = [];
-    let imageBytes = 0; let omitted = 0;
+    let imageBytes = 0; let omitted = 0; let deferredRemainder = false;
     for (const row of batch) {
       for (const image of row.images ?? []) {
-        const size = image.data?.byteLength ?? 0;
-        if (wanted.length >= MAX_IMAGES_PER_MESSAGE || imageBytes + size > 16 * 1024 * 1024) { omitted++; continue; }
+        if (deferredRemainder) { omitted++; continue; }
+        if (imageBytes + (image.bytes || 0) > budget) { omitted++; continue; }
+        if (budget - imageBytes <= 0) { omitted++; continue; }
+        let loaded;
+        try { loaded = await resolveInboundImage(image, { maxBytes: budget - imageBytes }); }
+        catch { omitted++; deferredRemainder = true; continue; }
+        const size = loaded.data?.byteLength ?? 0;
+        if (imageBytes + size > budget) { omitted++; continue; }
         imageBytes += size;
-        wanted.push(image);
+        wanted.push(loaded);
         this.#imageOrigins.push({ channel: row.channel, senderName: row.senderName || '', senderId: row.senderId || '', conversationKind: row.conversationKind, conversationId: row.conversationId || '' });
       }
     }
-    const omittedNote = omitted ? `（另有 ${omitted} 张图片超过本批 4 张／16MB 预算，未附加。）` : '';
+    const omittedNote = omitted ? `（另有 ${omitted} 张图片未附加（超出共享大小上限、下载失败或链接已过期）。用 chat_history 查找这些消息的图片 ID，再按图片 ID 查看。）` : '';
     if (wanted.length === 0) return { refs: [], note: omittedNote };
     if (typeof this.#saveImages !== 'function') {
       return { refs: [], note: `（有 ${wanted.length} 张图片，但这个宿主没有附件服务，看图看不到。）` };
@@ -188,7 +195,7 @@ export class InboundGateway {
         mediaType: image.mediaType,
         name: image.name,
       })));
-      return { refs: Array.isArray(refs) ? refs : [], note: omittedNote };
+      return { refs: Array.isArray(refs) ? refs : [], note: omittedNote, imageBytes };
     } catch (error) {
       const reason = String(error?.message ?? error).split('\n')[0];
       this.#log.warn?.(`[life-chat] inbound image refused: ${reason}`);

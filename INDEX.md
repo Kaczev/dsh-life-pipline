@@ -75,6 +75,7 @@
 - [components/dsh-lpipe-chat/src/qq/channel.mjs](components/dsh-lpipe-chat/src/qq/channel.mjs)：QQ 连接与按目标隔离的被动回复窗口、额度及明确拒绝后的单次主动降级；[路由测试](components/dsh-lpipe-chat/test/qq-routing.test.mjs)。
 - [components/dsh-lpipe-chat/src/gateway.mjs](components/dsh-lpipe-chat/src/gateway.mjs)：入站窗口合并、通知消息构造与重试；完整平台 ID 在内部匹配主人，仅对匹配消息显示 `(Owner)` 前缀，保留群聊范围。
 - [components/dsh-lpipe-chat/src/content.mjs](components/dsh-lpipe-chat/src/content.mjs)：大小单位、UTF-8 截断及 QQ 文本显示投影。
+- [图片归档](components/dsh-lpipe-chat/src/image-archive.mjs)：入站保存稳定图片 ID 和私有下载凭据，通知按预算下载、历史仅按图片 ID 补读并缓存，过期明确报错；[归档及星图／回忆交接回归](components/dsh-lpipe-chat/test/image-archive.test.mjs)。
 - [components/dsh-lpipe-chat/src/history.mjs](components/dsh-lpipe-chat/src/history.mjs)：有界历史、长消息续读与稳定快照游标；本地时间按距上次标记五分钟、跨天及每页首条显示。
 - [components/dsh-lpipe-chat/src/identity.mjs](components/dsh-lpipe-chat/src/identity.mjs)：通知与历史共用完整用户／群 ID 身份头，出站使用实际归档目标；[展示回归](components/dsh-lpipe-chat/test/history-display.test.mjs)。
 - [components/dsh-lpipe-chat/src/files.mjs](components/dsh-lpipe-chat/src/files.mjs)：附件引用、显式限额下载及安全命名。

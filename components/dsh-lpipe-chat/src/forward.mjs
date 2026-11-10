@@ -50,7 +50,7 @@ export async function openForwardImageById(id, attachments, options = {}) {
   return { ...result, summary: `QQ forwarded image ${id} (quoted historical content; animation is not guaranteed).` };
 }
 
-export async function openForwardImage(row, index, attachments, { fetchImpl = fetch, signal } = {}) {
+export async function openForwardImage(row, index, attachments, { fetchImpl = fetch, signal, maxBytes = MAX_IMAGE_BYTES } = {}) {
   if (!Number.isSafeInteger(index) || index < 1) throw new Error('image must be a positive integer');
   const url = forwardImages(row)[index - 1];
   if (!url) throw new Error('No such image in this forwarded record');
@@ -62,14 +62,14 @@ export async function openForwardImage(row, index, attachments, { fetchImpl = fe
   const timeout = AbortSignal.timeout(30_000);
   const response = await fetchImpl(target, { redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   if (!response.ok) throw new Error(`Forwarded image download failed: HTTP ${response.status}; the signed URL may have expired`);
-  if (Number(response.headers.get('content-length')) > MAX_IMAGE_BYTES) {
+  if (Number(response.headers.get('content-length')) > Math.min(MAX_IMAGE_BYTES, maxBytes)) {
     await response.body?.cancel();
     throw new Error('Forwarded image exceeds 8MB');
   }
   const chunks = []; let size = 0;
   for await (const chunk of response.body) {
     size += chunk.byteLength;
-    if (size > MAX_IMAGE_BYTES) throw new Error('Forwarded image exceeds 8MB');
+    if (size > Math.min(MAX_IMAGE_BYTES, maxBytes)) throw new Error('Forwarded image exceeds 8MB');
     chunks.push(chunk);
   }
   const data = Buffer.concat(chunks);

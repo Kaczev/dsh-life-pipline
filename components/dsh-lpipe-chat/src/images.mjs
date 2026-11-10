@@ -10,8 +10,6 @@
 /** One image may not exceed this many bytes; the store has its own, lower cap. */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
-/** A burst of pictures is still one message: keep the reply readable. */
-export const MAX_IMAGES_PER_MESSAGE = 4;
 
 /** Media types the attachment service accepts, keyed by what the bytes say. */
 const MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);

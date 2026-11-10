@@ -330,7 +330,7 @@ function ChatSettingsPanel({ rpcCall }) {
   const [busy, setBusy] = React.useState(false);
   const [quietDraft, setQuietDraft] = React.useState('1');
   const [windowDraft, setWindowDraft] = React.useState('5');
-  const [outputDraft, setOutputDraft] = React.useState('16KB');
+  const [outputDraft, setOutputDraft] = React.useState('48MB');
   const [downloadDraft, setDownloadDraft] = React.useState('512MB');
   const [retentionDraft, setRetentionDraft] = React.useState('7');
   const [ownerDraft, setOwnerDraft] = React.useState('');
@@ -352,7 +352,7 @@ function ChatSettingsPanel({ rpcCall }) {
     setOwnerDraft(String(config.ownerName ?? ''));
     setQuietDraft(String(config.quietSeconds));
     setWindowDraft(String(config.windowSeconds));
-    setOutputDraft(config.outputBytes === 16384 ? '16KB' : String(config.outputBytes ?? '16KB'));
+    setOutputDraft(config.outputBytes === 50331648 ? '48MB' : String(config.outputBytes ?? '48MB'));
     setDownloadDraft(config.downloadBytes === 536870912 ? '512MB' : String(config.downloadBytes ?? '512MB'));
     setRetentionDraft(String(config.downloadRetentionDays ?? 7));
   };
@@ -457,7 +457,7 @@ function ChatSettingsPanel({ rpcCall }) {
     : !ownerValid
       ? 'Owner 名字最多 200 字，不能包含换行或控制字符。'
       : '大小按 1024 进位 · 仅清理 downloads 直属文件 · 接收开关立即保存';
-  const canSave = Boolean(ownerValid && status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ ownerOnly: false, ownerName: '', outputBytes: 16384, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
+  const canSave = Boolean(ownerValid && status?.config && !busy && pendingPatch && Object.entries(pendingPatch).some(([key, value]) => value !== (status.config[key] ?? ({ ownerOnly: false, ownerName: '', outputBytes: 50331648, downloadBytes: 536870912, downloadRetentionDays: 7 })[key])));
   const save = async (patch) => {
     if (!canSave) return;
     setBusy(true);
@@ -619,8 +619,8 @@ function ChatSettingsPanel({ rpcCall }) {
         h(Field, {
           id: 'dsh-lpipe-chat-output',
           label: '通知／历史',
-          hint: '默认 16KB',
-          title: '通知／历史上限（默认：16KB）',
+          hint: '默认 48MB',
+          title: '通知／历史文字与图片共享上限（默认：48MB；不限制图片数量）',
           value: outputDraft,
           setValue: setOutputDraft,
           disabled: busy,

@@ -1,0 +1,91 @@
+import { createCipheriv } from 'node:crypto';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { archiveInboundImages, openArchivedImage, imageHistoryHints } from '../src/image-archive.mjs';
+import { InboundGateway } from '../src/gateway.mjs';
+import { messageBodies, numericTextOf } from '../../dsh-lpipe-starmap/src/projection.mjs';
+import { recallRows } from '../../dsh-lpipe-recall/src/text.mjs';
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+test('all seven images survive restart and open only by image ID; message IDs are rejected', async t => {
+  const old = process.env.DSH_HOME;
+  const home = mkdtempSync(join(tmpdir(), 'chat-images-'));
+  process.env.DSH_HOME = home;
+  t.after(() => { if (old === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = old; rmSync(home, { recursive: true, force: true }); });
+  const images = archiveInboundImages(Array.from({ length: 7 }, (_, i) => ({ name: `${i}.png`, mediaType: 'image/png', data: PNG })));
+  assert.equal(new Set(images.map(i => i.id)).size, 7);
+  const rows = JSON.parse(JSON.stringify([{ id: 'message-7', images }]));
+  const attachments = { async saveImage(input) { assert.deepEqual(input.data, PNG); return { attachmentId: input.name }; } };
+  assert.match(imageHistoryHints(rows[0]), /chat-image:/);
+  await assert.rejects(openArchivedImage(images[0].id, rows, attachments, { maxBytes: PNG.length - 1 }), /共享大小上限/);
+  for (const image of images) assert.equal((await openArchivedImage(image.id, rows, attachments)).attachment.attachmentId, image.name);
+  await assert.rejects(openArchivedImage('message-7', rows, attachments), /只能使用图片 ID/);
+  await assert.rejects(openArchivedImage('old', [{ id: 'old', images: [{ bytes: 1 }] }], attachments), /只能使用图片 ID/);
+  await assert.rejects(openArchivedImage('chat-image:missing', rows, attachments), /未.*找到/);
+  assert.equal(await openArchivedImage('forward-id', rows, attachments), null);
+  writeFileSync(join(home, 'life-chat', 'images', images[0].sha256), 'broken');
+  await assert.rejects(openArchivedImage(images[0].id, rows, attachments), /校验失败/);
+});
+
+test('deferred references download once, cache across reads, and report expired links', async t => {
+  const old = process.env.DSH_HOME;
+  const home = mkdtempSync(join(tmpdir(), 'chat-lazy-'));
+  process.env.DSH_HOME = home;
+  t.after(() => { if (old === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = old; rmSync(home, { recursive: true, force: true }); });
+  const images = archiveInboundImages([{ name: 'lazy.png', remote: { channel: 'qq', url: 'https://example.com/image?secret=hidden' } }]);
+  assert.ok(images[0].deferred);
+  assert.ok(!JSON.stringify(images).includes('secret'));
+  assert.equal(readdirSync(join(home, 'life-chat', 'image-refs')).length, 1);
+  let calls = 0;
+  const fetchImpl = async () => { calls++; return new Response(PNG); };
+  const attachments = { async saveImage(input) { assert.deepEqual(Buffer.from(input.data), PNG); return { attachmentId: 'cached' }; } };
+  const rows = JSON.parse(JSON.stringify([{ images }]));
+  await openArchivedImage(images[0].id, rows, attachments, { fetchImpl });
+  await openArchivedImage(images[0].id, rows, attachments, { fetchImpl: () => { throw new Error('must use cache'); } });
+  assert.equal(calls, 1);
+  const key = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
+  const cipher = createCipheriv('aes-128-ecb', key, null);
+  const ciphertext = Buffer.concat([cipher.update(PNG), cipher.final()]);
+  const wx = archiveInboundImages([{ name: 'wx.png', remote: { channel: 'weixin', imageItem: { aeskey: key.toString('hex'), media: { encrypt_query_param: 'token' } } } }]);
+  await openArchivedImage(wx[0].id, [{ images: wx }], attachments, { fetchImpl: async () => new Response(ciphertext) });
+  await openArchivedImage(wx[0].id, [{ images: wx }], attachments, { fetchImpl: () => { throw new Error('must use cache'); } });
+  const expired = archiveInboundImages([{ remote: { channel: 'qq', url: 'https://example.com/expired' } }]);
+  await assert.rejects(openArchivedImage(expired[0].id, [{ images: expired }], attachments, { fetchImpl: async () => new Response('', { status: 403 }) }), /可能已过期.*HTTP 403/);
+});
+
+test('shared byte budget counts text and pictures without polluting matching', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const notices = [];
+  const gateway = new InboundGateway({ getConfig: () => ({ mainSessionId: 'main', quietSeconds: 1, outputBytes: 2048 }), log: { warn() {} }, deliver: async n => notices.push(n), saveImages: async inputs => inputs.map(i => ({ attachmentId: 'budget-image', bytes: i.data.length })) });
+  t.after(() => gateway.dispose());
+  gateway.accept({ id: 'budget-msg', channel: 'weixin', text: '蓝莓'.repeat(100), images: Array.from({ length: 3 }, () => ({ data: Buffer.alloc(700), mediaType: 'image/png' })) });
+  t.mock.timers.tick(1100); await new Promise(setImmediate);
+  const { message } = notices[0];
+  const text = message.content[0].text;
+  const pictures = message.content.filter(p => p.type === 'image');
+  assert.equal(pictures.length, 1);
+  assert.ok(Buffer.byteLength(text) + pictures.reduce((n,p) => n + p.attachment.bytes, 0) <= 2048);
+  assert.match(text, /共享大小上限.*chat_history/);
+});
+
+test('production gateway keeps image omissions out of star-map and recall matching, with only admitted image provenance', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const notices = [];
+  const gateway = new InboundGateway({ getConfig: () => ({ mainSessionId: 'main', quietSeconds: 1 }), log: { warn() {} }, deliver: async n => notices.push(n), saveImages: async inputs => inputs.map((_, i) => ({ attachmentId: `att-${i}`, mediaType: 'image/png', bytes: PNG.length })) });
+  t.after(() => gateway.dispose());
+  const body = '我喜欢蓝莓，明天买三盒。';
+  gateway.accept({ id: 'msg', channel: 'weixin', senderId: 'wx-full-id', text: body, images: Array.from({ length: 13 }, () => ({ data: PNG, mediaType: 'image/png' })) });
+  t.mock.timers.tick(1100);
+  await new Promise(setImmediate);
+  const { message } = notices[0];
+  const row = { kind: 'user/message', text: message.content[0].text, source: message.source };
+  assert.deepEqual(messageBodies(row), [body]);
+  assert.equal(recallRows([row])[0].text, body);
+  assert.ok(numericTextOf(row, row.text).includes(body));
+  assert.equal(message.content.filter(p => p.type === 'image').length, 13);
+  assert.equal(message.source.recallImages.length, 13);
+  assert.doesNotMatch(row.text, /未附加/);
+});

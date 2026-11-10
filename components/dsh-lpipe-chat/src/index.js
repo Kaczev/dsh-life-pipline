@@ -7,7 +7,7 @@ import { InboundGateway } from './gateway.mjs';
 import { createNoticeDelivery } from './notice.mjs';
 import { createChatTools } from './tools.mjs';
 import { createChatRpcHandler, registerChatRpc } from './rpc.mjs';
-import { imageRecord } from './images.mjs';
+import { archiveInboundImages } from './image-archive.mjs';
 import { WeixinChannel } from './weixin/channel.mjs';
 import { qqAccountGuidance } from './qq/self-identity.mjs';
 import { QqChannel } from './qq/channel.mjs';
@@ -128,13 +128,13 @@ export function apply(ctx, config) {
         senderName: event.senderName,
         text: event.text,
         ...(event.qqSelf ? { qqSelf: event.qqSelf } : {}),
-        images: (event.images ?? []).map(imageRecord),
+        images: archiveInboundImages(event.images),
         at: event.at,
         messageId: event.messageId,
         contextToken: event.contextToken,
         replyTarget: event.replyTarget,
       });
-      event = { ...event, id: archived.id };
+      event = { ...event, id: archived.id, images: archived.images };
     } catch (error) {
       log.warn(`[life-chat] failed to archive inbound message: ${error?.message ?? error}`);
     }
