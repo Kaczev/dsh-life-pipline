@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-wake",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Self-wake pipeline for DSH: after you stop for a while, it wakes you in your main session.",
   "type": "module",
   "main": "src/index.js",

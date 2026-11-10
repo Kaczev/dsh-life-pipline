@@ -175,7 +175,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
       properties: {
         in: { type: 'string', description: 'Wake after this long, e.g. "45m", "2h", "90s".' },
         at: { type: 'string', description: 'Wake at this instant (ISO 8601 with offset).' },
-        reason: { type: 'string', description: 'The note I write for that moment, e.g. "remind him to take his medicine".' },
+        reason: { type: 'string', description: 'The note I write for that moment, e.g. "return to this thought later".' },
         cancel: { type: ['boolean', 'string'], description: 'true clears every planned wake; a string cancels that one by id.' },
         lock: { type: 'string', description: 'Do not wake me naturally until then: a duration like "3h" or an ISO time.' },
         unlock: { type: 'boolean', description: 'true lifts the natural wake lock.' },

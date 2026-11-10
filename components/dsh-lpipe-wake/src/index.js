@@ -122,9 +122,10 @@ export function apply(ctx) {
         interpolate: false,
         text: [
           '## Lpipe Wake — Self-wake and planned wake',
+          'You may use wake_set in any turn to choose a time to wake again, whether to return to something later or simply because you want another turn. This does not require a user request.',
           'Wake notices arrive as dsh-lpipe-wake background messages.',
           '（自己醒来）means you stopped for a while and now have a turn to yourself. Nothing is required; doing nothing is valid.',
-          '（主动醒来）means a moment you planned with wake_set has arrived. The notice includes the reason you wrote for it.',
+          '（主动醒来）means a moment you planned with wake_set has arrived. The notice includes the reason you left for yourself. You may follow that plan or change your mind.',
           'In a wake-notice turn, do not use ask_user_question: the user may be away, and its controls require the Harness UI.',
         ].join('\n\n'),
       });

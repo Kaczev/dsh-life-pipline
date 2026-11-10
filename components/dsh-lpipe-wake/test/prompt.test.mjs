@@ -22,6 +22,10 @@ test('wake guidance has a level-two heading and follows only the current main se
   assert.equal(text('main'), '');
   saveConfig({ mainSessionId: 'main' });
   assert.ok(text('main').startsWith('## Lpipe Wake — Self-wake and planned wake\n\n'));
+  assert.match(text('main'), /You may use wake_set in any turn/);
+  assert.match(text('main'), /This does not require a user request/);
+  assert.match(text('main'), /You may follow that plan or change your mind/);
+  assert.doesNotMatch(text('main'), /Bilibili|home folder|Owner/);
   assert.match(text('main'), /doing nothing is valid/);
   assert.match(text('main'), /do not use ask_user_question/);
   assert.equal(text('ordinary'), '');
