@@ -57,6 +57,7 @@
 
 ## components/dsh-lpipe-chat
 
+- [微信重绑切换](components/dsh-lpipe-chat/src/weixin/channel.mjs)：运行中连接绑定启动时的凭据，扫码换号后切换轮询，停止通知只发给旧凭据；[回归](components/dsh-lpipe-chat/test/weixin-rebind.test.mjs)。
 - [显式收件人回归](components/dsh-lpipe-chat/test/explicit-target.test.mjs)：微信／QQ 不默认发给 Owner，文字／媒体目标一致、完整 ID 与未知昵称展示。
 
 - [下载过期清理](components/dsh-lpipe-chat/src/download-cleanup.mjs)：默认 downloads 直属文件按修改时间清理，默认 7 天；[边界与配置测试](components/dsh-lpipe-chat/test/download-cleanup.test.mjs)。

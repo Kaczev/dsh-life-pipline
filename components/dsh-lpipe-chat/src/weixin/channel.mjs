@@ -26,6 +26,7 @@ export class WeixinChannel {
   #log;
   #onInbound;
   #running = null;
+  #runningCredentials = null;
   #login = null;
   #status = { connected: false, accountId: '', ownerUserId: '', lastError: '' };
   // iLink carries a per-conversation `context_token` on every inbound message.
@@ -64,14 +65,15 @@ export class WeixinChannel {
 
   async connect() {
     if (!this.configured) return false;
+    const credentials = this.#credentials();
+    const { botToken, baseUrl } = credentials;
     if (this.#running) {
-      // Already up: nothing to do. Up but failing to poll means the token is
-      // no longer accepted, so start over with a fresh loop and let the status
-      // keep saying "not connected" until a poll succeeds again.
-      if (this.#status.connected) return true;
+      const previous = this.#runningCredentials;
+      if (this.#status.connected && previous?.botToken === botToken
+        && previous?.baseUrl === baseUrl && previous?.accountId === credentials.accountId
+        && previous?.ownerUserId === credentials.ownerUserId) return true;
       await this.stop();
     }
-    const { botToken, baseUrl } = this.#credentials();
     // Credentials that changed mean every captured token belongs to a bot that
     // no longer exists: keeping them would produce silent drops, not errors.
     if (this.#tokenOwner !== botToken) {
@@ -80,6 +82,7 @@ export class WeixinChannel {
     }
     const controller = new AbortController();
     this.#running = controller;
+    this.#runningCredentials = credentials;
     this.#status = { ...this.#status, connected: false, lastError: '' };
     void this.#loop({ botToken, baseUrl, controller });
     return true;
@@ -113,6 +116,7 @@ export class WeixinChannel {
           await sleep(2_000, signal);
           continue;
         }
+        if (signal.aborted) break;
         if (!this.#status.connected) {
           this.#status = { ...this.#status, connected: true, lastError: '' };
         }
@@ -386,10 +390,13 @@ export class WeixinChannel {
   async stop() {
     this.cancelLogin();
     const running = this.#running;
+    const credentials = this.#runningCredentials;
     this.#running = null;
+    this.#runningCredentials = null;
     if (!running) return;
     running.abort();
-    const { botToken, baseUrl } = this.#credentials();
+    this.#status = { ...this.#status, connected: false };
+    const { botToken, baseUrl } = credentials ?? {};
     if (botToken) {
       await this.#api.notifyStop({ baseUrl, token: botToken }).catch(() => {});
     }
