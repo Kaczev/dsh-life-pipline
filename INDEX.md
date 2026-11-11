@@ -9,7 +9,7 @@
 - [组件开关回归](test/components-control.test.mjs)：前置顺序、级联关闭和非 applied 失败。
 - [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
 
-- [README.md](README.md)：聚合安装、独立安装与兼容边界。
+- [README.md](README.md)：中英安装指南、七条管线职责与依赖、主对话配置及常见问题；各组件的 README 提供工具示例、配置与许可致谢。
 - [DEVELOPMENT.md](DEVELOPMENT.md)：开发笔记（结构、显示名与图标、组件说明、安装与配置）。
 - [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
 - [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。

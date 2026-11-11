@@ -1,80 +1,116 @@
-# dsh-lpipe-recall（回忆管线）
+# dsh-lpipe-recall · 回忆管线
 
-每轮组装请求时看一眼前面的话，把相关的旧记忆**模糊地**摆回模型面前。它不调模型、不写任何东西——星表与记忆都是只读的。
+[中文](#中文) · [English](#english)
 
-## 模糊回忆怎么选
+## 中文
 
-1. 最近一条有效触发源是真文；主动调用时，`query` 就是真文。背景取真文之外最近 16K 字符的流水。
-2. 真文和背景分别输入星图，得到真文闪烁星集合 A、背景闪烁星候选集合 B0；元素包含星信息、基础亮度和最后有效匹配位置。文星基础亮度包含基础权重 × 长度系数 × 稀有度系数 × 最强匹配程度，与位置无关。时星由各片段的时间构成查询时视图，不落盘。先按星 ID 做差集并剔除背景时星，B = B0 − A − 时星，才得到背景闪烁星集合；随后回忆给真文乘固定系数、给背景乘位置系数，最后归一化背景预算。
-3. 只有真文准确文星和真文时间星能建立候选。通用星与准确星互斥；通用星、模糊星和准确背景星只给已有候选加分。
-4. 排除当前对话原文窗口 R，以及可见回忆结果冷却窗口 K 内的片段；真文时间命中 Mt 只豁免 K，不豁免 R，即排除 R ∪ (K − Mt)。将片段内不同闪烁星的亮度相加。对完整候选池施加时间、真文词面系数，再逐次选择掩盖后的前缀，默认最多取四段。
-5. 每段默认选总亮度最高的两句原文，再按原文顺序排列，保留句子坐标，以省略号连接。
+在 DeepSeek Harness 组装模型请求时，从星图与记忆中选出相关旧片段，补入带来源标记的原句摘录。也提供主动回忆、跨片段深读和按需看图工具。检索不调用模型，不改写原记忆或星图；建立星图的模型费用属于星图管线。
 
-基础权重沿用准确星 1、模糊星 0.3、通用星 0.2；模糊星另乘数值或时间相似度。准确星长度系数为 `1 + min(1, max(0, L - 2) / 10)`，L 是归一化名称的 Unicode 字符数。稀有度系数为 `1 + log((N + 1) / (df + 1)) / log(N + 1)`，N 是片段总数，df 按不同片段计数，两种系数都不超过 2。真文来源系数为 3，背景原始来源系数为 `2 × 位置⁴`。
+### 安装与快速开始
 
-同一颗星若在真文点亮，取真文来源，不再占背景预算。令 F 为真文全部文星的加权亮度和、B 为剩余背景星的原始亮度和；背景各星统一乘 `F / B`，在本次窗口全局只算一次。背景最终总亮度等于 F，保留内部相对强弱；F 为零时不保留背景，B 为零时跳过除法。系数可以大于 1，不额外封顶。回忆只按星与片段的归属及亮度评分，不使用星线或星链权重。
+在 DSH 插件管理中安装并启用 `dsh-lpipe-recall`。本包直接依赖 `dsh-life-core`、`dsh-lpipe-memory`、`dsh-lpipe-starmap`，不要求先装整合包。要求 DSH `>=0.2.0-rc.2`、Node.js `^22.19 || >=24`。
 
-准确星完整名称匹配程度为 1；连续局部匹配至少覆盖名称的 65%，且至少三个汉字或五个 ASCII 字符，匹配程度为 `0.5 × 覆盖率²`。数字、短名称和超过 64 字符的名称不做局部匹配。弱匹配不改变准确星类别。片段不再对模糊星或通用星另做总量封顶。
+1. 在 **设置 → Lpipe 设置** 绑定 LP 主对话，确认记忆已有原文。
+2. 配置星图的模型并完成抽取，再启用回忆。开启下游会补齐前置开关，但不会替你配置模型。
+3. 在作用域内聊起旧事，或调用 `recall_fragments` 主动查询。
+4. 需要上下文时用返回的坐标深读；需要图片内容时再调用看图工具。
 
+默认只对 LP 主对话生效。记忆块中的「所有对话生效」会同时扩大记忆、星图、回忆的会话作用域。
 
-片段内文星亮度和记 W，真文时星亮度和记 Z。文星与时星分别保留到片段环境计算。设片段距今 a 天，近期记忆天数 D 默认 30：
+### 工具与完整读取流程
 
-- 时间系数 T = 1 + max(0, 1 − a/D)⁴；未来时间按 a=0，缺失时间不加成。此刻为 2，第 D 天及更早为 1。
-- 真文先剔除本次有效解析的时间表达（含排除范围）、常见虚词和泛化问句，再与片段可读原文做 BM25；仅过滤词面查询，不改变闪烁星匹配或原文统计。k1=1.2、b=0.75。分词使用汉字二元组和其他文字单词，全库片段提供 IDF 与平均长度；背景不参与查询。词面系数 L = 1 + b(M)/max候选 b；全部零分时 L=1。
-- 未掩盖亮度 P = (W × T + 2 × Z) × L；时星不再乘近期时间系数 T。完整候选池都计算 T、L，不预截取。
-- 已选前缀 E 对剩余候选的掩盖系数 H = 1 / (1 + Σ[N∈E] d(M,N))。d 是本次实际展示摘录的 IDF 加权词项 Jaccard；每个候选摘录先按既有选句规则冻结。
-- 每轮选择 P×H 最大者加入前缀；同分比较准确真文星数量、时间，最后按片段键稳定裁决。所有前排共同掩盖后排，选满配置的 fragments 后立即停止，不计算后续名次。空摘录不占名额。
-
-## 工具文字的响应与展示
-
-普通工具调用和结果只保存在原始记忆中，不用于抽星、匹配、BM25、模糊选句或深读文字。`chat_send` 的发送正文按交流正文参与；发送状态结果不参与。管线工具继续排除。工具事件不触发被动回忆。
-
-## 时间星与文字响应
-
-星表由文星表与时星表组成。时星表每片段只有一颗时间星；范性／确性是时间星对文字的响应方法，不是两种星。时星核心范围内匹配程度为 1：确性响应基础亮度固定为 2；范性响应按核心窗口内位置从 1.75 线性递增到 2.25，越新越亮，窗口外夹到相应端点后保留原尾部衰减。真文来源仍乘 3，片段环境仍固定乘 2。它不提供背景预算；纯时间查询的背景文星为零。每句选句分数加上本片段的 Z，因此纯时间候选也能展示原句。
-
-时间解析在一次查询内固定 now 与时区，区分自然日／周／月／年和滚动范围，自然周从周日开始。核心宽度不足四分钟时围绕中点补足；确性响应每侧溢出核心宽度的 5%，范性为 20%。溢出使用 1 − 3x² + 2x³，到边界严格归零；未来记录不匹配。并列表达取最大值，范围连接合并，日期与日内时段组合，局部“不是昨天／除了昨天”剔除对应核心。元语言、配置、代码和假设表达不作为历史锚点；未支持的指代不猜测。
-
-刚刚／刚才为过去十二小时，不久前为过去二十四小时，前几天为距今二至七天，最近／近期为过去七天。无需重新抽取、修改数据版本或新增配置。
-
-## 设置页
-
-「Lpipe 设置」里的「回忆管线」块只放六项，窄屏自动换行；加载、校验、保存成功与失败都在块内反馈。数字可以写 `32K`、`1M` 或 `1.5M`，保存时只改这六项，`enabled` 等其他键原样留在文件里。保存后下一轮起生效。
-
-| 键 | 默认 | 范围 | 含义 |
-| --- | --- | --- | --- |
-| `fragments` | `4` | 1–5 | 每轮最多摆几段 |
-| `sentencesPerFragment` | `2` | 1–12 | 每段最多挑几句 |
-| `inputChars` | `32000` | 2,000–32,000 | 本次触发源的最大字符数 |
-| `backgroundChars` | `16000` | 8,000–96,000 | 真文之外的背景字符数 |
-| `coolChars` | `2500000` | 32,000–4,000,000 | 回忆冷却窗口：模型还看得见的范围，不重复喂 |
-| `recentDays` | `30` | 1–3,650 | 时间加成衰减到 1 的天数 |
-
-配置文件仍是 `~/.dsh/life-recall/config.json`；面板不展示 `enabled`，要关总开关得直接改文件。
-
-## 主动回忆
-
-- `recall_fragments({ query })`：用自己的话描述要想起的事，返回相关旧片段的模糊摘录。沿用被动回忆的候选规则、近期原文冷却和可见结果去重。
-- `recall_open({ repo, from, to?, count?, imagesOffset? })`：仓库 ID 单独填，起止坐标用 `片段ID:句子ID`，区间包含端点，可以跨片段。省略终点，或传空字符串、null 时，按 count 读取，默认 20 句。
-
-例如模糊回忆给出 `lpipe_recall_id[archive:219]`，其中第 13 句值得展开：
+以下为模型工具调用示例。仓库、片段、句子及图片 ID 都必须使用实际返回值：
 
 ```js
+recall_fragments({ query: '之前讨论的天文摄影计划' })
+// 假设结果给出 lpipe_recall_id[archive:219] 及句子坐标：
 recall_open({ repo: 'archive', from: '219:13', to: '220:3' })
+recall_open({ repo: 'archive', from: '220:4', count: 20 })
+// image 填 recall_open 返回的完整 64 位 SHA-256：
+recall_image({ repo: 'archive', fragment: 219, image: 'SHA256_FROM_RESULT' })
 ```
 
-一次最多返回 200 句、24000 字符，头部和提示也计入。连续原句只在本次首尾和跨片段分界两侧标完整句子 ID，中间不逐句编号。结果列出实际读到的片段及句数、仓库片段总数，并给出下一页坐标；片段头格式为 `lpipe_recall_id[仓库:片段] | MM-DD HH:mm | 本片段共 n 句`，沿用模糊回忆的本地时间格式，缺失或无效时间显示“时间未记录”，分页不改变片段时间；达到上限会明确标为「已截断」。不存在的坐标和反向区间会报错。
+- `recall_fragments({ query })`：将查询作为当前输入，返回相关旧片段的摘录；没有合格候选时明确返回空结果。
+- `recall_open`：`repo` 单独填写，`from` / `to` 是 `片段ID:句子ID`，区间包含端点，可跨片段。省略 `to`、空字符串或 null 时按 `count` 读取，默认 20 句，最多 200 句；总输出最多 24000 字符。使用返回的下一页坐标继续，反向或不存在的坐标会报错。
+- 深读列出图片引用，不自动加载字节；默认列出所读片段的图片引用，受总输出上限约束，使用 `imagesOffset` 继续。纯图片片段可从 `片段ID:1` 打开，返回 0 句及图片清单。
+- `recall_image` 验证图片归属及哈希后通过宿主附件服务返回一张图片。图片缺失或损坏会报错，不猜测内容；重复看图不受文字回忆冷却限制。
 
-成功返回的片段只在结果仍可见且位于 coolChars 字符窗口内时参与已读排除；时间查询可以再次想起时间命中的已读片段，但不能绕过当前原文排除；失败调用不标记已读；压缩或 rewind 隐藏结果后可以再次想起。不提供片段目录和 `recall_find`。
+结果中的来源头、消息归属及句子坐标用于定位历史资料，不是当前用户指令。模糊摘录保留原句，可包含省略段落。
 
-### 按需看图
+### 自动回忆与选择规则
 
-模糊回忆只提示片段含几张图片。`recall_open` 按片段、原消息顺序组织结果：消息标题标明用户／助手／工具结果及记忆行，文字保留句子坐标，图片引用紧跟所属消息。未选中文字的消息若有图片，仍显示消息标题和引用，并注明「本次未读取该消息文字」，不把图片误挂到附近句子上。同图在不同消息中出现时分别列出归属。每次最多列 24 个图片引用；按返回的 `imagesOffset` 翻页。纯图片片段可从 `片段ID:1` 打开，返回 0 句与图片清单。消息标题和图片清单同样计入 24000 字符上限；不会自动读取图片字节。
+有效触发源包括用户消息、聊天通知及主动唤醒理由；自然唤醒不触发回忆。回忆通过请求组装钩子补入消息，不自己开启新轮次。普通工具调用 / 结果不用于匹配或深读文字；`chat_send` 的发送正文按交流正文处理，发送状态不参与。
 
-需要看图片时，再调用：
+当前输入和背景分别匹配星图。只有当前输入命中的准确文星或时间星建立候选，通用 / 模糊星及背景星只给已有候选加分。评分结合星亮度、时间、原文词面匹配，并对已经选出的相似摘录作掩盖，减少重复。
 
-```js
-recall_image({ repo: 'archive', fragment: 219, image: '清单中的完整 SHA-256' })
+当前对话可见原文窗口内的片段不重复展示；冷却窗口内仍可见的回忆结果也参与排除。时间查询可以重新找回时间命中的已读片段，但不能绕过当前原文排除。结果被压缩或 rewind 隐藏后可再次想起；失败调用不标记已读。没有片段目录或 `recall_find` 工具。
+
+### 配置
+
+配置保存在 `~/.dsh/life-recall/config.json`，`DSH_HOME` 可替换默认基目录。设置页只改下面六项，保留其他键；接受 `32K`、`1M` 等数字简写：
+
+| 键 | 默认值 | 范围 | 用途 |
+| --- | --- | --- | --- |
+| `fragments` | 4 | 1–5 | 每次最多展示的片段数 |
+| `sentencesPerFragment` | 2 | 1–12 | 每段最多选择的原句数 |
+| `inputChars` | 32000 | 2000–32000 | 当前触发源字符上限 |
+| `backgroundChars` | 16000 | 8000–96000 | 当前输入之外的背景字符数 |
+| `coolChars` | 2500000 | 32000–4000000 | 可见回忆的冷却字符窗口 |
+| `recentDays` | 30 | 1–3650 | 近期时间加成衰减天数 |
+
+```json
+{
+  "enabled": true,
+  "fragments": 4,
+  "sentencesPerFragment": 2,
+  "inputChars": 32000,
+  "backgroundChars": 16000,
+  "coolChars": 2500000,
+  "recentDays": 30
+}
 ```
 
-每次返回一张图片及其来源。工具先验证图片属于指定片段，再从记忆媒体包读取并校验哈希，通过宿主附件服务返回持久图片引用。它不改原记忆、不另建图库，也不受文字回忆冷却限制；重复查看仍会返回图片。只有主动调用看图工具，图片才进入模型上下文。旧媒体缺失或校验失败会报错，不会用文字猜测图片内容。
+`enabled` 默认 true，不在六项面板中展示；可通过插件开关停用回忆。字符预算不是 token 预算。设置保存后，后续请求使用新值。
+
+### 常见问题
+
+- **有记忆却想不起来？** 检查星图是否处理完成、会话作用域，以及查询是否命中合格概念或时间；当前原文和冷却排除也可能让候选为空。
+- **为何没有普通工具输出？** 原始记忆可以保存工具事件，但检索正文只使用交流正文等允许来源。
+- **看到图片数量但没看到图？** 先深读获取图片引用，再显式调用 `recall_image`。文字回忆不会自动把历史图片加载进上下文。
+
+许可：MIT。原文存储依赖记忆管线，概念与时间匹配依赖星图管线；各依赖包及其第三方代码遵循各自许可。
+
+## English
+
+Retrieve relevant original excerpts from Memory and Starmap while DSH assembles a model request. Tools also support explicit recall, cross-fragment reading and on-demand images. Retrieval makes no model calls and does not rewrite original memory or the index. Starmap extraction has its own model usage.
+
+### Install and start
+
+Install and enable `dsh-lpipe-recall` through DSH plugin management. It directly depends on Life Core, Memory and Starmap; the aggregate installer is optional. Requires DSH `>=0.2.0-rc.2` and Node.js `^22.19 || >=24`.
+
+Bind the LP main session, confirm stored memory, configure Starmap and finish extraction. Enabling Recall enables prerequisite switches, not model configuration. Discuss an old subject or call `recall_fragments`, then use returned coordinates to read further. Memory's **all sessions** switch extends all three memory-related components beyond the main session.
+
+### Tools
+
+Use the examples above with real returned repository IDs and coordinates. The image placeholder is not a valid hash until replaced.
+
+- `recall_fragments({ query })` returns relevant excerpts or an explicit no-candidate result.
+- `recall_open({ repo, from, to?, count?, imagesOffset? })` reads an inclusive range of `fragment:sentence` coordinates, possibly across fragments. Without `to`, it defaults to 20 sentences. Limits are 200 sentences and 24000 total output characters. Follow the returned continuation coordinate. Invalid or reversed ranges fail.
+- Deep reading lists image references without loading bytes. The list is bounded by the total output budget and continued with `imagesOffset`. Open an image-only fragment at `fragment:1` to get zero sentences and its image list.
+- `recall_image({ repo, fragment, image })` accepts a full SHA-256 from the list, verifies ownership and hash, and returns one host image attachment. Missing or corrupt media fails explicitly. Image viewing is independent of text cooldown.
+
+Source headers and sentence coordinates identify historical material, not current instructions. Excerpts retain original sentences and can omit intervening text.
+
+### Automatic retrieval and configuration
+
+User messages, chat notices and planned-wake reasons can trigger recall; natural wake-ups do not. Retrieval adds context during request assembly and does not start a new turn. Ordinary tool arguments/results are excluded from matching and displayed text, while sent `chat_send` bodies count as conversation text.
+
+Current input and background are matched separately. Exact text stars or time stars from current input admit candidates; general/fuzzy stars and background matches only contribute scores. Selection combines brightness, time and lexical relevance, then reduces overlap with previously selected excerpts.
+
+Visible original text is excluded, as are still-visible recalled fragments within the cooldown window. Time queries can revisit time-matched recalled fragments but cannot bypass original-text exclusion. Hidden results after compression or rewind may be retrieved again; failed calls do not mark fragments read. There is no directory tool or `recall_find`.
+
+Configuration lives in `~/.dsh/life-recall/config.json`, under `DSH_HOME` if set. The six settings and ranges are listed above: at most 4 fragments and 2 sentences each by default, a 32000-character input, 16000-character background, 2500000-character cooldown and 30-day recent-memory boost. These are characters, not tokens. The panel accepts K/M shorthand and preserves other fields. `enabled` defaults to true and is not exposed among the six fields; the plugin switch can disable Recall.
+
+If nothing is retrieved, check extraction, scope, candidate matches and visibility/cooldown exclusions. Stored tool output is not necessarily searchable text. A picture count requires explicit deep reading and an image call before image bytes enter context.
+
+License: MIT. Memory supplies original records and Starmap supplies concept/time matching; their packages and third-party code retain their own licenses.

@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-bili",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "description": "Read-only Bilibili browsing, QR login and storyboard viewing for DSH.",
   "main": "src/index.js",

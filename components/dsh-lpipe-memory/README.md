@@ -1,87 +1,107 @@
 # dsh-lpipe-memory · 记忆管线
 
-把会话原文逐字投影到长期文件，供星图（索引）与回忆（读取）按 `seq` 回取。
+[中文](#中文) · [English](#english)
 
-**索引可以重建，原文不能。** 这一层只做一件事：把该留的原文留住，一字不改，永不删除。
+## 中文
 
-## 存什么
+把 DeepSeek Harness 会话中的选定原始事件和媒体保存到本地长期存储，供星图建立索引、回忆读取原句。记忆保存正文与来源，不负责生成摘要或概念索引。
 
-| 事件 | 存的内容 |
-| --- | --- |
-| `user/message` | `text`、`parts`、`source`（注入按 `source.kind` 打标，全部保留） |
-| `assistant/message` | `text`、`reasoning`、`parts`、`usage`、`interrupted` |
-| `tool/call` | `name`、`arguments`（模型产出的原始 JSON 字符串） |
-| `tool/result` | `text`、`parts`、`isError`、`error` |
+### 安装与快速开始
 
-不存：`system/message`、`developer/message`、`request/header`、`turn/*`、`step/*`、`session/end-seed`、`assistant/attempt`、`assistant/message.stream`。`turn` / `step` 作为字段记在每行上。
+在 DSH 插件管理中安装并启用 `dsh-lpipe-memory`。本包直接依赖 `dsh-life-core`，无需先装整合包。公共核心要求 DSH `>=0.2.0-rc.2`，Node.js `^22.19 || >=24`；存储使用 Node 的 zstd 支持。
 
-## 存在哪
+1. 在 **设置 → Lpipe 设置** 绑定 LP 主对话。
+2. 默认只对主对话生效。需要记录其他会话时，在记忆块打开「所有对话生效」。
+3. 完成一轮对话后检查记忆统计。该开关也控制星图、回忆的会话作用域，不影响聊天、唤醒或 B 站，不会删除已有历史。
+4. 需要相关内容检索时另启用星图与回忆；本包本身没有面向模型的搜索工具。
 
-```
-~/.dsh/life-memory/
-├── sessions/<sessionId>/
-│   ├── meta.json                 { id, title, startedAt, lastAt, rows, days:[…] }
-│   ├── days/2026-11-05.jsonl.zst 一天一卷（正在写的那天 8 KB 一帧；过完的天重打成一条流）
-│   ├── days/2026-11-05.idx       偏移表：seq → (帧号, 帧内偏移, 长度)
-│   ├── days/2026-11-05.frames    帧表：帧号 → (文件偏移, 字节数)
-│   ├── days/2026-11-05.media.zst  这一天的媒体包（追加式帧，图片原字节）
-│   └── days/2026-11-05.media.idx  sha256 → (帧位置, 帧长, 帧内偏移, 字节数)
-└── state.json                    全局游标：最后一条的 seq/hash，以及每个会话写到哪
+配置位于 `~/.dsh/life-memory/config.json`：
+
+```json
+{
+  "allSessions": false
+}
 ```
 
-- **一个对话一个文件夹**，互不干扰；文件夹里按天分卷。
-- **`seq` 全局单调**，不按会话来——跨会话的时间线要一把统一的尺子；每行另有 `session` 字段。
-- **4 点换天**（本地时间）：04:00 到次日 03:59 归同一天。
-- **哈希链**：每行 `prev`/`hash` 相连，跨文件跨天不断；改一个字，那一行就断。
-- **冷日打包**：正在写的那一天保持小帧追加（只压新写的一段）；已经过完的那一天，启动后会整天重打成一条 zstd 19 流。压缩等级不是关键，一次能看见多少连续文本才是：8 KB 一帧等于每 8 KB 清空一次字典，往小帧上提等级反而会变大。真实库实测 4.31 MB → 2.72 MB。
-- **图片跟着那一天走**：图片与附件存在它所属那一天的媒体包里，不再有全局 `media/`；同一张图在同一天内只存一份，跨天各存一份——一天一个整体，搬走、备份、删掉都干净。图片本身已是压缩格式，媒体包用等级 1，实测只能再小 7.7%。
-- **一行只存一次**：正文在 `text`、思考在 `reasoning`，`parts` 只留搬不走的结构块（图片 / 文件 / 工具结果）。早期版本把文本块也复制进 `parts`，占过整库 42% 的体积；`state.json` 的 `version: 2` 标记新格式，宿启动时发现旧版本会自动重建一次（旧库改名成 `life-memory.bak-<时间>` 留着）。
+### 保存与排除
 
-## 读
+保存四类事件：用户消息、助手消息（含思考及用量等字段）、工具调用、工具结果。正文放在 `text`，思考放在 `reasoning`，`parts` 保留图片、文件引用等结构块，避免再复制一遍文字。
+
+系统 / 开发者消息、流式中间事件、运行期上下文不写入；回忆等管线生成的注入和 `recall_*` / `assoc_*` / `imagine_*` 工具调用及其结果也排除，避免将检索结果重新当作原始记忆。普通工具事件会保存，但下游星图和回忆另有正文筛选规则。
+
+事件通常在 `turn/end` 后整轮落盘；没有结束事件时另有 60 秒保险刷写。尚未写入的内存缓冲不能替代持久化备份。
+
+### 磁盘与校验
+
+默认目录是 `~/.dsh/life-memory`，`DSH_HOME` 可替换默认基目录。每个会话有自己的 `sessions/<sessionId>/`，其中 `days/` 按本地凌晨 4 点换天：
+
+- `<day>.jsonl.zst`：记忆行，热日按小帧追加，冷日可重打包。
+- `<day>.idx`、`<day>.frames`：按全局 `seq` 定位数据。
+- `<day>.media.zst`、`<day>.media.idx`：当天的媒体字节与内容哈希索引。
+- 会话 `meta.json` 与根 `state.json`：会话信息和写入游标。
+
+`seq` 全局递增，`prev` / `hash` 组成跨文件的哈希链，用于检测篡改。校验不能恢复丢失数据，也不提供加密。图片在同一天内按内容去重。备份时应暂停写入并保存整个记忆目录，包括媒体、索引和状态，而不只是正文文件。
+
+### JavaScript 读取示例
+
+从已安装的包导入公开的 `reader` 子路径。`seq` 是数值参数，不是 `{ seq }` 对象：
 
 ```js
-import { MemoryReader } from 'dsh-lpipe-memory'
+import { MemoryReader } from 'dsh-lpipe-memory/reader'
 
 const memory = new MemoryReader()
-memory.read({ seq: 10421 })                                  // 一行原文（只解一帧）
-memory.timeline({ from, to, limit, session })                // 按时间回放
-memory.search({ text, session, limit })                      // 子串搜索（冷路径，放 worker）
-memory.verify({ from, to })                                  // 哈希链校验，返回问题清单
+const sessions = memory.sessions()
+const row = memory.read(10421)
+const recent = memory.timeline({ limit: 20 })
+const hits = memory.search({ text: '天文摄影', limit: 10 })
+const problems = memory.verify()
+console.log({ sessions, row, recent, hits, problems })
 ```
 
-按 `seq` 取一行只解一帧（本机约 35 µs，命中帧缓存为零解压）；不要每次都全扫——全扫是 228 ms/30 MB 的活，交给 worker。
+`verify()` 返回问题数组；空数组表示本次检查未发现问题。存储更新后调用 `reload()` 清缓存并重读状态。子串搜索和全链校验可能扫描大量数据，集成到宿主时应放到 worker 等冷路径，避免阻塞主线程。
 
-## 安装
+### 历史导入与常见问题
 
-先装 `dsh-life-pipline`（公共页与 `clock`、`session` 等共用模块），再装本包，或者在仓库里：
+仓库提供 DeepSeek 网页备份导入脚本；脚本不在 npm 发布的文件清单中，请在源码仓库根目录执行：
 
 ```bash
-node scripts/install-local.mjs
+node components/dsh-lpipe-memory/scripts/import-deepseek-web.mjs --backup "C:/path/to/backup" --dry-run
 ```
 
-本包自带 `cordis.patch.yml`，只插自己一行；「Lpipe 设置」那一页仍由 `dsh-life-pipline` 提供。
+先看 dry-run，备份现有记忆并停止并发写入后再考虑正式导入。网页导出未包含附件字节时，只能保留文件名和缺失说明。
 
-## 设置
-
-「Lpipe 设置」里的记忆块有一个「所有对话生效」开关，默认关闭。它写进 `life-memory/config.json` 的 `allSessions`，由记忆、星图、回忆共享，不影响聊天、唤醒、B 站。读取失败会显示错误并保留重试；保存失败会退回上一个值，不会把开关留在未保存的新状态。
-
-## 还没有的
-
-- 词表/倒排索引：属于星图（`dsh-lpipe-starmap`），本层只提供 `search` 的全扫兜底。
-- 冷归档与分卷轮转。
+- **没有新增记忆？** 检查主会话绑定、作用域及本轮是否已刷写；工具和系统事件并非全部进入记忆。
+- **为何回忆里看不到普通工具输出？** 记忆保留与下游检索使用是两套规则；存储成功不表示它会参与抽星或摘录。
+- **能否只重建星图恢复原文？** 不能。星图可重建，原始记忆与媒体必须单独备份。
 
 许可：AGPL-3.0-or-later。
 
-## 写入时机
+## English
 
-一轮说完（`turn/end`）才把这一轮的行压成帧写进去：盘上不会出现半截的轮次。中间的消息、思考、工具调用都先攒在内存里；万一某轮没有 `turn/end`（60 秒保险计时到点）也会落一次，不会一直攒着。
+Store selected original DSH session events and media locally for Starmap indexing and Recall reading. Memory preserves text and provenance; it does not generate summaries or concept indexes.
 
-## 从 DeepSeek 网页备份导入历史
+### Install and start
 
-`scripts/import-deepseek-web.mjs` 把网页版导出的 `history_messages`（`原始数据/015.json`）投影成记忆行：`REQUEST` → `user/message`，`RESPONSE` + `THINK` → `assistant/message`（正文与思考分开存），`TOOL_SEARCH` / `TOOL_OPEN` → `tool/call` 与 `tool/result`，`TIP` 丢弃。
+Install and enable `dsh-lpipe-memory` through DSH plugin management. It depends directly on Life Core; the aggregate installer is optional. Core requires DSH `>=0.2.0-rc.2` and Node.js `^22.19 || >=24`; storage uses Node's zstd support.
 
-```bash
-node components/dsh-lpipe-memory/scripts/import-deepseek-web.mjs   --backup "C:/path/to/备份/2026-11-05_212359" --dry-run
-```
+Bind the LP main session in **Settings → Lpipe settings**. Only that session is included by default. Enable **all sessions** in Memory settings to extend Memory, Starmap and Recall to other sessions. This does not change Chat, Wake or Bilibili and does not delete history. Complete a turn and inspect the memory statistics. Enable Starmap and Recall separately for retrieval; Memory registers no model-facing search tool.
 
-会话名默认 `deepseek-web-<chat_session.id>`，标题取会话标题。重复跑是幂等的（按会话内事件序号去重）。附件只有文件名，字节当年没有导出，所以只能留名字并标注 `mediaError`。
+Configuration is `{"allSessions":false}` in `~/.dsh/life-memory/config.json`.
+
+### Stored events and disk layout
+
+Memory stores user messages, assistant messages including reasoning, tool calls and tool results. Text and reasoning have separate fields; structural parts retain media and file references without duplicating text. System/developer messages, streaming intermediates, runtime context, generated recall-like injections and `recall_*` / `assoc_*` / `imagine_*` tool traffic are excluded. Ordinary tool events are stored, but downstream retrieval applies additional filtering.
+
+Turns normally flush at `turn/end`, with a 60-second fallback. Unflushed buffers are not durable backups.
+
+Data lives in `~/.dsh/life-memory`, or under `DSH_HOME`. Each session has a directory with day volumes, using a local 04:00 day boundary. Compressed event volumes have row/frame indexes; daily media packs have content-hash indexes. Session metadata and the root state track writing. Global `seq` values and a `prev`/`hash` chain detect tampering across files. Verification does not restore missing data or encrypt it. Back up the complete directory while writes are stopped, including media, indexes and state.
+
+### Read and import
+
+The JavaScript example above uses the public `dsh-lpipe-memory/reader` export. `read` accepts a numeric sequence ID. `verify()` returns an array of issues; an empty array means no issues were found by that check. Call `reload()` after storage changes. Substring search and full verification can scan substantial data; run such operations off the host's main thread.
+
+The source repository includes a DeepSeek web-backup importer, not shipped in the npm package. Run the dry-run command above from the checkout, inspect its result, back up data and stop concurrent writers before a real import. Missing attachment bytes cannot be recovered from names alone.
+
+If no new memory appears, check the session binding, scope and flush state. Stored ordinary tool output need not participate in Starmap or Recall. A rebuildable concept index is not a backup of the original text or media.
+
+License: AGPL-3.0-or-later.

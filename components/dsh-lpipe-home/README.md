@@ -1,37 +1,72 @@
-# 栖所管线
+# dsh-lpipe-home · 栖所管线
 
-仅向 LP 主会话注入英文 `## Personal home folder` section，不增加模型工具。默认 `location: "none"`，不注入，也不报目录错误。
+[中文](#中文) · [English](#english)
 
-## 设置
+## 中文
 
-设置页里的「Lpipe Home」块只暴露两项：栖所位置（未选择／工作区／自定义）、自定义绝对路径；自定义路径只在选中「自定义」时出现。
+为 DeepSeek Harness 的 LP 主对话指定一个个人文件夹，并注入英文 `Personal home folder` 提示词。栖所不增加模型工具，也不改变会话工作目录。
 
-- 未选择时状态行是灰色的「未选择栖所，管线停用，不注入提示词」。
-- 选择后目录校验不通过时标红，并显示后端返回的原因；路径只用于展示，截断显示。
-- 保存成功不等于栖所生效：保存后仍会按返回的 `status` 再显示一次结果，`valid` 为 false 时额外提示「已保存，但栖所尚未生效」。
-- `home.config` 返回 `config: null` 表示配置文件读不出来，界面显示读取失败和「重试」，不会退回成空白默认值当成功。
-- 草稿改动经过防抖调用 `home.validate`；保存与校验都不改变工作目录，也不创建目录。
+### 安装与快速开始
 
-## 配置桥
+在 DSH 插件管理中安装并启用 `dsh-lpipe-home`。本包直接依赖 `dsh-life-core`，无需先装 `dsh-life-pipline`。公共核心要求 DSH `>=0.2.0-rc.2`，Node.js `^22.19 || >=24`。
 
-客户端调用 `ctx.connection.rpc.call('/api', 'dsh-lpipe-home', { method, payload }, signal)`。
+1. 在 **设置 → Lpipe 设置** 绑定 LP 主对话。
+2. 准备一个已经存在、可读写并可进入的目录。
+3. 在栖所块选择「工作区」或「自定义」。工作区使用主对话的有效工作目录；自定义必须填写绝对路径。
+4. 保存并检查状态为有效。保存配置成功不代表目录校验通过。
 
-- `home.config`：读取 `{config,status}`。
-- `home.config.save`：提交一个或多个配置字段，返回保存后的 `{config,status}`。
-- `home.validate`：提交完整草稿配置，只验证，不保存；返回 `{config,status}`。
+默认「未选择」时停用，不注入提示词，也不报缺少目录。可以随时改回未选择。
 
-`config` 为 `{location: "none" | "workspace" | "custom", customPath: string}`。默认未选择、路径空白。Owner 名字由聊天管线配置和注入；旧名字由 Chat 在首次读取时兼容迁移，不覆盖 Chat 已有名字。工作区来自公共配置指定主会话的有效工作目录，不来自设置页会话。不配置微信号或 QQ 号。
+### 配置
 
-`status` 为 `{state: "disabled" | "invalid" | "active", valid: boolean, path: string, resolvedPath: string, error: string}`。未选择显示停用；选了位置但目录无效时显示红色错误。保存无效目录仍会成功保存配置，但 `valid` 为 false，不表示管线已生效。配置文件损坏时 `config` 为 null，状态为 invalid；界面应显示错误，不能伪装成空白默认值。
+配置位于 `~/.dsh/life-home/config.json`，可用 `DSH_HOME` 替换默认基目录：
 
-配置保存在 `DSH_HOME/life-home/config.json`（未设置 DSH_HOME 时使用 `~/.dsh`）。保存保留未知键，拒绝覆盖损坏配置。路径必须是存在、可读写及进入的目录；不自动创建栖所，不更改工作目录，不回退目录。每次生成 section 时重新验证。
+```json
+{
+  "location": "custom",
+  "customPath": "C:/Users/your-name/Documents/lpipe-home"
+}
+```
 
-## 文件权限
+`location` 可取 `none`、`workspace`、`custom`，默认是 `none`。`customPath` 默认空字符串，仅自定义模式使用。插件不自动创建目录，不回退到其他目录；每次生成提示词时重新校验。保存保留未知字段，配置损坏时会报错并拒绝覆盖。
 
-提示词允许自主创建、覆盖和删除解析后的栖所内文件，不逐次询问主人；授权不越过目录或符号链接边界，仍受宿主权限约束。这是提示词授权，不是文件系统沙箱或发送拦截器。栖所文件只能发给已验证的主人私聊，不能发到群聊；名字仅作称呼，身份使用聊天管线的验证信息。
+Owner 称呼与平台身份由聊天管线管理，不在本包配置中设置。
 
-## 客户端资源
+### 授权边界
 
-`client/panel.js` 注册到公共 `lpipe.settings.panel` 槽位（`id: 'home'`、`order: 70`）。构建：`node components/dsh-lpipe-home/scripts/build-client.mjs` 生成 `lib/client.js`；`assets/icon.png` 是 512² 透明图标，随 `package.json` 的 `icon`／`exports`／`files` 一起发布。
+提示词允许模型在解析后的栖所内自主创建、覆盖和删除文件，不逐次询问。授权不越过目录及符号链接边界，仍受宿主权限约束。**这是提示词授权，不是文件系统沙箱。**
 
-回归命令：`node --test components/dsh-lpipe-home/test/*.test.mjs`（仓库根目录运行）。
+栖所文件只能发送给经验证的 Owner 私聊，不能发送到群聊。若没有聊天管线提供的身份验证，不能仅凭名字认定 Owner。
+
+### 常见问题
+
+- **保存了但未生效？** 查看后端返回的目录错误，确认路径存在且权限满足要求。
+- **选择工作区后找不到目录？** 检查 LP 主对话及其有效工作目录；设置页当前打开哪个会话不决定栖所位置。
+- **能否让模型借此操作任意目录？** 栖所只声明指定目录的使用规则，不扩张宿主权限。
+- **为什么没有栖所工具？** 本包提供提示词与配置；实际文件操作使用宿主已有工具。
+
+许可：AGPL-3.0-or-later。
+
+## English
+
+Assign a personal folder to the LP main session in DeepSeek Harness. This package injects an English `Personal home folder` prompt section. It adds no tools and does not change the session's working directory.
+
+### Install and start
+
+Install and enable `dsh-lpipe-home` through DSH plugin management. It depends directly on `dsh-life-core`, not the aggregate package. Core requires DSH `>=0.2.0-rc.2` and Node.js `^22.19 || >=24`.
+
+Bind the LP main session in **Settings → Lpipe settings**. Prepare an existing directory with read, write and traversal access, then choose **workspace** or **custom** in Home settings. Workspace means the main session's effective working directory; custom requires an absolute path. Save and check that the directory is valid. A successful save alone does not make an invalid folder active. The default **none** mode injects no prompt.
+
+### Configuration and boundaries
+
+The JSON example above configures a custom folder. `location` accepts `none` (default), `workspace` and `custom`; `customPath` defaults to an empty string. Configuration is stored in `~/.dsh/life-home/config.json`, with `DSH_HOME` as an optional replacement base.
+
+The plugin does not create folders or fall back to a different path. It validates the folder whenever it generates the prompt. Saves retain unknown fields and refuse to overwrite corrupted configuration. Owner names and platform identity belong to Chat settings.
+
+The prompt allows autonomous creation, replacement and deletion inside the resolved Home folder, without crossing directory or symlink boundaries. This is prompt authorization, not a filesystem sandbox, and host permissions still apply. Home files may be sent only to a verified Owner in private chat, never to groups; a display name alone does not establish that identity.
+
+### Troubleshooting
+
+If a saved folder remains inactive, inspect the validation error and directory permissions. If workspace mode cannot resolve a path, check the bound main session rather than the session currently open in settings. File operations use existing host tools; no Home-specific tool is registered.
+
+License: AGPL-3.0-or-later.

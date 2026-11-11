@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-home",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "Personal folder configuration and main-session prompt for Lpipe.",
   "license": "AGPL-3.0-or-later",
