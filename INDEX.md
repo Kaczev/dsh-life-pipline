@@ -9,7 +9,7 @@
 - [组件开关回归](test/components-control.test.mjs)：前置顺序、级联关闭和非 applied 失败。
 - [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
 
-- [README.md](README.md)：中英安装指南、七条管线职责与依赖、主对话配置及常见问题；各组件的 README 提供工具示例、配置与许可致谢。
+- [README.md](README.md)：中英安装指南、七条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
 - [DEVELOPMENT.md](DEVELOPMENT.md)：开发笔记（结构、显示名与图标、组件说明、安装与配置）。
 - [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
 - [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。
@@ -39,7 +39,7 @@
   - [scripts/prune-invalid-stars.mjs](components/dsh-lpipe-starmap/scripts/prune-invalid-stars.mjs)：按当前非 LLM 规则过滤旧准确／通用星，保留模糊星、版本和水位；[测试](components/dsh-lpipe-starmap/test/prune-invalid.test.mjs)。
   - [scripts/prune-single-letters.mjs](components/dsh-lpipe-starmap/scripts/prune-single-letters.mjs)：停写后定向清理单字母星，备份后写入，不改版本或水位；[测试](components/dsh-lpipe-starmap/test/prune.test.mjs)。
 - [components/dsh-lpipe-recall/](components/dsh-lpipe-recall/)：回忆管线（被动模糊注入、主动想起与按区间深读），只读星图与记忆。
-  - [README.md](components/dsh-lpipe-recall/README.md)：配置、设置块与三个主动工具的参数和分页规则。
+  - [README.md](components/dsh-lpipe-recall/README.md)：用户安装、回忆体验、设置与费用说明。
   - [src/config.mjs](components/dsh-lpipe-recall/src/config.mjs)：默认值与归一化；设置页只读写六项，保存时保留其他键。
   - [src/match.mjs](components/dsh-lpipe-recall/src/match.mjs) / [src/candidates.mjs](components/dsh-lpipe-recall/src/candidates.mjs) / [src/render.mjs](components/dsh-lpipe-recall/src/render.mjs)：环境权重与预算、准确真文准入、亮度排序与原文选句。
   - [src/environment.mjs](components/dsh-lpipe-recall/src/environment.mjs)：片段时间、全库 BM25 与展示摘录前缀掩盖；[测试](components/dsh-lpipe-recall/test/environment.test.mjs)。
