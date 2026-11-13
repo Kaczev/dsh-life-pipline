@@ -10,7 +10,6 @@
 - [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
 
 - [README.md](README.md)：中英安装指南、七条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
-- [DEVELOPMENT.md](DEVELOPMENT.md)：开发笔记（结构、显示名与图标、组件说明、安装与配置）。
 - [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
 - [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。
 - [components/dsh-life-core/client/panel.js](components/dsh-life-core/client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
@@ -66,7 +65,6 @@
 - [components/dsh-lpipe-chat/cordis.patch.yml](components/dsh-lpipe-chat/cordis.patch.yml)：组件自己的挂载行——这一行让它在插件列表里独立成卡。
 - [components/dsh-lpipe-chat/assets/icon.png](components/dsh-lpipe-chat/assets/icon.png)：组件图标（两个气泡合流，512² 透明 PNG）。
 - [assets/session-mark.png](assets/session-mark.png)：会话栏里主会话标题左侧的小标记（64² 透明 PNG，内联进公共包的客户端）。主会话是核心公共状态，所以这枚标记归 `dsh-life-core` 管。
-- [assets/session-mark-mono-black.svg](assets/session-mark-mono-black.svg) / [mono-white.svg](assets/session-mark-mono-white.svg)：同一标记的单色版，左气泡实心、右气泡镂空；黑墨配浅色界面、白墨配深色界面，另附 64²/128² 透明 PNG（`-64.png`、`-128.png`）。未接进客户端，彩色版仍在用。
 - [components/dsh-lpipe-chat/locale/en.json](components/dsh-lpipe-chat/locale/en.json) / [zh.json](components/dsh-lpipe-chat/locale/zh.json)：组件显示名「Lpipe Chat」与简介。
 - [components/dsh-lpipe-chat/src/index.js](components/dsh-lpipe-chat/src/index.js)：组件装配、仅主会话的自由聊天／Owner 身份提示词、服务注入与清理。
 - [components/dsh-lpipe-chat/test/owner-client.test.mjs](components/dsh-lpipe-chat/test/owner-client.test.mjs)：Owner 输入框保存、清空、取消与非法值禁用回归。
@@ -114,7 +112,6 @@
 - [components/dsh-lpipe-memory/src/chain.mjs](components/dsh-lpipe-memory/src/chain.mjs)：哈希链（`prev` / `hash` 与校验）。
 - [components/dsh-lpipe-memory/src/frames.mjs](components/dsh-lpipe-memory/src/frames.mjs)：8 KB 一帧的压缩与解压。
 - [components/dsh-lpipe-memory/src/mediapack.mjs](components/dsh-lpipe-memory/src/mediapack.mjs)：一天一个媒体包（图片跟着当天的目录走，追加式帧 + 偏移表）。
-- [components/dsh-lpipe-memory/scripts/migrate-media-into-days.mjs](components/dsh-lpipe-memory/scripts/migrate-media-into-days.mjs)：把旧的全局 `media/` 一次性搬进各自那一天。
 - [components/dsh-lpipe-memory/src/writer.mjs](components/dsh-lpipe-memory/src/writer.mjs)：追加写入、偏移表、`meta.json` 与全局游标。
 - [components/dsh-lpipe-memory/src/pack.mjs](components/dsh-lpipe-memory/src/pack.mjs)：冷日打包——过完的那一天整天重打成一条 zstd 19 流，启动后补做。
 - [components/dsh-lpipe-memory/src/reader.mjs](components/dsh-lpipe-memory/src/reader.mjs)：按 `seq` 读一行（只解一帧）、时间线、搜索与链校验。
