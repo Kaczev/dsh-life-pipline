@@ -1,4 +1,5 @@
 /不入库
+/不入库-同席
 node_modules/
 *.log
 # half-written bundles from an interrupted build
