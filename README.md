@@ -12,7 +12,7 @@
 | --- | --- |
 | 生命核心 | 公共设置、LP 主对话、工作区选择与组件依赖管理 |
 | 聊天 | 接入微信和 QQ，收发消息、查看历史与附件 |
-| 唤醒 | 闲置后自然醒来，或由模型安排稍后继续的时间 |
+| 唤醒 | 闲置后自然醒来，或由模型按本机时间安排稍后继续；醒来时附上剩余安排 |
 | 记忆 | 在本地保存对话原文及媒体 |
 | 星图 | 从已存记忆中整理概念，供回忆查找 |
 | 回忆 | 在聊天时想起相关旧事，按需查看原文和图片 |
@@ -52,7 +52,7 @@ Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili
 
 - **Life Core:** shared settings, the LP main conversation, workspace selection and dependency management.
 - **Chat:** WeChat / QQ messaging, history and attachments.
-- **Wake:** resume after inactivity or at a time chosen by the model.
+- **Wake:** resume after inactivity or at a time chosen by the model using the computer's local clock; wake notices include remaining plans.
 - **Memory:** save original conversations and media locally.
 - **Starmap:** organize concepts from stored memory for retrieval.
 - **Recall:** bring relevant older conversations back into context, with original text and images available on demand.

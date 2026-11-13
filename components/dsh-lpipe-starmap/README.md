@@ -28,7 +28,7 @@
 - **待处理数量没有减少？** 检查模型、思考强度、服务可用性及输出预算。
 - **为什么进度里有其他会话？** 手动操作面向已存历史，自动整理才遵循当前记忆作用范围。
 - **整理完成却没有回忆？** 检查回忆是否启用、当前话题是否有关联，以及相关原文是否已经在当前对话中出现。
-- **升级需要删除数据吗？** 本次文档更新不需要删除记忆或索引。索引可以重建，但原文与媒体应单独备份。
+- **索引能代替备份吗？** 索引可以重建，但原文与媒体应单独备份。主动唤醒只提取安排缘由，附带的剩余安排和设置状态不参与抽星。
 
 许可：AGPL-3.0-or-later。
 
@@ -54,6 +54,6 @@ Missing configuration or failed calls leave records pending. Check the error bef
 
 If progress stalls, check the model, reasoning effort, service availability and output budget. Other conversations may appear because manual operations cover stored history.
 
-If extraction finishes but no recall appears, check that Recall is enabled, the topic has relevant history and the original text is not already visible. This documentation update does not require deleting records or indexes. A rebuildable index cannot replace a backup of original text and media.
+If extraction finishes but no recall appears, check that Recall is enabled, the topic has relevant history and the original text is not already visible. A rebuildable index cannot replace a backup of original text and media. Planned wakes contribute only their reason; attached schedule snapshots and settings updates are excluded from extraction.
 
 License: AGPL-3.0-or-later.

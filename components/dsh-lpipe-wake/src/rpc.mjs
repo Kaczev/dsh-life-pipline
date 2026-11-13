@@ -16,7 +16,7 @@ function isRecord(value) {
 const asIso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 
 /** One pure dispatcher shared by the settings page and `node --test`. */
-export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
+export function createWakeRpcHandler({ runner, now = () => Date.now(), onChanged = () => {} }) {
   const status = () => {
     const state = normalizeState(runner.snapshot(), now());
     return {
@@ -76,6 +76,7 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
         touched = true;
       }
       if (!touched) return failure('wake/bad-request', '没有可保存的字段。');
+      onChanged();
       return { ok: true, value: status() };
     }
 
@@ -88,6 +89,7 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       }
       const reason = typeof input.reason === 'string' ? input.reason.slice(0, 200) : '';
       runner.planWake({ at, reason });
+      onChanged();
       return { ok: true, value: status() };
     }
 
@@ -98,11 +100,13 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       if (!Object.hasOwn(input, 'until')) return failure('wake/bad-request', '需要 until（毫秒时间戳）或 until: null。');
       if (input.until === null) {
         runner.setNaturalLock(null);
+        onChanged();
         return { ok: true, value: status() };
       }
       const until = Number(input.until);
       if (!Number.isFinite(until) || until <= 0) return failure('wake/bad-request', 'until 必须是毫秒时间戳。');
       runner.setNaturalLock(until);
+      onChanged();
       return { ok: true, value: status() };
     }
 
@@ -111,6 +115,7 @@ export function createWakeRpcHandler({ runner, now = () => Date.now() }) {
       // This endpoint is what the settings page calls, so the cancellation is
       // recorded as the owner's; the tools pass 'tool' themselves.
       runner.cancelWake(id, input.source === 'tool' ? 'tool' : 'page');
+      onChanged();
       return { ok: true, value: status() };
     }
 

@@ -15,13 +15,13 @@ test('wake guidance has a level-two heading and follows only the current main se
     rmSync(root, { recursive: true, force: true });
   });
   let section;
-  apply({ logger: { warn() {}, info() {} }, effect() {}, inject(keys, fn) {
+  apply({ on() {}, logger: { warn() {}, info() {} }, effect() {}, inject(keys, fn) {
     if (keys.includes('systemPrompt')) fn({ systemPrompt: { section(value) { section = value; } } });
   } });
   const text = id => section.text({ scope: { id, parentSession: 'main' } });
   assert.equal(text('main'), '');
   saveConfig({ mainSessionId: 'main' });
-  assert.ok(text('main').startsWith('## Lpipe Wake — Self-wake and planned wake\n\n'));
+  assert.ok(text('main').startsWith('## Waking on your own\n\n'));
   assert.match(text('main'), /Between turns, you are inactive/);
   assert.match(text('main'), /Each operates only while its corresponding wake switch is enabled/);
   assert.match(text('main'), /For a particular time or delay, use a planned wake/);
@@ -37,7 +37,7 @@ test('wake guidance has a level-two heading and follows only the current main se
   assert.equal(section.text({}), '');
   saveConfig({ mainSessionId: 'next' });
   assert.equal(text('main'), '');
-  assert.match(text('next'), /^## Lpipe Wake/);
+  assert.match(text('next'), /^## Waking on your own/);
   saveConfig({ mainSessionId: '' });
   assert.equal(text('next'), '');
 });

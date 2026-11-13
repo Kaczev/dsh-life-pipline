@@ -13,9 +13,12 @@ export function messageBodies(row) {
     return chatSpans(row).map(s => text.slice(s.start, s.end))
   }
   if (row?.source?.kind === 'dsh-lpipe-wake') {
-    if (row.source.wake === 'natural') return []
+    if (row.source.wake === 'natural' || row.source.form === 'snapshot') return []
+    if (typeof row.source.wakeReason === 'string') return row.source.wakeReason.trim() ? [row.source.wakeReason] : []
+    // Older producers may append a schedule snapshot after the original reason.
+    const original = text.split('\n\n[唤醒安排快照]\n', 1)[0]
     // The current wake producer puts the reason after this exact fixed wrapper.
-    const match = /^（主动醒来）我给自己定的时间是 [^\n]*。\n我留给这一刻的话：([\s\S]*)$/.exec(text)
+    const match = /^（主动醒来）我给自己定的时间是 [^\n]*。\n我留给这一刻的话：([\s\S]*)$/.exec(original)
     return match?.[1]?.trim() ? [match[1]] : []
   }
   return text.trim() ? [text] : []

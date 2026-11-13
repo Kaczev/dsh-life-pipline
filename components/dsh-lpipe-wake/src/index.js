@@ -1,4 +1,5 @@
-import { registerMainTool, registerMainSection } from 'dsh-life-core/main-session';
+import { isMainSession, registerMainTool, registerMainSection } from 'dsh-life-core/main-session';
+import { createSettingsFeedback } from './feedback.mjs';
 import { appendDiagnostic } from 'dsh-life-core/diagnostics';
 import { join } from 'node:path';
 
@@ -37,6 +38,10 @@ export function apply(ctx) {
   let runner = null;
   let delivery = null;
   let sessions = null;
+  const feedback = createSettingsFeedback({
+    snapshot: () => runner?.snapshot() ?? {}, allowed: isMainSession,
+  });
+  ctx.on('agent/pre-step', (payload, next) => feedback.beforeStep(payload, next));
 
   ctx.inject(['sessions'], (sessionsCtx) => {
     sessions = () => sessionsCtx.sessions;
@@ -77,6 +82,7 @@ export function apply(ctx) {
 
   ctx.inject(['connection'], (connectionCtx) => {
     const handle = createWakeRpcHandler({
+      onChanged: () => feedback.changed(),
       runner: {
         snapshot: () => runner?.snapshot() ?? {},
         setIntervalMs: (ms) => runner?.setIntervalMs(ms),
@@ -121,7 +127,7 @@ export function apply(ctx) {
         order: 705,
         interpolate: false,
         text: [
-          '## Lpipe Wake — Self-wake and planned wake',
+          '## Waking on your own',
           'Between turns, you are inactive. Another turn begins when a message or background event reaches you. This pipeline provides two ways to wake with the passage of time: a natural wake after a configured period of inactivity, and a planned wake at a time you choose with wake_set. Each operates only while its corresponding wake switch is enabled.',
           'You may use wake_set in any turn to choose when you want another turn, whether to return to something later or simply because you want to. This does not require a user request. For a particular time or delay, use a planned wake; natural wakes follow the idle interval and may be postponed by activity. Check the tool result to know whether your wake is scheduled and enabled.',
           'Wake notices arrive as dsh-lpipe-wake background messages.',

@@ -16,11 +16,15 @@
 
 自然间隔默认 2 小时，检查频率默认 30 秒。每次唤醒可能产生新的模型用量，请先确认主对话的模型和预算。
 
-### 两种唤醒的区别
+### 时间与状态反馈
 
-自然唤醒从主对话最近一次活动开始计时，新活动会推迟下一次唤醒。主动安排则会保留，普通聊天不会取消它。
+自然唤醒从主对话最近一次活动开始计时，新活动会推迟下一次唤醒。主动安排则会保留，普通聊天不会取消它。`wake_set` 的 `at` / `in` 新增主动安排；`lock` 只暂停自然唤醒，不新增、修改或取消主动安排，`unlock` 解除锁定。
 
-到点时，如果主对话正在工作，唤醒会等待会话空闲。临时锁定只暂停自然唤醒，不影响主动安排；设置页可以解除锁定，也可以查看、取消已有安排。主动安排最多保留 20 项。
+模型可以使用 `3h30m`、`1h 20m` 等组合时长，也可以使用 `07:20`、`2026-11-13 07:20` 或带偏移的 ISO 时间。不带时区时使用电脑本地时间，只有时分时取下一次到达的时刻；明确写出的过去日期、无效日期和时刻会被拒绝。
+
+工具结果和每次唤醒通知都会列出剩余主动安排及开关状态。设置页的修改在主对话下一次模型请求前合并反馈一次，不会单独唤醒模型；普通聊天不会每轮重复注入状态。`wake_check` 可以查询完整安排及自然唤醒状态。
+
+到点时，如果主对话正在工作，唤醒会等待会话空闲。设置页可以解除自然锁定，也可以查看、取消已有安排。主动安排最多保留 20 项，达到上限后需要先取消旧安排。
 
 ### 使用注意
 
@@ -44,11 +48,15 @@ Bind the LP main conversation in **Settings → Lpipe settings**, review both sw
 
 Defaults are 2 hours between natural wakes and a 30-second check interval. Waking may start a new model turn and incur usage; check the main conversation's model and budget first.
 
-### How waking works
+### Time and schedule feedback
 
-Natural wake-ups count from the latest conversation activity, so new activity moves the deadline forward. Planned wake-ups survive ordinary conversation. Both wait while the session is busy.
+Natural wake-ups count from the latest conversation activity, so new activity moves the deadline forward. Planned wake-ups survive ordinary conversation. In `wake_set`, `at` / `in` append a plan; `lock` only silences natural wakes and never adds, changes or cancels plans. `unlock` lifts the lock.
 
-A temporary lock silences natural wake-ups only. The settings page can lift the lock, show plans and cancel them. Up to 20 plans are retained.
+The model can use compound durations such as `3h30m` and `1h 20m`, clocks such as `07:20`, local dates such as `2026-11-13 07:20`, or ISO times with an offset. Unqualified times use the computer's local timezone; a clock alone means its next occurrence. Explicit past dates and invalid dates or clocks are rejected.
+
+Tool results and every wake notice list remaining plans and their switch state. Settings-page changes are combined into one update before the main conversation's next model request, without starting a turn. Ordinary chat does not repeat the status every turn. `wake_check` reads all plans and the natural-wake state.
+
+Both kinds wait while the session is busy. The settings page can lift a natural-wake lock, show plans and cancel them. Up to 20 plans are retained; cancel an old plan before adding another at the limit.
 
 ### Things to know
 

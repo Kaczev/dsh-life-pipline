@@ -1,3 +1,4 @@
+import { plannedWakeSummary } from './feedback.mjs';
 import { randomUUID } from 'node:crypto';
 
 import { MAX_PLANNED, TICK_MS, normalizeState, step } from './engine.mjs';
@@ -64,7 +65,7 @@ export function createRunner({
       const result = step(state, { now: now(), activityAt: lastActivityAt, status });
       writeState(result.state);
       if (result.action) {
-        await deliver({ sessionId, text: result.action.text, kind: result.action.kind });
+        await deliver({ sessionId, text: `${result.action.text}\n\n[唤醒安排快照]\n${plannedWakeSummary(result.state)}`, kind: result.action.kind, reason: result.action.reason });
         log.info(`[life-wake] woke the main session (${result.action.kind}) at ${new Date(now()).toISOString()}`);
       }
       lastError = '';
@@ -212,7 +213,7 @@ export function statusReader(controller) {
 export function createWakeDelivery(controller) {
   let disposed = false;
   return {
-    async deliver({ sessionId, text, kind = 'natural' }) {
+    async deliver({ sessionId, text, kind = 'natural', reason }) {
       if (disposed) throw new Error('wake delivery was disposed');
       if (typeof controller?.resolveAgent !== 'function') {
         throw new Error('sessionController.resolveAgent is unavailable');
@@ -233,6 +234,7 @@ export function createWakeDelivery(controller) {
           form: 'notice',
           // 结构化标明是哪一种醒来：下游（回忆管线）不该靠 summary 里的字去猜。
           wake: kind === 'manual' ? 'planned' : 'natural',
+          ...(kind === 'manual' && typeof reason === 'string' ? { wakeReason: reason } : {}),
           summary: kind === 'manual' ? '唤醒管线 · 主动醒来' : '唤醒管线 · 自主醒来',
         }),
       }));

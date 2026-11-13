@@ -1,18 +1,9 @@
-import { normalizeState } from './engine.mjs';
+import { MAX_PLANNED, normalizeState } from './engine.mjs';
+import { plannedWakeSummary } from './feedback.mjs';
+import { parseDuration, parseWakeTime } from './time.mjs';
+export { parseDuration } from './time.mjs';
 
 const asIso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
-
-/** `45m`, `2h`, `90s`, or a bare number of minutes. */
-export function parseDuration(text) {
-  const value = String(text ?? '').trim().toLowerCase();
-  const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?$/.exec(value);
-  if (!match) return null;
-  const amount = Number(match[1]);
-  const unit = match[2] ?? 'm';
-  const scale = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit];
-  const ms = Math.round(amount * scale);
-  return Number.isFinite(ms) && ms > 0 ? ms : null;
-}
 
 /** Local wall-clock text for the summaries I read back. */
 function clockText(ms) {
@@ -135,9 +126,10 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     if (Object.hasOwn(input, 'lock')) {
       const raw = String(input.lock ?? '').trim();
       const duration = parseDuration(raw);
-      const lockedUntilAt = duration !== null ? now() + duration : Date.parse(raw);
-      if (!Number.isFinite(lockedUntilAt) || lockedUntilAt <= now()) {
-        return { ...schedule, summary: `看不懂这个锁的时间：${raw}` };
+      const current = now();
+      const lockedUntilAt = duration !== null ? current + duration : parseWakeTime(raw, current);
+      if (lockedUntilAt === null || !Number.isFinite(lockedUntilAt) || !Number.isFinite(new Date(lockedUntilAt).getTime()) || lockedUntilAt <= current) {
+        return { ...schedule, summary: `看不懂这个锁的时间，或时间已经过去：${raw}。请用 "3h30m"、"07:20"、"2026-11-13 07:20" 或带时区的 ISO 时间；无时区时使用电脑本地时间。` };
       }
       runner.setNaturalLock(lockedUntilAt);
       const tail = schedule.natural.enabled === false ? '自然唤醒开关本来就关着，锁是多余的。' : '';
@@ -149,14 +141,16 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
     let at = null;
     if (Object.hasOwn(input, 'in')) {
       const ms = parseDuration(input.in);
-      if (ms === null) return { ...schedule, summary: `看不懂这个时长：${input.in}` };
+      if (ms === null) return { ...schedule, summary: `看不懂这个时长：${input.in}。请用正时长，例如 "45m"、"3h30m"、"1h 20m" 或分钟数 "90"。` };
       at = now() + ms;
+      if (!Number.isFinite(at) || !Number.isFinite(new Date(at).getTime())) return { ...schedule, summary: '时长超出可用日期范围。请用较短的正时长，例如 "45m" 或 "3h30m"。' };
     } else if (Object.hasOwn(input, 'at')) {
-      const parsed = Date.parse(String(input.at));
-      if (!Number.isFinite(parsed)) return { ...schedule, summary: `看不懂这个时间：${input.at}` };
+      const parsed = parseWakeTime(input.at, now());
+      if (parsed === null) return { ...schedule, summary: `看不懂这个时间，或时间已经过去：${input.at}。请用 "07:20"、"2026-11-13 07:20" 或带时区的 ISO 时间；无时区时使用电脑本地时间，只有时分时取下一次到达的时刻。` };
       at = parsed;
     }
-    if (at === null) return { ...schedule, summary: '请给我一个时间：`in`（如 "2h"）或 `at`（ISO 时间）。' };
+    if (at === null) return { ...schedule, summary: '请给我一个时间：`in`（如 "3h30m"）或 `at`（如 "07:20"、"2026-11-13 07:20" 或 ISO 时间）。' };
+    if (schedule.manual.count >= MAX_PLANNED) return { ...schedule, summary: `主动唤醒安排已达上限（${MAX_PLANNED} 个），本次没有新增。请先取消不再需要的安排。` };
     const reason = typeof input.reason === 'string' ? input.reason.trim().slice(0, 200) : '';
     runner.planWake({ at, reason });
     const after = readSchedule(runner, now);
@@ -168,16 +162,16 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
 
   return [{
     name: 'wake_set',
-    description: 'Set an active (self-planned) wake-up: a moment I picked plus the reason I want to read when it fires. It ignores my activity — unlike the natural wake, which is cleared whenever I start working. Use `cancel: true` to clear them all, or `cancel: "<id>"` for one. `lock` silences the natural wake until a moment (e.g. "3h" or an ISO time) without touching its switch; `unlock: true` lifts it.',
+    description: 'Use `at` or `in` to append an active (self-planned) wake-up with a reason; existing active plans are not replaced or cancelled. Active plans survive activity. Use `cancel: true` to clear them all, or `cancel: "<id>"` for one. `lock` only silences natural wakes temporarily: it does not add an active wake, change existing active plans, or touch the natural switch. `unlock: true` lifts that lock. Dates and clocks without an offset use the current computer local timezone.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        in: { type: 'string', description: 'Wake after this long, e.g. "45m", "2h", "90s".' },
-        at: { type: 'string', description: 'Wake at this instant (ISO 8601 with offset).' },
+        in: { type: 'string', description: 'Append a wake after a positive duration: "45m", "2h", "90s", "3h30m", "1h 20m", or bare minutes "90". Existing active plans remain.' },
+        at: { type: 'string', description: 'Append a wake at a future time: H:mm or HH:mm[:ss] (next occurrence today/tomorrow), YYYY-MM-DD HH:mm[:ss] or T in computer local time, or ISO with Z/offset. Explicit past dates and invalid times are rejected; existing active plans remain.' },
         reason: { type: 'string', description: 'The note I write for that moment, e.g. "return to this thought later".' },
         cancel: { type: ['boolean', 'string'], description: 'true clears every planned wake; a string cancels that one by id.' },
-        lock: { type: 'string', description: 'Do not wake me naturally until then: a duration like "3h" or an ISO time.' },
+        lock: { type: 'string', description: 'Silence natural wakes only until a positive duration ("3h30m"), local clock ("7:20", next occurrence today/tomorrow), local date-time ("2026-11-13 07:20"), or ISO with Z/offset. Does not add, replace, or cancel active plans. Invalid times and explicit past dates are rejected.' },
         unlock: { type: 'boolean', description: 'true lifts the natural wake lock.' },
       },
     },
@@ -191,7 +185,8 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
       render: (_args, value) => [{ type: 'text', text: value.summary }],
     },
     async execute(args) {
-      return plan(args && typeof args === 'object' ? args : {});
+      const value = plan(args && typeof args === 'object' ? args : {});
+      return { ...value, summary: `${value.summary}\n${plannedWakeSummary({ plannedWakes: value.manual.plannedWakes.map(item => ({ ...item, at: Date.parse(item.at) })), manualEnabled: value.manual.enabled })}` };
     },
   }, {
     name: 'wake_check',
@@ -210,7 +205,7 @@ export function createWakeTools({ runner, now = () => Date.now() }) {
       const schedule = readSchedule(runner, now);
       return {
         ...schedule,
-        summary: `${manualLine(schedule.manual, schedule.lastCancelled, schedule.lastWokeAt)}\n${naturalLine(schedule.natural, now())}`,
+        summary: `${manualLine(schedule.manual, schedule.lastCancelled, schedule.lastWokeAt)}\n${plannedWakeSummary({ plannedWakes: schedule.manual.plannedWakes.map(item => ({ ...item, at: Date.parse(item.at) })), manualEnabled: schedule.manual.enabled })}\n${naturalLine(schedule.natural, now())}`,
       };
     },
   }];

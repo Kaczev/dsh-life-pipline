@@ -94,7 +94,9 @@
 - [components/dsh-lpipe-wake/src/engine.mjs](components/dsh-lpipe-wake/src/engine.mjs)：三个时间戳与开关的唯一规则（纯函数 `step`）。
 - [components/dsh-lpipe-wake/src/runner.mjs](components/dsh-lpipe-wake/src/runner.mjs)：30 秒心跳、活动读取与 `agent.followup` 投递。
 - [components/dsh-lpipe-wake/src/rpc.mjs](components/dsh-lpipe-wake/src/rpc.mjs)：`/api/dsh-lpipe-wake`（`wake.status` / `wake.config.save` / `wake.now` / `wake.reset`）。
-- [components/dsh-lpipe-wake/src/tools.mjs](components/dsh-lpipe-wake/src/tools.mjs)：两个工具 `wake_set`（`in` / `at` + `reason`，`cancel` 取消）与 `wake_check`（只读：下次主动唤醒及缘由、下次自然唤醒）。
+- [components/dsh-lpipe-wake/src/tools.mjs](components/dsh-lpipe-wake/src/tools.mjs)：`wake_set` 新增／取消主动安排或锁定／解锁自然唤醒，`wake_check` 查询全部安排；结果回显剩余安排。
+- [时间解析](components/dsh-lpipe-wake/src/time.mjs)：组合时长、本机时钟下一次到达、严格日期与带偏移 ISO；[测试](components/dsh-lpipe-wake/test/time.test.mjs)。
+- [状态反馈](components/dsh-lpipe-wake/src/feedback.mjs)：通知／工具共享安排摘要，设置页变更在主会话下次请求合并反馈一次；[通知、投影和注入回归](components/dsh-lpipe-wake/test/feedback.test.mjs)。
 - [components/dsh-lpipe-wake/client/panel.js](components/dsh-lpipe-wake/client/panel.js)：设置里的「唤醒管线」块（自然 / 主动各一个开关），注册进 `lpipe.settings.panel`。
 - [components/dsh-lpipe-wake/assets/icon.png](components/dsh-lpipe-wake/assets/icon.png)：组件图标（青绿色日出与蓝色地平线，512² 透明 PNG）。
 - [components/dsh-lpipe-wake/assets/](components/dsh-lpipe-wake/assets/) 与 [locale/](components/dsh-lpipe-wake/locale/)：图标与显示名「Lpipe Wake / 唤醒管线」。
