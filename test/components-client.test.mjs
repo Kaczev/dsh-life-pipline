@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
+import {CORE, COMPONENTS} from '../components/dsh-life-core/src/dependencies.mjs';
 const module={exports:{}};
 vm.runInNewContext(readFileSync(new URL('../client/panel.js',import.meta.url),'utf8'),{require:()=>({createElement(){}}),module});
-const {createController}=module.exports.__test__;
+const {createController,labels}=module.exports.__test__;
 const rows=()=>[{name:'core',enabled:false,prerequisites:[]},{name:'child',enabled:false,prerequisites:['core']}];
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 test('switches respond before RPC and serialize rapid opposite intents',async()=>{
@@ -30,4 +31,12 @@ test('failed intent reads actual state and reports error',async()=>{
  const controller=createController(async method=>method==='pipeline.components'?{ok:true,value:rows()}:{ok:false,error:{message:'failed'}},value=>states.push(value),e=>errors.push(e));
  await controller.load();controller.toggle('child');await tick();
  assert.equal(states.at(-1).every(row=>!row.enabled),true);assert.deepEqual(errors,['failed']);
+});
+test('every canonical component has a Chinese label, including the tone pipeline',()=>{
+ for(const name of [CORE,...COMPONENTS]) assert.equal(typeof labels[name],'string',`missing label for ${name}`);
+ assert.equal(labels['dsh-lpipe-tone'],'语气管线');
+ assert.equal(labels[CORE],'生命核心');
+ // A label is the switch's visible name and its aria-label; an unknown row would
+ // otherwise render an empty switch that cannot be identified.
+ assert.equal(Object.keys(labels).length,COMPONENTS.length+1);
 });

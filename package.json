@@ -1,7 +1,7 @@
 {
   "name": "dsh-life-pipline",
   "version": "0.8.8",
-  "description": "All-in-one Life Pipline installer: Life Core and seven independently switchable pipelines.",
+  "description": "All-in-one Life Pipline installer: Life Core and eight independently switchable pipelines.",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "test": "node scripts/link-self.mjs && node --test \"test/*.test.mjs\" \"components/*/test/*.test.mjs\"",
@@ -56,7 +56,8 @@
     "dsh-lpipe-wake": "^0.2.11",
     "dsh-lpipe-memory": "^0.1.5",
     "dsh-lpipe-starmap": "^0.1.9",
-    "dsh-lpipe-recall": "^0.1.11"
+    "dsh-lpipe-recall": "^0.1.11",
+    "dsh-lpipe-tone": "^0.1.0"
   },
   "dsh": {
     "client": {"inject": ["@deepseek-ai/dsh-client-ui-slots"], "platform": "web"},

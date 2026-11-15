@@ -1,6 +1,6 @@
 // One graph is shared by standalone bundles and the aggregate installer.
 export const CORE = 'dsh-life-core';
-export const COMPONENTS = Object.freeze(['dsh-lpipe-chat', 'dsh-lpipe-home', 'dsh-lpipe-bili', 'dsh-lpipe-wake', 'dsh-lpipe-memory', 'dsh-lpipe-starmap', 'dsh-lpipe-recall']);
+export const COMPONENTS = Object.freeze(['dsh-lpipe-chat', 'dsh-lpipe-home', 'dsh-lpipe-bili', 'dsh-lpipe-wake', 'dsh-lpipe-memory', 'dsh-lpipe-starmap', 'dsh-lpipe-recall', 'dsh-lpipe-tone']);
 export const DEPENDENCIES = Object.freeze(Object.fromEntries([
   [CORE, []],
   ...COMPONENTS.map(name => [name, [CORE, ...(name === 'dsh-lpipe-starmap' ? ['dsh-lpipe-memory'] : name === 'dsh-lpipe-recall' ? ['dsh-lpipe-memory', 'dsh-lpipe-starmap'] : [])]]),

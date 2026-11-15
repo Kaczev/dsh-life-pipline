@@ -4,7 +4,7 @@
 
 ## 中文
 
-生命管线为 DeepSeek Harness（DSH）提供微信 / QQ 聊天、主动唤醒、长期记忆和 B 站浏览等功能。安装整合包即可获得生命核心和七条管线，各项功能仍可单独开关。
+生命管线为 DeepSeek Harness（DSH）提供微信 / QQ 聊天、主动唤醒、长期记忆和 B 站浏览等功能。安装整合包即可获得生命核心和八条管线，各项功能仍可单独开关。
 
 ### 包含哪些功能
 
@@ -18,6 +18,7 @@
 | 回忆 | 在聊天时想起相关旧事，按需查看原文和图片 |
 | B 站 | 浏览推荐、搜索、评论、字幕与视频分镜 |
 | 栖所 | 为模型指定个人文件夹 |
+| 语气 | 手动填写回复的语气描述与对话示例，让主对话的说话方式更贴近你的偏好 |
 
 ### 安装与开始使用
 
@@ -25,14 +26,15 @@
 
 1. 在 DSH 插件管理中安装并启用 `dsh-life-pipline`。
 2. 打开 **设置 → Lpipe 设置**，绑定一个 LP 主对话；也可先选择工作区，再创建新的主对话。已有会话的菜单中也有「设为 LP 主对话」。
-3. 按需接入聊天账号、配置星图模型或选择栖所文件夹。
+3. 按需接入聊天账号、配置星图模型、选择栖所文件夹，或填写语气描述与对话示例。
 4. 回到主对话，与模型自然交流即可。组件开关可在整合包详情页或各组件的插件条目中管理。
 
-只需要部分功能时，可以单独安装对应的 `dsh-lpipe-*` 插件。所有管线都需要生命核心；星图还需要记忆，回忆还需要记忆和星图，无需先安装整合包。
+只需要部分功能时，可以单独安装对应的 `dsh-lpipe-*` 插件。所有管线都需要生命核心；星图还需要记忆，回忆还需要记忆和星图，语气只需要生命核心。无需先安装整合包。
 
 ### 使用前了解
 
-- 聊天、唤醒、B 站和栖所默认服务于 LP 主对话。记忆默认只记录主对话；打开记忆中的「所有对话生效」后，记忆、星图和回忆会一同扩展到其他会话。
+- 聊天、唤醒、B 站、栖所和语气默认服务于 LP 主对话。记忆默认只记录主对话；打开记忆中的「所有对话生效」后，记忆、星图和回忆会一同扩展到其他会话。
+- 语气只按你填写的文字原样注入，两项都留空时不注入任何内容；它不改变事实和工具结果，示例也不会被当成当前事件或有效承诺。
 - 星图整理记忆需要调用所选模型，唤醒也可能产生新的模型用量。启用前请检查模型和预算。
 - 关闭前置组件会连带关闭依赖它的组件；重新打开前置后，下游需要自行开启。关闭整合包入口不会移除已经启用的独立管线。
 - 记忆原文、媒体和聊天记录保存在本地，可能含有私人信息。备份时应保存相关数据目录，星图索引不能代替原始记忆备份。
@@ -46,7 +48,7 @@
 
 ## English
 
-Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili browsing to DeepSeek Harness. The aggregate package installs Life Core and seven pipelines, each with its own switch.
+Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili browsing to DeepSeek Harness. The aggregate package installs Life Core and eight pipelines, each with its own switch.
 
 ### Included features
 
@@ -58,6 +60,7 @@ Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili
 - **Recall:** bring relevant older conversations back into context, with original text and images available on demand.
 - **Bilibili:** recommendations, search, comments, subtitles and video storyboards.
 - **Home:** a personal folder for the model.
+- **Tone:** write your own reply tone and dialogue examples so the main conversation sounds closer to what you like.
 
 ### Install and start
 
@@ -65,14 +68,16 @@ Requires DSH `>=0.2.0-rc.2` and Node.js `^22.19 || >=24`.
 
 1. Install and enable `dsh-life-pipline` through DSH plugin management.
 2. Open **Settings → Lpipe settings** and bind an LP main conversation, or select a workspace and create one. Existing conversations also have a menu action to make them the LP main conversation.
-3. Connect chat accounts, select a Starmap model or choose a Home folder as needed.
+3. Connect chat accounts, select a Starmap model, choose a Home folder, or write your reply tone and examples as needed.
 4. Return to the main conversation and chat normally. Manage switches in the aggregate detail page or individual plugin entries.
 
-You can install individual `dsh-lpipe-*` plugins instead. Every pipeline requires Life Core; Starmap also requires Memory, and Recall requires Memory and Starmap. The aggregate package is optional.
+You can install individual `dsh-lpipe-*` plugins instead. Every pipeline requires Life Core; Starmap also requires Memory, Recall requires Memory and Starmap, and Tone requires only Life Core. The aggregate package is optional.
 
 ### Before using it
 
-Chat, Wake, Bilibili and Home serve the LP main conversation. Memory defaults to that conversation; its **all sessions** switch also extends Starmap and Recall. Starmap extraction and wake-up turns can incur model usage.
+Chat, Wake, Bilibili, Home and Tone serve the LP main conversation. Memory defaults to that conversation; its **all sessions** switch also extends Starmap and Recall. Starmap extraction and wake-up turns can incur model usage.
+
+Tone injects your text exactly as written; with both fields blank nothing is injected. It changes expression only — not facts or tool results — and pasted examples never become current events or active commitments.
 
 Disabling a prerequisite also disables its dependents. Re-enabling it does not restore those dependents automatically. Disabling the aggregate entry does not remove independent pipelines.
 
