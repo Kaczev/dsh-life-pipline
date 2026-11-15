@@ -16,8 +16,13 @@ test('description renders its heading and factual/tool accuracy boundary with ve
   const text = tonePrompt({ description, examples: '\n\t ' });
   assert.ok(text.startsWith('## Reply tone\n\n'));
   assert.ok(text.endsWith(`\n\n${description}`));
-  assert.match(text, /speaking to the user/);
-  assert.match(text, /not factual accuracy, tool arguments, or truthful reporting of tool results/);
+  assert.match(text, /all user-facing communication, including direct replies, progress updates, and message bodies sent through chat tools/);
+  assert.match(text, /Maintain this style while explaining technical topics and reporting results, including after using tools/);
+  assert.match(text, /Preserve factual accuracy and truthful reporting/);
+  assert.match(text, /Do not alter tool selection, recipients, IDs, paths, commands, code, formulas, numerical values, or other operational data for stylistic effect/);
+  assert.match(text, /Within tool arguments, apply the style to prose intended for the user, not to operational fields/);
+  assert.match(text, /Preserve quoted source text/);
+  assert.ok(!text.includes('not factual accuracy, tool arguments'));
   assert.ok(!text.includes('## Reply tone examples'));
 });
 

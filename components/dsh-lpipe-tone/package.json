@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-tone",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Manually configured reply tone and examples for the Lpipe main session.",
   "license": "AGPL-3.0-or-later",

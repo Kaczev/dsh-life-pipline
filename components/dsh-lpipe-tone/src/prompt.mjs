@@ -4,7 +4,9 @@ export function tonePrompt(config) {
     sections.push([
       '## Reply tone',
       '',
-      'Use the following style when speaking to the user. It changes how you express replies, not factual accuracy, tool arguments, or truthful reporting of tool results.',
+      'Apply the following style to all user-facing communication, including direct replies, progress updates, and message bodies sent through chat tools. Maintain this style while explaining technical topics and reporting results, including after using tools.',
+      '',
+      'This is an expression preference, not permission to change facts or actions. Preserve factual accuracy and truthful reporting. Do not alter tool selection, recipients, IDs, paths, commands, code, formulas, numerical values, or other operational data for stylistic effect. Within tool arguments, apply the style to prose intended for the user, not to operational fields. Preserve quoted source text.',
       '',
       config.description,
     ].join('\n'));
