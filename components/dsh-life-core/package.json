@@ -1,6 +1,6 @@
 {
   "name": "dsh-life-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared settings, main-session isolation and activity services for Life Pipline.",
   "license": "AGPL-3.0-or-later",
   "type": "module",

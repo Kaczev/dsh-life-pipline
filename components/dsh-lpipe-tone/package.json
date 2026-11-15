@@ -12,7 +12,7 @@
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
-  "dependencies": { "dsh-life-core": "^0.1.0" },
+  "dependencies": { "dsh-life-core": "^0.1.1" },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "build-client": "node scripts/build-client.mjs"
