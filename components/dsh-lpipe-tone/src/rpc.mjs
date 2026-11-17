@@ -1,3 +1,5 @@
+import { DEFAULT_CONFIG } from './config.mjs';
+
 export const TONE_RPC_ENDPOINT = 'dsh-lpipe-tone';
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const failure = (code, message) => ({ ok: false, error: { code, message, details: {} } });
@@ -5,7 +7,7 @@ const failure = (code, message) => ({ ok: false, error: { code, message, details
 export function createToneRpcHandler({ load, save }) {
   return async (method, payload) => {
     try {
-      if (method === 'tone.config') return { ok: true, value: { config: load() } };
+      if (method === 'tone.config') return { ok: true, value: { config: load(), defaults: { ...DEFAULT_CONFIG } } };
       if (method === 'tone.config.save') return { ok: true, value: { config: save(payload) } };
       return failure('tone/unknown-method', 'Unknown method.');
     } catch (error) {

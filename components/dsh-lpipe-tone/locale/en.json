@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lpipe Tone",
-    "description": "Manually set reply tone and dialogue examples for the main session; blank fields inject nothing."
+    "description": "Configure diction, syntax, rhythm and expression visibility for the main session; all four blank means no injection."
   }
 }

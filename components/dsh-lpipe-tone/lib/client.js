@@ -10,9 +10,9 @@ window.__ModuleLoader__.load({
  * dsh-life-pipline (「Lpipe 设置」); this file only renders one block inside the
  * child slot it declares there.
  *
- * Two optional plain-text fields, saved by hand. Nothing is pre-filled: an
- * empty block is the normal first state, because both fields start blank and
- * blank fields inject nothing into the system prompt.
+ * Four editable expression fields, saved by hand. Initial values come only
+ * from the Host; the client does not duplicate its defaults. Blank fields
+ * inject nothing into the system prompt.
  */
 const React = require('react');
 
@@ -125,11 +125,13 @@ const actions = { display: 'flex', gap: 8, flex: 'none' };
 const dot = { flex: 'none', width: 6, height: 6, marginTop: 4, borderRadius: 999, background: COLORS.faint };
 
 const FIELDS = Object.freeze([
-  { key: 'description', label: '语气描述', placeholder: '例如：用括号表示状态、经常撒娇、可可爱爱。' },
-  { key: 'examples', label: '对话示例', placeholder: '把满意的对话整段粘进来；没有示例也可以只写描述。' },
+  { key: 'diction', label: '措辞', placeholder: '填写选词与用语习惯。', description: '决定用什么词表达同一个意思，例如日常还是书面、直白还是含蓄，以及称呼、语气词和比喻的使用习惯。不改变术语含义和事实。' },
+  { key: 'syntax', label: '句式', placeholder: '填写句子结构与表达形式。', description: '决定一句话怎么组织，例如长句还是短句、完整句还是口语省略，以及分句如何连接。不改变原有判断、条件和确定程度。' },
+  { key: 'rhythm', label: '节奏', placeholder: '填写停顿、分句与展开方式。', description: '决定话怎么展开、在哪里停顿，例如段落疏密、停顿、重复和重点的落点。不删减信息，也不为了节奏添加内容。' },
+  { key: 'expression', label: '表达的显隐', placeholder: '填写已有态度如何直接或含蓄地表达。', description: '决定已有的情绪和语气表现得多明显，例如直接说出、通过语气词或括号动作表现，还是保持克制。不凭空增加情绪，也不改变对用户的态度。' },
 ]);
 
-const EMPTY_CONFIG = Object.freeze({ description: '', examples: '' });
+const EMPTY_CONFIG = Object.freeze({ diction: '', syntax: '', rhythm: '', expression: '' });
 
 function charCount(text) {
   return typeof text === 'string' ? text.length : 0;
@@ -173,7 +175,7 @@ function configOf(reply) {
 }
 
 function payloadOf(values) {
-  return { description: values?.description ?? '', examples: values?.examples ?? '' };
+  return Object.fromEntries(FIELDS.map(({ key }) => [key, values?.[key] ?? '']));
 }
 
 function valuesEqual(left, right) {
@@ -207,7 +209,8 @@ function button(accent) {
   };
 }
 
-function fieldView(item, form, errors, disabled, onChange) {
+function fieldView(item, form, errors, disabled, onChange, defaults, onReset) {
+  const resetDisabled = disabled || !defaults || form?.[item.key] === defaults[item.key];
   const error = errors[item.key];
   const id = `tone-${item.key}`;
   const length = charCount(form?.[item.key]);
@@ -219,8 +222,19 @@ function fieldView(item, form, errors, disabled, onChange) {
       'div',
       { style: fieldHead },
       h('label', { htmlFor: id, style: fieldName }, item.label),
-      h('span', { style: { ...fieldCount, color: over ? COLORS.danger : COLORS.faint } }, `${length} / ${MAX_TEXT_LENGTH}`),
+      h('span', { style: { display: 'flex', alignItems: 'baseline', gap: 8 } },
+        h('span', { style: { ...fieldCount, color: over ? COLORS.danger : COLORS.faint } }, `${length} / ${MAX_TEXT_LENGTH}`),
+        h('button', {
+          type: 'button',
+          style: { ...button(null), padding: '2px 6px', fontSize: 10, opacity: resetDisabled ? 0.42 : 1 },
+          disabled: resetDisabled,
+          'aria-label': `${item.label}恢复默认`,
+          title: '恢复此项默认文字，仅修改草稿；保存后生效',
+          onClick: () => { if (!resetDisabled) onReset(item.key); },
+        }, '恢复默认'),
+      ),
     ),
+    h('p', { id: `${id}-description`, style: { ...hint, margin: '0 0 6px' } }, item.description),
     h('textarea', {
       id,
       rows: 4,
@@ -229,7 +243,7 @@ function fieldView(item, form, errors, disabled, onChange) {
       value: form?.[item.key] ?? '',
       disabled,
       'aria-invalid': Boolean(error),
-      'aria-describedby': error ? `${id}-error` : undefined,
+      'aria-describedby': `${id}-description${error ? ` ${id}-error` : ''}`,
       style: error ? invalidInput : input,
       onChange: (event) => onChange(item.key, event.target.value),
     }),
@@ -239,19 +253,19 @@ function fieldView(item, form, errors, disabled, onChange) {
   );
 }
 
-function ToneForm({ form, errors, saving, dirty, canClear, statusText, statusTone, onChange, onSave, onClear, onRevert }) {
+function ToneForm({ form, defaults, errors, saving, dirty, canClear, statusText, statusTone, onChange, onReset, onSave, onClear, onRevert }) {
   const hasErrors = Object.keys(errors || {}).length > 0;
   const canSave = dirty && !hasErrors && !saving;
-  // Clearing is a save of two empty strings, so it is unavailable while saving.
+  // Clearing is a save of four empty strings, so it is unavailable while saving.
   const clearable = Boolean(canClear) && !saving;
   return h(
     'div',
     null,
-    h('div', { style: grid }, FIELDS.map((item) => fieldView(item, form, errors, saving, onChange))),
+    h('div', { style: grid }, FIELDS.map((item) => fieldView(item, form, errors, saving, onChange, defaults, onReset))),
     h(
       'p',
       { style: hint },
-      '两项都空白时不注入任何内容；描述只改变表达风格，不改变事实和工具结果，示例也不会变成当前事件或有效承诺。',
+      '四项均可单独填写；留空的项不施加要求，全空时不注入。恢复默认只修改草稿，保存后生效。只改变表达，不改内容、态度和行为。',
     ),
     h(
       'div',
@@ -277,7 +291,7 @@ function ToneForm({ form, errors, saving, dirty, canClear, statusText, statusTon
             },
             onClick: onClear,
             disabled: !clearable,
-            title: '清空两项并保存；空白时不注入任何内容',
+            title: '清空四项并保存；空白时不注入任何内容',
           },
           '清空',
         ),
@@ -346,6 +360,7 @@ function TonePanel({ rpcCall }) {
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [defaults, setDefaults] = React.useState(null);
   const alive = React.useRef(true);
   // Every edit bumps the generation; a reply from an older one must not write
   // over text the user has typed since.
@@ -377,6 +392,7 @@ function TonePanel({ rpcCall }) {
         }
         setForm(config);
         setCommitted(config);
+        setDefaults(normalizeConfig(reply?.value?.defaults));
         setLoading(false);
       })
       .catch((error) => {
@@ -396,7 +412,7 @@ function TonePanel({ rpcCall }) {
   const canClear = Boolean(form) && !saving && (hasSavedText || !isBlank(form));
 
   let statusTone = 'muted';
-  let statusText = '保存后下一轮起生效；只改这两项。';
+  let statusText = '保存后下一轮起生效；只改这四项。';
   if (firstError) {
     statusTone = 'error';
     statusText = `校验未通过：${firstError}`;
@@ -413,13 +429,18 @@ function TonePanel({ rpcCall }) {
     statusTone = 'warn';
     statusText = '改了还没保存；保存后下一轮起生效。';
   } else if (!dirty && committed && isBlank(committed)) {
-    statusText = '两项都是空白，下一轮不会注入任何语气内容。';
+    statusText = '四项都是空白，下一轮不会注入任何语气内容。';
   }
 
   const change = (key, value) => {
     generation.current += 1;
     setForm((current) => ({ ...current, [key]: value }));
     setSaved(null);
+  };
+
+  const reset = (key) => {
+    if (saving || !defaults || !FIELDS.some((item) => item.key === key)) return;
+    change(key, defaults[key]);
   };
 
   const revert = () => {
@@ -503,6 +524,7 @@ function TonePanel({ rpcCall }) {
       { style: card },
       h(ToneForm, {
         form,
+        defaults,
         errors: draft.errors,
         saving,
         dirty,
@@ -510,6 +532,7 @@ function TonePanel({ rpcCall }) {
         statusText,
         statusTone,
         onChange: change,
+        onReset: reset,
         onSave: save,
         onClear: clear,
         onRevert: revert,

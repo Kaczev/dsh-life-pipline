@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { apply } from '../src/index.js';
-import { saveConfig, configFile } from '../src/config.mjs';
+import { DEFAULT_CONFIG, saveConfig, configFile } from '../src/config.mjs';
 import { createToneRpcHandler, registerToneRpc } from '../src/rpc.mjs';
 import { configPath } from 'dsh-life-core/internal/paths';
 
@@ -43,19 +43,19 @@ test('prompt follows live main binding and saves, stays literal/stable, and disp
     const section = [...f.sections][0], route = [...f.routes][0];
     assert.equal(section.name, 'dsh-lpipe-tone'); assert.equal(section.interpolate, false);
     const main = () => section.text({ scope: { id: 'main' } });
-    assert.equal(main(), '');
-    const patch = { description: ' 用括号表示状态 {{name}}\n不要每句话叫名字。 ', examples: '用户：忙吗？\n助手：（抬头）在呢。' };
+    assert.match(main(), /Reply tone/);
+    const patch = { diction: ' 用括号表示状态 {{name}}\n不要每句话叫名字。 ', syntax: '用户：忙吗？\n助手：（抬头）在呢。' };
     const result = await (await route.fetch(request(envelope('tone.config.save', patch)))).json();
-    assert.deepEqual(result.result, { ok: true, value: { config: patch } });
-    assert.match(main(), /## Reply tone/); assert.ok(main().includes(patch.description));
+    assert.deepEqual(result.result, { ok: true, value: { config: { ...DEFAULT_CONFIG, ...patch } } });
+    assert.match(main(), /## Reply tone/); assert.ok(main().includes(patch.diction));
     assert.equal(main(), main());
     for (const scope of [undefined, {}, { id: 'child', parentSession: 'main' }, { id: 'other' }]) assert.equal(section.text({ scope }), '');
     f.bind('other'); assert.equal(main(), ''); assert.match(section.text({ scope: { id: 'other' } }), /Reply tone/);
     f.bind(''); assert.equal(section.text({ scope: { id: 'other' } }), '');
     f.bind('main');
-    await route.fetch(request(envelope('tone.config.save', { description: '', examples: '' })));
+    await route.fetch(request(envelope('tone.config.save', { diction: '', syntax: '', rhythm: '', expression: '' })));
     assert.equal(main(), '');
-    saveConfig({ description: '新语气' }, f.settings);
+    saveConfig({ diction: '新语气' }, f.settings);
     assert.match(main(), /新语气/);
     writeFileSync(configFile(f.settings), 'broken');
     assert.throws(main); // Configuration failures are not silently presented as an empty saved preference.
@@ -71,16 +71,18 @@ test('RPC validates envelopes, HTTP input and save failures without touching con
   try {
     apply(f.ctx, { root: f.settings }); const route = [...f.routes][0];
     const call = async body => (await (await route.fetch(request(body))).json());
-    assert.deepEqual((await call(envelope('tone.config'))).result.value.config, { description: '', examples: '' });
+    const read = (await call(envelope('tone.config'))).result.value;
+    assert.deepEqual(read.config, DEFAULT_CONFIG);
+    assert.deepEqual(read.defaults, DEFAULT_CONFIG);
     assert.equal((await call(envelope('unknown'))).result.error.code, 'tone/unknown-method');
-    for (const payload of [null, [], {}, { description: 42 }, { unknown: 'x' }]) assert.equal((await call(envelope('tone.config.save', payload))).result.ok, false);
+    for (const payload of [null, [], {}, { diction: 42 }, { unknown: 'x' }]) assert.equal((await call(envelope('tone.config.save', payload))).result.ok, false);
     for (const body of [null, [], {}, { ...envelope('tone.config'), method: 'wrong' }, { ...envelope('tone.config'), payload: { method: 'tone.config' } }]) {
       const reply = await call(body); assert.equal(reply.result.error.code, 'tone/bad-request');
     }
     assert.equal((await route.fetch(new Request('http://localhost/api/dsh-lpipe-tone'))).status, 405);
     assert.equal((await route.fetch(request({}, { headers: { 'content-type': 'text/plain' } }))).status, 415);
     assert.equal((await route.fetch(request({}, { body: '{' }))).status, 400);
-    const utf = await call(envelope('tone.config.save', { description: '撒娇，但认真做事。' }));
+    const utf = await call(envelope('tone.config.save', { diction: '撒娇，但认真做事。' }));
     assert.equal(utf.rpcId, 'tone-1'); assert.equal(utf.type, 'server-response');
   } finally { f.close(); }
 });
