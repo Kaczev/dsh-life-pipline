@@ -7,13 +7,13 @@
 - [src/rpc.mjs](src/rpc.mjs)：`/api/dsh-lpipe-focus` 的 `focus.config` 与 `focus.config.save` 信封处理。
 - [src/tools.mjs](src/tools.mjs)：`focus_conclude` 参数校验、并发工具调用硬拦截与结果渲染。
 - [src/render.mjs](src/render.mjs)：结论层 `<working-conclusions>`、提示层 `<current-objective>` 与轻推提醒 `<system-reminder>` 正文构造。
-- [src/surface.mjs](src/surface.mjs)：四层表层切分、双段 `replace` 折叠、过线／闲置程序归并裁剪与防刷屏轻推提醒。
+- [src/surface.mjs](src/surface.mjs)：识别需要原样保留的用户、宿主与技能节点；折叠已完成工作、承接目标、整理结论并按需提醒。
 - [src/prompt.mjs](src/prompt.mjs)：注入主会话的英文固定系统提示词章节（`order: 712`）。
 - [client/panel.js](client/panel.js)：设置页里的「聚焦管线」块（「所有对话生效」即时开关、四项输入、K/M 简写、恢复默认／撤回／保存、读取失败保护与重试）；构建到 [lib/client.js](lib/client.js)。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：把面板打包为宿主的客户端模块壳。
 - [assets/icon.png](assets/icon.png)：组件图标（聚焦四角框 + 堆叠结论条 + 琥珀色当前目标条，512² 透明 PNG）。
 - [test/config.test.mjs](test/config.test.mjs)：四项范围、跨字段关系、损坏文件保护与未知键保留测试。
-- [test/surface.test.mjs](test/surface.test.mjs)：四层折叠与前缀守恒、提示层承接、并发拦截、过线／闲置整理、提醒与主会话隔离回归。
+- [test/surface.test.mjs](test/surface.test.mjs)：普通折叠的原节点保留、目标承接、并发拦截、过线／闲置整理、同会话恢复、提醒与作用域回归。
 - [test/rpc.test.mjs](test/rpc.test.mjs)：RPC 信封、HTTP 状态码与读写错误测试。
 - [test/client.test.mjs](test/client.test.mjs)：客户端构建同步、宿主主题 token、K/M 输入校验、读取失败重试与保存按钮状态测试。
 - [package.json](package.json)、[cordis.patch.yml](cordis.patch.yml)：独立组件声明与挂载行。

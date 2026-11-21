@@ -64,6 +64,19 @@ class FakeSession {
   }
 
   append(type, data, opts) {
+    if (Array.isArray(type)) {
+      const nodes = this.surface.nodes;
+      const { seq, _replaceGen, _contentGen } = this;
+      try {
+        return type.map(args => this.append(...args));
+      } catch (error) {
+        this.log.length = seq;
+        this._nodes = nodes;
+        this._replaceGen = _replaceGen;
+        this._contentGen = _contentGen;
+        throw error;
+      }
+    }
     const seq = this.log.length;
     const isSurface = SURFACE_TYPES.has(type);
     if (isSurface) {
@@ -272,7 +285,8 @@ test('1. four-layer daily folding preserves base layer & prior conclusion seqs v
     // Turn 1: User asks question -> search tool -> focus_conclude #1
     session.append('turn/start', { turn: 1 });
     session.append('step/start', { turn: 1, step: 1 });
-    session.append('user/message', userMsg('Investigate wake timer and rpc routes'), { surfaceOp: 'append' });
+    const request = session.append('user/message', userMsg('Investigate wake timer and rpc routes'), { surfaceOp: 'append' });
+    const prefix = [...baseSeqs, request.seq];
     session.append('assistant/message', assistantToolCallMsg(1, 1, [{ id: 'c-read-1', name: 'read', args: { file_path: 'runner.mjs' } }], 'reading runner'), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 1, 'c-read-1', 'runner polls every 30s...'.repeat(40)), { surfaceOp: 'append' });
     session.append('step/end', { turn: 1, step: 1 });
@@ -293,10 +307,8 @@ test('1. four-layer daily folding preserves base layer & prior conclusion seqs v
     await h.runPreStep(agent, [], { turn: 1, step: 3 });
 
     const nodesAfterFold1 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold1.slice(0, 3), baseSeqs, 'base layer seqs must stay untouched');
-    assert.equal(nodesAfterFold1.length, 5, '3 base + 1 conclusion + 1 objective');
-    const conc1Seq = nodesAfterFold1[3];
-    const obj1Seq = nodesAfterFold1[4];
+    assert.deepEqual(nodesAfterFold1.slice(0, -2), prefix, 'base and user request seqs must stay untouched');
+    const [conc1Seq, obj1Seq] = nodesAfterFold1.slice(-2);
     assert.equal(session.eventAt(conc1Seq).data.source.layer, 'conclusion');
     assert.equal(session.eventAt(obj1Seq).data.source.layer, 'objective');
     assert.equal(session.eventAt(obj1Seq).data.source.origin, 'model');
@@ -315,11 +327,8 @@ test('1. four-layer daily folding preserves base layer & prior conclusion seqs v
 
     await h.runPreStep(agent, [], { turn: 1, step: 5 });
     const nodesAfterFold2 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold2.slice(0, 3), baseSeqs);
-    assert.equal(nodesAfterFold2[3], conc1Seq, 'Conclusion #1 seq must be 100% preserved');
-    const conc2Seq = nodesAfterFold2[4];
-    const obj2Seq = nodesAfterFold2[5];
-    assert.equal(nodesAfterFold2.length, 6);
+    assert.deepEqual(nodesAfterFold2.slice(0, -2), [...prefix, conc1Seq], 'base, request and first conclusion must stay untouched');
+    const [conc2Seq, obj2Seq] = nodesAfterFold2.slice(-2);
     assert.notEqual(obj2Seq, obj1Seq, 'old objective was replaced');
 
     // Fold #3 with retirement tombstone
@@ -335,11 +344,11 @@ test('1. four-layer daily folding preserves base layer & prior conclusion seqs v
 
     await h.runPreStep(agent, [], { turn: 1, step: 6 });
     const nodesAfterFold3 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold3.slice(0, 5), [...baseSeqs, conc1Seq, conc2Seq], 'Base + Conclusion #1 + Conclusion #2 seqs untouched');
-    const conc3Event = session.eventAt(nodesAfterFold3[5]);
+    assert.deepEqual(nodesAfterFold3.slice(0, -2), [...prefix, conc1Seq, conc2Seq], 'protected prefix and both earlier conclusions must stay untouched');
+    const conc3Event = session.eventAt(nodesAfterFold3.at(-2));
     assert.match(conc3Event.data.content[0].text, /\(retired — no longer needed\)/);
     // Since no new user message arrived in Fold #3 and objective was omitted, it carried forward Objective #2 ('Check client panel')
-    const obj3Event = session.eventAt(nodesAfterFold3[6]);
+    const obj3Event = session.eventAt(nodesAfterFold3.at(-1));
     assert.equal(obj3Event.data.source.origin, 'carried');
     assert.match(obj3Event.data.content[0].text, /Check client panel/);
   } finally {
@@ -439,7 +448,9 @@ test('4. deterministic compaction deduplicates keys, purges tombstones, handles 
     const toolDef = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
 
     // Fold 1
-    session.append('user/message', userMsg('Task part 1'), { surfaceOp: 'append' });
+    const request = session.append('user/message', userMsg('Task part 1'), { surfaceOp: 'append' });
+    const prefix = [...baseSeqs, request.seq];
+    appendRead(session, 'input-1', 'Raw source for the first three entries.');
     const a1 = {
       conclusions: [
         { key: 'slot.dup', text: 'old value v1' },
@@ -473,9 +484,9 @@ test('4. deterministic compaction deduplicates keys, purges tombstones, handles 
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
 
     const preCompactNodes = session.surface.nodes;
-    // Expect: 3 base + 2 conclusions + 1 objective + 1 tailAsst = 7 nodes
-    assert.equal(preCompactNodes.length, 7);
-    const preservedObjectiveSeq = preCompactNodes[5];
+    assert.deepEqual(preCompactNodes.slice(0, -4), prefix);
+    const preservedObjectiveSeq = preCompactNodes.at(-2);
+    assert.equal(session.eventAt(preservedObjectiveSeq).data.source.layer, 'objective');
     const preservedTailSeq = tailAsst.seq;
 
     // Advance clock by 31 minutes (>= idleMinutes=30) and start Turn 2
@@ -488,12 +499,11 @@ test('4. deterministic compaction deduplicates keys, purges tombstones, handles 
 
     const postCompactNodes = session.surface.nodes;
     // 2 conclusion nodes collapsed into 1; baseSeqs, objectiveSeq, and tailAsstSeq preserved verbatim!
-    assert.equal(postCompactNodes.length, 6);
-    assert.deepEqual(postCompactNodes.slice(0, 3), baseSeqs);
-    assert.equal(postCompactNodes[4], preservedObjectiveSeq, 'prompt layer seq must stay untouched by stage B compaction');
-    assert.equal(postCompactNodes[5], preservedTailSeq, 'unconverted layer seq must stay untouched by stage B compaction');
+    assert.deepEqual(postCompactNodes.slice(0, -3), prefix);
+    assert.equal(postCompactNodes.at(-2), preservedObjectiveSeq, 'prompt layer seq must stay untouched by stage B compaction');
+    assert.equal(postCompactNodes.at(-1), preservedTailSeq, 'unconverted layer seq must stay untouched by stage B compaction');
 
-    const mergedText = session.eventAt(postCompactNodes[3]).data.content[0].text;
+    const mergedText = session.eventAt(postCompactNodes.at(-3)).data.content[0].text;
     assert.match(mergedText, /\[slot\.dup\]: updated value v2/);
     assert.doesNotMatch(mergedText, /old value v1/);
     assert.doesNotMatch(mergedText, /slot\.retire/, 'retired key and tombstone must be purged');
@@ -523,7 +533,8 @@ test('4. deterministic compaction deduplicates keys, purges tombstones, handles 
 
     // Pass huge incoming message to cross compactChars (50000) right after folding
     await h.runPreStep(agent, [userMsg('Z'.repeat(52000))], { turn: 3, step: 2 });
-    const emptyConcEvent = session.eventAt(session.surface.nodes[3]);
+    const [emptyConcEvent] = focusEvents(session, 'conclusion');
+    assert.equal(focusEvents(session, 'conclusion').length, 1);
     assert.equal(emptyConcEvent.data.content[0].text, EMPTY_CONCLUSIONS_TEXT);
     assert.deepEqual(emptyConcEvent.data.source.entries, []);
   } finally {
@@ -671,6 +682,229 @@ test('6. active compaction lock avoidance, stale pre-seed lock handling, and str
     assert.equal(existsSync(join(h.dshHome, 'life-memory')), false, 'must never touch or create life-memory');
   } finally {
     h.cleanup();
+  }
+});
+
+function appendCheckpoint(session, id, args) {
+  const step = session.seq;
+  session.append('assistant/message', assistantToolCallMsg(1, step, [{ id, name: FOCUS_TOOL_NAME, args }]), { surfaceOp: 'append' });
+  session.append('tool/result', toolResultMsg(1, step, id, 'Recorded'), { surfaceOp: 'append' });
+}
+
+function appendRead(session, id, text) {
+  const step = session.seq;
+  session.append('assistant/message', assistantToolCallMsg(1, step, [{ id, name: 'read', args: { file_path: 'notes.txt' } }]), { surfaceOp: 'append' });
+  session.append('tool/result', toolResultMsg(1, step, id, text), { surfaceOp: 'append' });
+}
+
+const focusEvents = (session, layer) => session.surface.nodes.map(seq => session.eventAt(seq)).filter(event =>
+  event.type === 'user/message' && event.data.source?.kind === FOCUS_SOURCE_KIND && event.data.source.layer === layer);
+
+test('ordinary folds preserve the prefix through the last protected node and consume only later work', async t => {
+  const protectedUser = (text, source) => session => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' });
+  for (const [name, addBoundary] of [
+    ['human request', protectedUser('Keep the original instructions and exclusions', { kind: 'user' })],
+    ['chat request', protectedUser('Also review the linked checklist', { kind: 'dsh-lpipe-chat', form: 'notice', channels: ['wechat'] })],
+    ['planned wake', protectedUser('Check the nightly results', { kind: 'dsh-lpipe-wake', form: 'notice', wake: 'planned' })],
+    ['runtime snapshot', protectedUser('Workspace changed', { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'workspace', text: 'New directory' }] })],
+    ['skill catalog', protectedUser('Updated skill catalog', { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'example', description: 'Example skill' }], update: true })],
+    ['agent instructions', protectedUser('Observe the new directory instructions', { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'set', scope: 'project', path: 'AGENTS.md', digest: 'abc' }] })],
+    ['invoked skill', protectedUser('<skill_content name="example">Use the instructions.</skill_content>', { kind: 'skill-invocation', form: 'instructions', name: 'example' })],
+    ['developer message', session => session.append('developer/message', { turn: 1, step: 2, message: { ...userMsg('Developer constraints'), role: 'developer' } }, { surfaceOp: 'append' })],
+    ['loaded skill in a parallel batch', session => {
+      const calls = [{ id: 'skill-1', name: 'skill', args: { name: 'example' } }, { id: 'sibling', name: 'read', args: { file_path: 'notes.txt' } }];
+      session.append('assistant/message', assistantToolCallMsg(1, 2, calls), { surfaceOp: 'append' });
+      session.append('tool/result', toolResultMsg(1, 2, 'skill-1', '<skill_content name="example">\n<skill_instructions>Full skill instructions</skill_instructions>\n</skill_content>'), { surfaceOp: 'append' });
+      session.append('tool/result', toolResultMsg(1, 2, 'sibling', 'Last result in the protected batch'), { surfaceOp: 'append' });
+    }],
+  ]) {
+    await t.test(name, async () => {
+      const h = createPluginHarness();
+      try {
+        const session = new FakeSession();
+        const agent = { id: session.id, session };
+        seedBaseLayer(session);
+        session.append('user/message', userMsg('Inspect the workspace without editing it'), { surfaceOp: 'append' });
+        appendRead(session, 'before', 'Work before the boundary stays at its original position');
+        addBoundary(session);
+        const prefix = session.surface.nodes;
+        const time = session.append('user/message', userMsg('Time sampled at step 3', { kind: 'time-context', form: 'snapshot', sections: [{ name: 'time-context', text: 'Time sampled at step 3' }] }), { surfaceOp: 'append' });
+        const nudge = session.append('user/message', userMsg('Consider folding', { kind: FOCUS_SOURCE_KIND, form: 'notice', layer: 'nudge' }), { surfaceOp: 'append' });
+        appendRead(session, 'after', 'Only this work is consumed');
+        const entries = [{ key: 'inspection', text: 'Inspected without editing.' }];
+        appendCheckpoint(session, 'fc', { conclusions: entries });
+        const consumed = session.surface.nodes.slice(prefix.length);
+        await h.runPreStep(agent);
+        assert.deepEqual(session.surface.nodes.slice(0, prefix.length), prefix, 'protected prefix must keep its original event seqs and order');
+        assert.deepEqual(session.surface.nodes.filter(seq => consumed.includes(seq)), [], `suffix including time ${time.seq} and nudge ${nudge.seq} must fold`);
+        assert.deepEqual(focusEvents(session, 'conclusion').map(ev => ev.data.source.entries), [entries]);
+      } finally {
+        h.cleanup();
+      }
+    });
+  }
+});
+
+function replaySession(original) {
+  const restored = new FakeSession(original.id);
+  for (const { type, time, data, surfaceOp, sourceEventSeqs } of original.snapshotEvents()) {
+    restored.setClock(time);
+    restored.append(type, data, surfaceOp === undefined ? undefined : { surfaceOp, sourceEventSeqs });
+  }
+  restored.append('session/end-seed', {});
+  assert.deepEqual(restored.surface.nodes, original.surface.nodes, 'seed replay must reconstruct the same visible events');
+  return restored;
+}
+
+function objectiveText(session) {
+  const objective = session.surface.nodes.map(seq => session.eventAt(seq).data).findLast(data =>
+    data.source?.kind === FOCUS_SOURCE_KIND && data.content.some(block => block.text?.includes('<current-objective')));
+  assert.ok(objective, 'a checkpoint must expose its objective to the model');
+  return objective.content.map(block => block.text).join('\n').match(/<current-objective\b[^>]*>([\s\S]*?)<\/current-objective>/)?.[1];
+}
+
+test('fold keeps new incoming directions ahead of any stale objective; replay carries a concrete objective through continue', async () => {
+  const h = createPluginHarness();
+  try {
+    const session = new FakeSession();
+    const agent = { id: session.id, session };
+    seedBaseLayer(session);
+    session.append('user/message', userMsg('Audit the release configuration without editing it'), { surfaceOp: 'append' });
+    appendCheckpoint(session, 'first', { conclusions: [{ key: 'release', text: 'Build verified' }], objective: 'Check the signing certificate' });
+    const suffix = session.append('user/message', userMsg('Use the new staging workspace', { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'workspace', text: 'staging' }] }), { surfaceOp: 'append' });
+    const nextUser = userMsg('Instead, check the package license');
+    const updatedCatalog = userMsg('New skill available', { kind: 'skill-catalog', form: 'catalog', update: true, entries: [{ name: 'license', description: 'Inspect package licenses' }] });
+    const incoming = [nextUser, updatedCatalog];
+    const decision = await h.runPreStep(agent, incoming);
+    assert.deepEqual(decision.messages, incoming, 'host messages and newer user requests must pass through without a stale appended objective');
+    assert.equal(session.surface.nodes.at(-1), suffix.seq, 'already-committed messages after the checkpoint must also retain their place');
+    assert.match(objectiveText(session), /Check the signing certificate/);
+    for (const message of decision.messages) session.append('user/message', message, { surfaceOp: 'append' });
+    appendCheckpoint(session, 'second', { conclusions: [{ key: 'license', text: 'Located package metadata' }] });
+    await h.runPreStep(agent);
+    assert.match(objectiveText(session), /Instead, check the package license/);
+
+    const restored = replaySession(session);
+    const resumed = { id: restored.id, session: restored };
+    const logEnd = restored.seq;
+    assert.deepEqual((await h.runPreStep(resumed)).messages, []);
+    assert.equal(restored.seq, logEnd, 'resume must not re-submit a completed checkpoint');
+    const cont = restored.append('user/message', userMsg('continue'), { surfaceOp: 'append' });
+    appendRead(restored, 'read-metadata', 'License field exists');
+    appendCheckpoint(restored, 'third', { conclusions: [{ key: 'field', text: 'License declared' }] });
+    await h.runPreStep(resumed);
+    assert.match(objectiveText(restored), /Instead, check the package license/);
+    assert.ok(restored.surface.nodes.includes(cont.seq), 'continuation stays verbatim even though it is not the objective');
+    assert.deepEqual(focusEvents(restored, 'conclusion').flatMap(ev => ev.data.source.entries.map(entry => entry.key)), ['release', 'license', 'field']);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('resume wording keeps a specific objective but a new restriction takes precedence', async () => {
+  const h = createPluginHarness();
+  try {
+    const session = new FakeSession();
+    const agent = { id: session.id, session };
+    seedBaseLayer(session);
+    const user = text => session.append('user/message', userMsg(text), { surfaceOp: 'append' }).seq;
+    const checkpoint = async (id, objective) => {
+      appendCheckpoint(session, id, { conclusions: [{ key: id, text: 'Checked.' }], objective });
+      await h.runPreStep(agent);
+      return objectiveText(session);
+    };
+    const request = user('核对两个发布包的许可证');
+    assert.match(await checkpoint('a', '检查整合包的许可证'), /检查整合包的许可证/);
+    const resume = user('噢，我知道原因了。没事，继续原本的工作就好。');
+    assert.match(await checkpoint('b', 'continue'), /检查整合包的许可证/);
+    const redirect = user('继续检查许可证，不要发布。');
+    assert.match(await checkpoint('c', '现在发布'), /继续检查许可证，不要发布/);
+    assert.deepEqual(session.surface.nodes.filter(seq => [request, resume, redirect].includes(seq)), [request, resume, redirect]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('separated conclusion runs resolve updates and retirements globally without replacing protected messages', async t => {
+  for (const mode of ['idle', 'threshold']) {
+    await t.test(mode, async () => {
+      const h = createPluginHarness();
+      try {
+        saveConfig({ idleMinutes: 5, nudgeChars: 24000, compactChars: 32000, maxConclusionChars: 4000 }, h.focusDir);
+        const session = new FakeSession();
+        const agent = { id: session.id, session };
+        seedBaseLayer(session);
+        const appendUser = (text, source) => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' }).seq;
+        const first = appendUser('Analyze packaging');
+        appendRead(session, 'inputs', 'package inputs');
+        appendCheckpoint(session, 'a', { conclusions: [{ key: 'kept', text: 'Only in early run' }, { key: 'updated', text: 'Obsolete' }, { key: 'retired', text: 'Remove me' }] });
+        await h.runPreStep(agent);
+        const early = focusEvents(session, 'conclusion')[0].seq;
+        const second = appendUser('Audit the new manifest');
+        const instructions = appendUser('Do not edit the manifest', { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'set', scope: 'project', path: 'AGENTS.md', digest: 'new' }] });
+        appendRead(session, 'manifest', 'new manifest');
+        appendCheckpoint(session, 'b', { conclusions: [{ key: 'updated', text: 'Current' }, { key: 'retired', text: '' }, { key: 'new', text: 'Only in later run' }] });
+        await h.runPreStep(agent);
+        assert.equal(focusEvents(session, 'conclusion')[0].seq, early, 'ordinary fold must preserve the first run');
+        const tail = session.append('assistant/message', assistantTextMsg(1, 5, 'Awaiting review'), { surfaceOp: 'append' });
+        const identities = [first, second, instructions, tail.seq];
+        if (mode === 'idle') h.setNow(h.getNow() + 6 * 60000);
+        const incoming = mode === 'threshold' ? [userMsg('Z'.repeat(33000))] : [];
+        await h.runPreStep(agent, incoming);
+        assert.deepEqual(session.surface.nodes.filter(seq => identities.includes(seq)), identities);
+        const active = focusEvents(session, 'conclusion').flatMap(ev => ev.data.source.entries);
+        assert.deepEqual(active, [{ key: 'kept', text: 'Only in early run' }, { key: 'updated', text: 'Current' }, { key: 'new', text: 'Only in later run' }]);
+        assert.match(objectiveText(session), /Audit the new manifest/);
+        const restored = replaySession(session);
+        const logEnd = restored.seq;
+        await h.runPreStep({ id: restored.id, session: restored }, incoming);
+        assert.equal(restored.seq, logEnd, 'rechecking the clean state after replay must not submit another rewrite');
+      } finally {
+        h.cleanup();
+      }
+    });
+  }
+});
+
+test('only idle or completed host compaction can retire superseded snapshots', async t => {
+  for (const mode of ['chars', 'idle', 'open', 'failed', 'success']) {
+    await t.test(mode, async () => {
+      const h = createPluginHarness();
+      try {
+        const session = new FakeSession();
+        const agent = { id: session.id, session };
+        const append = (text, source) => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' }).seq;
+        const runtime = text => append(text, { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'cwd', text }] });
+        const catalog = (name, incomplete = false) => append(name, { kind: 'skill-catalog', form: 'catalog', entries: [{ name, description: name }], incomplete });
+        seedBaseLayer(session);
+        const human = append('Preserve the original request', { kind: 'user' });
+        const old = runtime('A');
+        const current = runtime('B');
+        const full = catalog('full');
+        const partial = catalog('partial', true);
+        session.append('assistant/message', assistantTextMsg(1, 1, 'Acknowledged'), { surfaceOp: 'append' });
+        if (mode === 'idle') h.setNow(h.getNow() + 61 * 60000);
+        if (['open', 'failed', 'success'].includes(mode)) {
+          session.append('compaction/start', { compactionId: 'boundary', turn: 1 });
+          if (mode !== 'open') session.append('compaction/end', { compactionId: 'boundary', turn: 1, ...(mode === 'failed' ? { error: { message: 'cancelled' } } : {}) });
+        }
+        const incoming = mode === 'chars' ? [userMsg('Z'.repeat(DEFAULT_CONFIG.compactChars))] : [];
+        await h.runPreStep(agent, incoming);
+        const cleaned = mode === 'idle' || mode === 'success';
+        assert.equal(session.surface.nodes.includes(old), !cleaned, 'char threshold, active lock and failed compaction must not clean up old snapshots');
+        for (const seq of [human, current, full, partial]) assert.ok(session.surface.nodes.includes(seq));
+        if (mode === 'success') {
+          const post1 = runtime('post-compaction C');
+          const post2 = runtime('post-compaction D');
+          const gen = session.surface.replaceGeneration;
+          await h.runPreStep(agent);
+          assert.equal(session.surface.replaceGeneration, gen, 'the same completed transaction cannot authorize cleanup of later records');
+          for (const seq of [post1, post2]) assert.ok(session.surface.nodes.includes(seq));
+        }
+      } finally {
+        h.cleanup();
+      }
+    });
   }
 });
 

@@ -15,7 +15,7 @@ export const RETIRED_CONCLUSION_MARKER = '(retired — no longer needed)';
 
 export const NUDGE_REMINDER_TEXT = [
   '<system-reminder>',
-  'Efficiency note: Unfolded working context (tool outputs and intermediate steps since the last checkpoint) has grown substantially. If a sub-step or investigation has reached a conclusion, consider calling `focus_conclude` by itself to fold the consumed material and keep context sharp. If you are mid-reasoning on raw details you still need right now, finish the current step first and fold afterward.',
+  'Fold a completed stage with `focus_conclude` only when you no longer need its raw output.',
   '</system-reminder>',
 ].join('\n');
 
@@ -47,14 +47,14 @@ export function renderObjectiveText(rawText, origin) {
   if (origin === 'model') {
     return [
       '<current-objective>',
-      'Current objective recorded at the last checkpoint (continue from here; newer user messages below take precedence if they change direction):',
+      'Checkpoint objective. Follow the user’s latest instructions if they change this task:',
       safe,
       '</current-objective>',
     ].join('\n');
   }
   return [
-    '<current-objective origin="user-request">',
-    'Active request carried across the last checkpoint:',
+    '<current-objective origin="carried">',
+    'Task carried forward from the last checkpoint. Follow the user’s latest instructions if they change it:',
     safe,
     '</current-objective>',
   ].join('\n');

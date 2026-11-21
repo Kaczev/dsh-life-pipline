@@ -19,7 +19,7 @@
 | B 站 | 浏览推荐、搜索、评论、字幕与视频分镜 |
 | 栖所 | 为模型指定个人文件夹 |
 | 语气 | 分别设置措辞、句式、节奏和表达的显隐，只改变主对话的表达方式 |
-| 聚焦 | 在主对话窗口内把已消费的搜索与改文件过程折叠成结论层，保留前缀缓存，过线或闲置后由程序去重裁剪 |
+| 聚焦 | 用结论替代已完成的工作；普通折叠保留用户原话、宿主上下文和已加载的技能 |
 
 ### 安装与开始使用
 
@@ -62,7 +62,7 @@ Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili
 - **Bilibili:** recommendations, search, comments, subtitles and video storyboards.
 - **Home:** a personal folder for the model.
 - **Tone:** configure diction, syntax, rhythm and expression visibility without changing content, attitude or behavior.
-- **Focus:** fold consumed exploration and file edits into a stacked conclusion layer in the main conversation while keeping the prompt prefix cache intact, compacting deterministically on threshold or idle timeout.
+- **Focus:** replace completed work with the findings needed for the next step. Ordinary folds keep user messages, host context and loaded skills intact.
 
 ### Install and start
 

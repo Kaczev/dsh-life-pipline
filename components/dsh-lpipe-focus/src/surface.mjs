@@ -13,31 +13,21 @@ import {
 } from './tools.mjs';
 
 export const TRIGGER_SOURCE_KINDS = new Set(['user', 'dsh-lpipe-chat', 'dsh-lpipe-wake']);
+const HOST_KINDS = new Set(['runtime-context', 'skill-catalog', 'agent-instructions', 'skill-invocation', 'compact-checkpoint']);
+const CONTINUE_CLAUSE = /^(?:(?:please\s+)?(?:continue|resume|go on|keep going)(?:\s+(?:please|(?:with\s+)?(?:the\s+)?(?:original\s+|previous\s+|current\s+)?(?:task|work)))?|(?:请)?(?:继续|接着)(?:执行|进行|做)?(?:原本的?|之前的?|原来的?|当前的?)?(?:工作|任务)?(?:就好|即可|吧)?)$/iu;
+const ACK_CLAUSE = /^(?:哦|噢|嗯|好(?:的)?|没事(?:了)?|没关系|(?:我)?(?:明白|知道)(?:原因)?了|ok(?:ay)?|thanks|got it|no worries)$/iu;
 
-const INITIAL_BASE_USER_KINDS = new Set(['runtime-context', 'skill-catalog', 'agent-instructions']);
-
-function eventAtSeq(session, events, seq) {
-  if (typeof session?.eventAt === 'function') {
-    const found = session.eventAt(seq);
-    if (found) return found;
-  }
-  const direct = events[seq];
-  if (direct && direct.seq === seq) return direct;
-  return events.find((item) => item?.seq === seq);
+function isContinuation(text) {
+  const clauses = text.trim().split(/[,.!?，。！？；;…\n]+/u).map(s => s.trim()).filter(Boolean);
+  return clauses.some(s => CONTINUE_CLAUSE.test(s)) && clauses.every(s => CONTINUE_CLAUSE.test(s) || ACK_CLAUSE.test(s));
 }
 
-function messageOfSurfaceEvent(event) {
-  if (!event) return null;
-  if (event.type === 'user/message') return event.data ?? null;
-  if (
-    event.type === 'system/message'
-    || event.type === 'developer/message'
-    || event.type === 'assistant/message'
-    || event.type === 'tool/result'
-  ) {
-    return event.data?.message ?? null;
-  }
-  return null;
+function eventAtSeq(session, events, seq) {
+  return session?.eventAt?.(seq) ?? (events[seq]?.seq === seq ? events[seq] : events.find(ev => ev?.seq === seq));
+}
+
+function messageOfSurfaceEvent(ev) {
+  return ev?.type === 'user/message' ? ev.data : ev?.data?.message;
 }
 
 export function charsOfBlocks(content) {
@@ -45,18 +35,14 @@ export function charsOfBlocks(content) {
   if (!Array.isArray(content)) return 0;
   let total = 0;
   for (const block of content) {
-    if (!block) continue;
-    if (typeof block === 'string') {
-      total += block.length;
-      continue;
-    }
-    if (typeof block.text === 'string') total += block.text.length;
-    if (typeof block.thinking === 'string') total += block.thinking.length;
-    if (block.type === 'tool-call') {
+    if (typeof block === 'string') total += block.length;
+    if (typeof block?.text === 'string') total += block.text.length;
+    if (typeof block?.thinking === 'string') total += block.thinking.length;
+    if (block?.type === 'tool-call') {
       total += String(block.name ?? '').length;
       if (typeof block.arguments === 'string') total += block.arguments.length;
       else if (block.arguments !== undefined) {
-        try { total += JSON.stringify(block.arguments).length; } catch { /* ignore */ }
+        try { total += JSON.stringify(block.arguments).length; } catch { /* ignore non-JSON input */ }
       }
     }
   }
@@ -64,12 +50,7 @@ export function charsOfBlocks(content) {
 }
 
 export function charsOfMessage(message) {
-  if (!message || typeof message !== 'object') return 0;
-  if (Array.isArray(message.content) || typeof message.content === 'string') {
-    return charsOfBlocks(message.content);
-  }
-  if (typeof message.text === 'string') return message.text.length;
-  return 0;
+  return charsOfBlocks(message?.content ?? message?.text);
 }
 
 export function charsOfSurfaceEvent(event) {
@@ -77,662 +58,405 @@ export function charsOfSurfaceEvent(event) {
 }
 
 export function textOfUserMessage(message) {
-  if (!message || typeof message !== 'object') return '';
-  if (typeof message.text === 'string') return message.text;
-  if (typeof message.content === 'string') return message.content;
-  if (!Array.isArray(message.content)) return '';
-  return message.content
-    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text)
-    .join('\n');
+  if (typeof message?.text === 'string') return message.text;
+  if (typeof message?.content === 'string') return message.content;
+  if (!Array.isArray(message?.content)) return '';
+  return message.content.filter(b => b?.type === 'text').map(b => b.text).join('\n');
 }
 
 export function hasActiveCompaction(events) {
-  let latestEndSeedSeq = -1;
-  let unmatchedStartSeq = null;
-  let known = false;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (!event) continue;
-    if (latestEndSeedSeq === -1 && event.type === 'session/end-seed') {
-      latestEndSeedSeq = typeof event.seq === 'number' ? event.seq : index;
-    }
-    if (!known) {
-      if (event.type === 'compaction/start') {
-        unmatchedStartSeq = typeof event.seq === 'number' ? event.seq : index;
-        known = true;
-      } else if (event.type === 'compaction/end') {
-        known = true;
-      }
-    }
-    if (known && latestEndSeedSeq !== -1) break;
-  }
-  if (unmatchedStartSeq === null) return false;
-  return unmatchedStartSeq > latestEndSeedSeq;
-}
-
-function isInitialBaseNode(event, index) {
-  if (!event) return false;
-  if (index === 0 && event.type === 'system/message') return true;
-  if (event.type === 'system/message' || event.type === 'developer/message') return true;
-  if (event.type === 'user/message') {
-    const kind = event.data?.source?.kind;
-    if (INITIAL_BASE_USER_KINDS.has(kind)) return true;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i]?.type === 'compaction/start') return true;
+    if (events[i]?.type === 'compaction/end' || events[i]?.type === 'session/end-seed') break;
   }
   return false;
 }
 
-/**
- * Compute four-layer boundaries on `surface.nodes`:
- * - `[0, baseEndExclusive)`: Layer 1 (base layer, never shadowed)
- * - `[conclusionStartIdx, conclusionEndExclusive)`: Layer 2 (conclusion layer)
- * - `objectiveIdx`: Layer 3 (prompt/objective layer, or -1 if absent)
- * - `[unconvertedStartIdx, nodes.length)`: Layer 4 (unconverted layer)
- */
+function sourceOf(ev) {
+  return ev?.type === 'user/message' ? ev.data?.source : undefined;
+}
+
+function layerOf(ev) {
+  const source = sourceOf(ev);
+  return source?.kind === FOCUS_SOURCE_KIND ? source.layer : undefined;
+}
+
+function isTrigger(source) {
+  return TRIGGER_SOURCE_KINDS.has(source?.kind) && !(source.kind === 'dsh-lpipe-wake' && source.form === 'snapshot');
+}
+
+function toolCalls(ev) {
+  const blocks = ev?.type === 'assistant/message' ? ev.data?.message?.content : null;
+  return Array.isArray(blocks) ? blocks.filter(b => b?.type === 'tool-call') : [];
+}
+
+function resultId(ev) {
+  const msg = ev?.data?.message;
+  if (msg?.toolCallId && msg.source?.callId && msg.toolCallId !== msg.source.callId) return null;
+  return msg?.toolCallId ?? msg?.source?.callId;
+}
+
+// A cut is valid only outside a complete, identified batch. An unfinished suffix
+// doesn't invalidate a completed checkpoint before it. Never infer pairs by count.
+function inspectSurface(surfaceEvents) {
+  const cuts = [true];
+  const barriers = [];
+  const pending = new Map();
+  let valid = true;
+  let lastConclusionIdx = -1;
+  let unconvertedStartIdx = 0;
+  for (const [i, ev] of surfaceEvents.entries()) {
+    const source = sourceOf(ev);
+    const layer = layerOf(ev);
+    const calls = toolCalls(ev);
+    let barrier = ev?.type === 'system/message' || ev?.type === 'developer/message'
+      || isTrigger(source) || HOST_KINDS.has(source?.kind) || layer === 'conclusion';
+    if (!ev) valid = false;
+    if (ev?.type === 'assistant/message') {
+      if (pending.size) valid = false;
+      const skill = calls.some(b => b.name === 'skill');
+      barrier ||= skill;
+      for (const call of calls) {
+        if (!call.id || !call.name || pending.has(call.id)) valid = false;
+        pending.set(call.id, { ev, skill });
+      }
+    } else if (ev?.type === 'tool/result') {
+      const id = resultId(ev);
+      const pair = pending.get(id);
+      if (!pair || pair.ev.data.turn !== ev.data.turn || pair.ev.data.step !== ev.data.step) valid = false;
+      barrier ||= pair?.skill === true;
+      pending.delete(id);
+    }
+    if (barrier) barriers.push(i);
+    if (layer === 'conclusion') lastConclusionIdx = i;
+    if (barrier || layer === 'objective') unconvertedStartIdx = i + 1;
+    cuts.push(valid && pending.size === 0);
+  }
+  return { cuts, barriers, lastConclusionIdx, unconvertedStartIdx };
+}
+
 export function inspectLayers(session, events = readSessionEvents(session)) {
-  const nodes = Array.isArray(session?.surface?.nodes) ? [...session.surface.nodes] : [];
-  const surfaceEvents = nodes.map((seq) => eventAtSeq(session, events, seq));
-
-  let baseEndExclusive = 0;
-  while (baseEndExclusive < surfaceEvents.length && isInitialBaseNode(surfaceEvents[baseEndExclusive], baseEndExclusive)) {
-    baseEndExclusive += 1;
-  }
-
-  let conclusionStartIdx = baseEndExclusive;
-  let conclusionEndExclusive = baseEndExclusive;
-  while (conclusionEndExclusive < surfaceEvents.length) {
-    const ev = surfaceEvents[conclusionEndExclusive];
-    if (ev?.type === 'user/message' && ev.data?.source?.kind === FOCUS_SOURCE_KIND && ev.data?.source?.layer === 'conclusion') {
-      conclusionEndExclusive += 1;
-    } else {
-      break;
-    }
-  }
-
-  let objectiveIdx = -1;
-  if (conclusionEndExclusive > conclusionStartIdx) {
-    // Folded state: objective layer is an explicit layer === 'objective' node right after conclusions (if present)
-    const candidate = surfaceEvents[conclusionEndExclusive];
-    if (candidate?.type === 'user/message' && candidate.data?.source?.kind === FOCUS_SOURCE_KIND && candidate.data?.source?.layer === 'objective') {
-      objectiveIdx = conclusionEndExclusive;
-    }
-  } else {
-    // Unfolded state: first real trigger user message after base layer acts as initial prompt layer
-    for (let idx = baseEndExclusive; idx < surfaceEvents.length; idx += 1) {
-      const ev = surfaceEvents[idx];
-      if (ev?.type === 'user/message' && TRIGGER_SOURCE_KINDS.has(ev.data?.source?.kind)) {
-        objectiveIdx = idx;
-        break;
-      }
-    }
-  }
-
-  const unconvertedStartIdx = objectiveIdx >= 0
-    ? objectiveIdx + 1
-    : conclusionEndExclusive;
-
-  return {
-    nodes,
-    surfaceEvents,
-    baseEndExclusive,
-    conclusionStartIdx,
-    conclusionEndExclusive,
-    objectiveIdx,
-    unconvertedStartIdx,
-  };
+  const nodes = [...(session?.surface?.nodes ?? [])];
+  const surfaceEvents = nodes.map(seq => eventAtSeq(session, events, seq));
+  return { nodes, surfaceEvents, ...inspectSurface(surfaceEvents) };
 }
 
-/**
- * Verify that `nodes[startIdx .. endIdx]` is balanced with respect to tool-call / tool/result pairs:
- * 1. Prefix `[0 .. startIdx)` has 0 open tool calls;
- * 2. Span `[startIdx .. endIdx]` never goes negative and ends with 0 open tool calls.
- */
 export function isSurfaceSpanBalanced(surfaceEvents, startIdx, endIdx) {
-  if (startIdx <= 0 || startIdx > endIdx || endIdx >= surfaceEvents.length) return false;
-  let openCalls = 0;
-  for (let i = 0; i < surfaceEvents.length; i += 1) {
-    if (i === startIdx && openCalls !== 0) return false;
+  if (startIdx < 0 || startIdx > endIdx || endIdx >= surfaceEvents.length) return false;
+  const { cuts } = inspectSurface(surfaceEvents);
+  return cuts[startIdx] && cuts[endIdx + 1];
+}
+
+function parseArgs(rawArgs) {
+  try { return validateFocusConcludeArgs(typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs); }
+  catch { return null; }
+}
+
+function pendingCheckpoints(layout, events) {
+  const { surfaceEvents, cuts, lastConclusionIdx } = layout;
+  const matches = [];
+  for (let i = lastConclusionIdx + 1; i + 1 < surfaceEvents.length; i++) {
     const ev = surfaceEvents[i];
-    if (!ev) return false;
-    if (ev.type === 'assistant/message') {
-      const content = ev.data?.message?.content;
-      const calls = Array.isArray(content) ? content.filter((b) => b?.type === 'tool-call').length : 0;
-      openCalls += calls;
-    } else if (ev.type === 'tool/result') {
-      openCalls -= 1;
-      if (openCalls < 0) return false;
-    }
-    if (i === endIdx && openCalls !== 0) return false;
+    const calls = toolCalls(ev);
+    if (calls.length !== 1 || calls[0].name !== FOCUS_TOOL_NAME || ev.data.interrupted || !cuts[i]) continue;
+    const result = surfaceEvents[i + 1];
+    const [call] = calls;
+    if (result?.type !== 'tool/result' || !cuts[i + 2] || resultId(result) !== call.id
+      || result.data.message?.isError || result.data.error !== undefined) continue;
+    // A durable tool/call is trace, not a surface node. Only use a matching
+    // execution from this exact step when an old assistant omitted arguments.
+    const raw = call.arguments ?? call.input ?? events.find(e => e.type === 'tool/call'
+      && e.seq > ev.seq && e.seq < result.seq && e.data?.turn === ev.data.turn && e.data.step === ev.data.step
+      && e.data.name === FOCUS_TOOL_NAME && e.data.callId === call.id)?.data.arguments;
+    const parsed = parseArgs(raw);
+    if (parsed) matches.push({ ...parsed, callIdx: i, resultIdx: i + 1 });
   }
-  return true;
+  return matches;
 }
 
-function parseRawToolCallArgs(rawArgs) {
-  if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) return rawArgs;
-  if (typeof rawArgs === 'string') {
-    try { return JSON.parse(rawArgs); } catch { return null; }
+function storedObjective(ev) {
+  const source = sourceOf(ev);
+  const value = layerOf(ev) === 'objective' ? source : layerOf(ev) === 'conclusion' ? source.objective : null;
+  if (typeof value?.rawText === 'string' && value.rawText.trim()) {
+    return { rawText: value.rawText.trim(), origin: value.origin === 'model' ? 'model' : 'carried' };
   }
   return null;
 }
 
-/**
- * Scan `surfaceEvents` after `afterIdx` for completed successful `focus_conclude` pairs `[callIdx, resultIdx]`.
- * Also falls back to `tool/call` log events for argument lookup when needed.
- */
-function findPendingFocusConcludeCalls(surfaceEvents, startIdx, events) {
-  const toolCallArgsById = new Map();
-  for (const ev of events) {
-    if (ev?.type === 'tool/call' && ev.data?.name === FOCUS_TOOL_NAME && ev.data?.callId) {
-      toolCallArgsById.set(ev.data.callId, ev.data.arguments);
+function resolveObjective(surfaceEvents, callIdx, explicit) {
+  let active = null;
+  let redirected = false;
+  let seenTask = false;
+  for (let i = 0; i < callIdx; i++) {
+    const ev = surfaceEvents[i];
+    const saved = storedObjective(ev);
+    if (saved) {
+      active = { ...saved, origin: 'carried' };
+      seenTask = true;
+      redirected = false;
+    } else if (isTrigger(sourceOf(ev))) {
+      const text = textOfUserMessage(ev.data).trim();
+      const attachment = ev.data?.content?.some?.(b => b?.type === 'image' || b?.type === 'file');
+      if (!attachment && (!text || isContinuation(text))) continue;
+      active = { rawText: text || 'Refer to the most recent user attachment.', origin: 'carried' };
+      redirected = seenTask;
+      seenTask = true;
     }
   }
-
-  const assistantCalls = new Map();
-  const matched = [];
-
-  for (let idx = startIdx; idx < surfaceEvents.length; idx += 1) {
-    const ev = surfaceEvents[idx];
-    if (!ev) continue;
-    if (ev.type === 'assistant/message') {
-      const blocks = Array.isArray(ev.data?.message?.content)
-        ? ev.data.message.content.filter((b) => b?.type === 'tool-call')
-        : [];
-      // Hard rule: never fold a parallel tool-call assistant message
-      if (blocks.length === 1 && blocks[0]?.name === FOCUS_TOOL_NAME) {
-        const block = blocks[0];
-        const callId = block.id ?? block.callId ?? block.toolCallId;
-        if (callId) {
-          assistantCalls.set(callId, {
-            callIdx: idx,
-            callSeq: ev.seq,
-            rawArgs: block.arguments ?? block.input ?? toolCallArgsById.get(callId),
-          });
-        }
-      }
-    } else if (ev.type === 'tool/result') {
-      const msg = ev.data?.message;
-      const callId = msg?.toolCallId ?? msg?.source?.callId;
-      if (!callId || msg?.isError === true || ev.data?.error !== undefined) continue;
-      const callInfo = assistantCalls.get(callId);
-      if (!callInfo) continue;
-      const parsedObj = parseRawToolCallArgs(callInfo.rawArgs ?? toolCallArgsById.get(callId));
-      if (!parsedObj) continue;
-      try {
-        const validated = validateFocusConcludeArgs(parsedObj);
-        matched.push({
-          callIdx: callInfo.callIdx,
-          callSeq: callInfo.callSeq,
-          resultIdx: idx,
-          resultSeq: ev.seq,
-          entries: validated.entries,
-          objective: validated.objective,
-        });
-      } catch {
-        // Invalid args cannot fold
-      }
-    }
-  }
-
-  return matched;
+  return explicit && !redirected ? { rawText: explicit, origin: 'model' } : active;
 }
 
-function resolveObjectiveForFold(surfaceEvents, startIdx, callIdx, explicitObjective) {
-  if (typeof explicitObjective === 'string' && explicitObjective.trim().length > 0) {
-    return { rawText: explicitObjective.trim(), origin: 'model' };
-  }
-  // Search backward in [startIdx .. callIdx) for the latest real user/chat/wake trigger message
-  for (let idx = callIdx - 1; idx >= startIdx; idx -= 1) {
-    const ev = surfaceEvents[idx];
-    if (ev?.type !== 'user/message') continue;
-    const kind = ev.data?.source?.kind;
-    if (!TRIGGER_SOURCE_KINDS.has(kind)) continue;
-    const text = textOfUserMessage(ev.data).trim();
-    if (text) return { rawText: text, origin: 'carried' };
-  }
-  // Fallback: carry forward the previous layer === 'objective' node inside [startIdx .. callIdx)
-  for (let idx = callIdx - 1; idx >= startIdx; idx -= 1) {
-    const ev = surfaceEvents[idx];
-    if (ev?.type === 'user/message' && ev.data?.source?.kind === FOCUS_SOURCE_KIND && ev.data?.source?.layer === 'objective') {
-      const saved = typeof ev.data.source.rawText === 'string' && ev.data.source.rawText.trim()
-        ? ev.data.source.rawText.trim()
-        : textOfUserMessage(ev.data).trim();
-      if (saved) return { rawText: saved, origin: 'carried' };
-    }
-  }
-  return null;
+function conclusionMessage(entries, now, objective) {
+  const msg = buildConclusionMessage(entries, now);
+  if (!objective) return msg;
+  const obj = buildObjectiveMessage({ ...objective, now });
+  return { ...msg, content: [...msg.content, ...obj.content], source: { ...msg.source, objective } };
+}
+
+function replaceInput(nodes, start, end, message) {
+  return ['user/message', message, {
+    surfaceOp: { op: 'replace', startSeq: nodes[start], endSeq: nodes[end] },
+    sourceEventSeqs: nodes.slice(start, end + 1),
+  }];
 }
 
 export function foldPendingConclusions(session, { now = Date.now(), turn = 0, step = 0, onDiagnostic = () => {} } = {}) {
   const events = readSessionEvents(session);
+  if (hasActiveCompaction(events)) return null;
   const layout = inspectLayers(session, events);
-  const startIdx = layout.conclusionEndExclusive;
-  if (startIdx <= 0 || startIdx >= layout.surfaceEvents.length) return null;
+  const { nodes, surfaceEvents, cuts, barriers } = layout;
+  const matches = pendingCheckpoints(layout, events);
+  const latest = matches.at(-1);
+  if (!latest) return null;
+  const { callIdx, resultIdx } = latest;
+  let start = (barriers.findLast(i => i <= resultIdx) ?? -1) + 1;
+  // A user or host message could itself have landed inside an unrelated batch.
+  // Keep the entire batch instead of beginning at one of its results.
+  while (start < callIdx && !cuts[start]) start++;
+  if (start > callIdx || !cuts[start] || !cuts[resultIdx + 1]) return null;
 
-  const matches = findPendingFocusConcludeCalls(layout.surfaceEvents, startIdx, events);
-  if (matches.length === 0) return null;
-
-  const latest = matches[matches.length - 1];
-  const endIdx = latest.resultIdx;
-  const callIdx = latest.callIdx;
-
-  if (!isSurfaceSpanBalanced(layout.surfaceEvents, startIdx, endIdx)) {
-    onDiagnostic({
-      event: 'fold-skipped-unbalanced',
-      sessionId: session?.id ?? null,
-      turn,
-      step,
-      startSeq: layout.nodes[startIdx],
-      endSeq: layout.nodes[endIdx],
-    });
-    return null;
-  }
-
-  // Merge entries in order across all matched focus_conclude calls in the span
-  const mergedMap = new Map();
-  let chosenObjective = '';
+  const merged = new Map();
+  let explicit = '';
   for (const item of matches) {
+    if (item.callIdx < start) continue;
     for (const entry of item.entries) {
-      if (mergedMap.has(entry.key)) mergedMap.delete(entry.key);
-      mergedMap.set(entry.key, entry);
+      merged.delete(entry.key);
+      merged.set(entry.key, entry);
     }
-    if (item.objective) chosenObjective = item.objective;
+    if (item.objective && !isContinuation(item.objective)) explicit = item.objective;
   }
-  const mergedEntries = [...mergedMap.values()];
-  const objectiveInfo = resolveObjectiveForFold(layout.surfaceEvents, startIdx, callIdx, chosenObjective);
-
-  const beforeChars = layout.surfaceEvents
-    .slice(startIdx, endIdx + 1)
-    .reduce((sum, ev) => sum + charsOfSurfaceEvent(ev), 0);
-
-  const conclusionMsg = buildConclusionMessage(mergedEntries, now);
-  const startSeq = layout.nodes[startIdx];
-  const endSeq = layout.nodes[endIdx];
-  let deferredObjectiveMessage = null;
-  let afterChars = charsOfMessage(conclusionMsg);
-
-  if (startIdx < callIdx) {
-    // Normal two-segment replace:
-    // 1. [startSeq .. preCallSeq] -> conclusionMsg
-    // 2. [callSeq .. endSeq] -> objectiveMsg (or single replace if no objective exists)
-    const preCallIdx = callIdx - 1;
-    const preCallSeq = layout.nodes[preCallIdx];
-    const callSpanSeqs = layout.nodes.slice(callIdx, endIdx + 1);
-    const beforeCallSeqs = layout.nodes.slice(startIdx, callIdx);
-
-    if (objectiveInfo && isSurfaceSpanBalanced(layout.surfaceEvents, startIdx, preCallIdx) && isSurfaceSpanBalanced(layout.surfaceEvents, callIdx, endIdx)) {
-      const objectiveMsg = buildObjectiveMessage({
-        rawText: objectiveInfo.rawText,
-        origin: objectiveInfo.origin,
-        now,
-      });
-      afterChars += charsOfMessage(objectiveMsg);
-      session.append('user/message', conclusionMsg, {
-        surfaceOp: { op: 'replace', startSeq, endSeq: preCallSeq },
-        sourceEventSeqs: beforeCallSeqs,
-      });
-      session.append('user/message', objectiveMsg, {
-        surfaceOp: { op: 'replace', startSeq: layout.nodes[callIdx], endSeq },
-        sourceEventSeqs: callSpanSeqs,
-      });
-    } else {
-      const allShadowed = layout.nodes.slice(startIdx, endIdx + 1);
-      session.append('user/message', conclusionMsg, {
-        surfaceOp: { op: 'replace', startSeq, endSeq },
-        sourceEventSeqs: allShadowed,
-      });
-      if (objectiveInfo) {
-        deferredObjectiveMessage = buildObjectiveMessage({
-          rawText: objectiveInfo.rawText,
-          origin: objectiveInfo.origin,
-          now,
-          asNotice: true,
-        });
-        afterChars += charsOfMessage(deferredObjectiveMessage);
-      }
-    }
-  } else {
-    // Degenerate path: startIdx === callIdx
-    const allShadowed = layout.nodes.slice(startIdx, endIdx + 1);
-    session.append('user/message', conclusionMsg, {
-      surfaceOp: { op: 'replace', startSeq, endSeq },
-      sourceEventSeqs: allShadowed,
-    });
-    if (objectiveInfo) {
-      deferredObjectiveMessage = buildObjectiveMessage({
-        rawText: objectiveInfo.rawText,
-        origin: objectiveInfo.origin,
-        now,
-        asNotice: true,
-      });
-      afterChars += charsOfMessage(deferredObjectiveMessage);
-    }
-  }
-
-  onDiagnostic({
-    event: 'folded',
-    sessionId: session?.id ?? null,
-    turn,
-    step,
-    replacedRange: { startSeq, endSeq },
-    keys: mergedEntries.map((item) => item.key),
-    origin: objectiveInfo?.origin ?? 'none',
-    beforeChars,
-    afterChars,
-  });
-
-  return {
-    deferredObjectiveMessage,
-    beforeChars,
-    afterChars,
-  };
+  const entries = [...merged.values()];
+  const objective = resolveObjective(surfaceEvents, callIdx, explicit);
+  const inputs = start < callIdx && objective ? [
+    replaceInput(nodes, start, callIdx - 1, conclusionMessage(entries, now)),
+    replaceInput(nodes, callIdx, resultIdx, buildObjectiveMessage({ ...objective, now })),
+  ] : [replaceInput(nodes, start, resultIdx, conclusionMessage(entries, now, objective))];
+  session.append(inputs);
+  const beforeChars = surfaceEvents.slice(start, resultIdx + 1).reduce((n, ev) => n + charsOfSurfaceEvent(ev), 0);
+  const afterChars = inputs.reduce((n, [, msg]) => n + charsOfMessage(msg), 0);
+  onDiagnostic({ event: 'folded', sessionId: session.id, turn, step,
+    replacedRange: { startSeq: nodes[start], endSeq: nodes[resultIdx] }, keys: [...merged.keys()],
+    origin: objective?.origin ?? 'none', beforeChars, afterChars });
+  return { beforeChars, afterChars };
 }
 
-/**
- * Find the timestamp of the last completed model interaction (`turn/end` or `assistant/message`),
- * deliberately ignoring the freshly opened `turn/start` or current incoming user message.
- */
 export function lastModelInteractionTime(events) {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (!event) continue;
-    if (event.type === 'turn/end' || event.type === 'assistant/message') {
-      if (typeof event.time === 'number' && Number.isFinite(event.time)) {
-        return event.time;
-      }
-    }
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if ((ev?.type === 'turn/end' || ev?.type === 'assistant/message') && Number.isFinite(ev.time)) return ev.time;
   }
   return null;
 }
 
-/**
- * Deterministically merge, purge tombstones, and cap entries to `maxConclusionChars`.
- */
 export function compactConclusionEntries(rawEntriesList, maxConclusionChars) {
   const ordered = new Map();
-  const retiredKeys = new Set();
-
   for (const entries of rawEntriesList) {
-    if (!Array.isArray(entries)) continue;
-    for (const raw of entries) {
-      const key = typeof raw?.key === 'string' ? raw.key.trim() : '';
-      const text = typeof raw?.text === 'string' ? raw.text : '';
-      if (!key) continue;
-      if (ordered.has(key)) ordered.delete(key);
-      ordered.set(key, { key, text });
+    for (const entry of entries) {
+      ordered.delete(entry.key);
+      ordered.set(entry.key, entry);
     }
   }
-
-  const active = [];
-  for (const [key, entry] of ordered.entries()) {
-    if (entry.text === '') {
-      retiredKeys.add(key);
-    } else {
-      active.push(entry);
+  const kept = [];
+  const droppedKeys = [];
+  const overhead = renderConclusionsText([{ key: 'k', text: 'v' }]).length - renderConclusionLine({ key: 'k', text: 'v' }).length;
+  let available = maxConclusionChars - overhead;
+  let full = false;
+  for (const entry of [...ordered.values()].reverse()) {
+    if (!entry.text || full) { droppedKeys.push(entry.key); continue; }
+    const cost = renderConclusionLine(entry).length + (kept.length ? 1 : 0);
+    if (cost <= available) { kept.push(entry); available -= cost; continue; }
+    full = true;
+    if (kept.length) { droppedKeys.push(entry.key); continue; }
+    // Price the rendered prefix, including multiline indentation and escaped tags.
+    let low = 0, high = entry.text.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (renderConclusionLine({ ...entry, text: entry.text.slice(0, mid) + '…' }).length <= available) low = mid;
+      else high = mid - 1;
     }
+    kept.push({ key: entry.key, text: entry.text.slice(0, low) + '…' });
   }
-
-  if (active.length === 0) {
-    return { entries: [], droppedKeys: [...retiredKeys] };
-  }
-
-  const wrapperOverhead = renderConclusionsText([{ key: 'k', text: 'v' }]).length - renderConclusionLine({ key: 'k', text: 'v' }).length;
-  const keptReversed = [];
-  const evictedKeys = [];
-  let usedChars = wrapperOverhead;
-
-  for (let idx = active.length - 1; idx >= 0; idx -= 1) {
-    const item = active[idx];
-    const lineLen = renderConclusionLine(item).length + (keptReversed.length > 0 ? 1 : 0);
-    if (keptReversed.length === 0 && usedChars + lineLen > maxConclusionChars) {
-      // Single newest entry exceeds cap: truncate its text to fit within maxConclusionChars
-      const prefixOverhead = wrapperOverhead + `- [${item.key}]: `.length;
-      const available = Math.max(1, maxConclusionChars - prefixOverhead - 1);
-      const truncatedText = item.text.length > available ? `${item.text.slice(0, Math.max(1, available - 1))}…` : item.text;
-      keptReversed.push({ key: item.key, text: truncatedText });
-      for (let older = idx - 1; older >= 0; older -= 1) {
-        evictedKeys.push(active[older].key);
-      }
-      break;
-    }
-    if (usedChars + lineLen <= maxConclusionChars) {
-      keptReversed.push(item);
-      usedChars += lineLen;
-    } else {
-      for (let older = idx; older >= 0; older -= 1) {
-        evictedKeys.push(active[older].key);
-      }
-      break;
-    }
-  }
-
-  keptReversed.reverse();
-  return {
-    entries: keptReversed,
-    droppedKeys: [...new Set([...retiredKeys, ...evictedKeys.reverse()])],
-  };
+  return { entries: kept.reverse(), droppedKeys: droppedKeys.reverse() };
 }
 
-function entriesEquivalent(rawNodesEntries, compactedEntries) {
-  if (rawNodesEntries.length !== 1) return false;
-  const single = rawNodesEntries[0];
-  if (!Array.isArray(single) || single.length !== compactedEntries.length) return false;
-  for (let i = 0; i < single.length; i += 1) {
-    if (single[i]?.key !== compactedEntries[i]?.key || single[i]?.text !== compactedEntries[i]?.text) {
-      return false;
-    }
-  }
-  return true;
+function usableConclusion(ev) {
+  const entries = sourceOf(ev)?.entries;
+  return layerOf(ev) === 'conclusion' && Array.isArray(entries)
+    && entries.every(e => typeof e?.key === 'string' && e.key.trim() && typeof e.text === 'string');
 }
 
-export function compactConclusionsIfNeeded(
-  session,
-  config,
-  { incomingMessages = [], now = Date.now(), onDiagnostic = () => {} } = {},
-) {
+function latestCompactionEnd(events) {
+  let open;
+  let end = -1;
+  for (const ev of events) {
+    if (ev.type === 'compaction/start') open = ev.data?.compactionId;
+    if (ev.type === 'session/end-seed') open = undefined;
+    if (ev.type === 'compaction/end') {
+      if (open && ev.data?.compactionId === open && ev.data.error === undefined) end = ev.seq;
+      open = undefined;
+    }
+  }
+  return end;
+}
+
+function snapshotKind(ev) {
+  const s = sourceOf(ev);
+  if (s?.kind === 'runtime-context' && s.form === 'snapshot' && Array.isArray(s.sections)
+    && s.sections.every(x => typeof x?.name === 'string' && typeof x.text === 'string')) return s.kind;
+  if (s?.kind === 'skill-catalog' && s.form === 'catalog' && Array.isArray(s.entries)
+    && s.entries.every(x => typeof x?.name === 'string' && typeof x.description === 'string')) return s.kind;
+  return null;
+}
+
+export function compactConclusionsIfNeeded(session, config, { incomingMessages = [], now = Date.now(), onDiagnostic = () => {} } = {}) {
   const events = readSessionEvents(session);
-  const layout = inspectLayers(session, events);
-  const conclusionCount = layout.conclusionEndExclusive - layout.conclusionStartIdx;
-  if (conclusionCount <= 0) return null;
+  if (hasActiveCompaction(events)) return null;
+  const { nodes, surfaceEvents, cuts } = inspectLayers(session, events);
+  const lastTime = lastModelInteractionTime(events);
+  const idle = lastTime !== null && now - lastTime >= config.idleMinutes * 60_000;
+  const threshold = surfaceEvents.reduce((n, ev) => n + charsOfSurfaceEvent(ev), 0)
+    + incomingMessages.reduce((n, msg) => n + charsOfMessage(msg), 0) >= config.compactChars;
+  const hostEnd = latestCompactionEnd(events);
+  if (!idle && !threshold && hostEnd < 0) return null;
 
-  const surfaceChars = layout.surfaceEvents.reduce((sum, ev) => sum + charsOfSurfaceEvent(ev), 0);
-  const incomingChars = (Array.isArray(incomingMessages) ? incomingMessages : [])
-    .reduce((sum, msg) => sum + charsOfMessage(msg), 0);
-  const totalChars = surfaceChars + incomingChars;
-
-  const lastInteractionAt = lastModelInteractionTime(events);
-  const idleElapsedMs = lastInteractionAt !== null ? now - lastInteractionAt : 0;
-  const idleTriggered = lastInteractionAt !== null && idleElapsedMs >= config.idleMinutes * 60_000;
-  const thresholdTriggered = totalChars >= config.compactChars;
-
-  if (!idleTriggered && !thresholdTriggered) return null;
-
-  const conclusionEvents = layout.surfaceEvents.slice(layout.conclusionStartIdx, layout.conclusionEndExclusive);
-  const rawNodesEntries = conclusionEvents.map((ev) => (Array.isArray(ev?.data?.source?.entries) ? ev.data.source.entries : []));
-  const { entries: compactedEntries, droppedKeys } = compactConclusionEntries(rawNodesEntries, config.maxConclusionChars);
-
-  // Guard: skip no-op replace when already 1 node, no duplicates, no tombstones, and under cap
-  if (entriesEquivalent(rawNodesEntries, compactedEntries)) {
-    return null;
-  }
-
-  const beforeChars = conclusionEvents.reduce((sum, ev) => sum + charsOfSurfaceEvent(ev), 0);
-  const compactedMsg = buildConclusionMessage(compactedEntries, now);
-  const afterChars = charsOfMessage(compactedMsg);
-  const conclusionSeqs = layout.nodes.slice(layout.conclusionStartIdx, layout.conclusionEndExclusive);
-  const firstConclusionSeq = conclusionSeqs[0];
-  const lastConclusionSeq = conclusionSeqs[conclusionSeqs.length - 1];
-
-  session.append('user/message', compactedMsg, {
-    surfaceOp: { op: 'replace', startSeq: firstConclusionSeq, endSeq: lastConclusionSeq },
-    sourceEventSeqs: conclusionSeqs,
-  });
-
-  const reason = thresholdTriggered ? 'threshold' : 'idle';
-  onDiagnostic({
-    event: 'compacted',
-    sessionId: session?.id ?? null,
-    reason,
-    beforeNodes: conclusionCount,
-    afterNodes: 1,
-    beforeChars,
-    afterChars,
-    removedKeys: droppedKeys,
-  });
-
-  return {
-    reason,
-    beforeNodes: conclusionCount,
-    afterNodes: 1,
-    beforeChars,
-    afterChars,
-    removedKeys: droppedKeys,
-  };
-}
-
-export function evaluateUnconvertedNudge(
-  session,
-  decisionMessages,
-  config,
-  { onDiagnostic = () => {} } = {},
-) {
-  const events = readSessionEvents(session);
-  const layout = inspectLayers(session, events);
-  const unconvertedEvents = layout.surfaceEvents.slice(layout.unconvertedStartIdx);
-
-  const surfaceUnconvertedChars = unconvertedEvents.reduce((sum, ev) => sum + charsOfSurfaceEvent(ev), 0);
-  const incomingChars = (Array.isArray(decisionMessages) ? decisionMessages : [])
-    .reduce((sum, msg) => sum + charsOfMessage(msg), 0);
-  const unconvertedChars = surfaceUnconvertedChars + incomingChars;
-
-  // Check if a nudge already exists in the unconverted layer (either on surface or in decisionMessages)
-  let lastNudgeIdx = -1;
-  for (let i = unconvertedEvents.length - 1; i >= 0; i -= 1) {
-    const ev = unconvertedEvents[i];
-    if (ev?.type === 'user/message' && ev.data?.source?.kind === FOCUS_SOURCE_KIND && ev.data?.source?.layer === 'nudge') {
-      lastNudgeIdx = i;
-      break;
+  // One old successful host compaction must never authorize cleanup of future
+  // work. Only nodes already present at its end participate in that pass.
+  const largeCutoff = idle ? Infinity : hostEnd;
+  const conclusionCutoff = threshold ? Infinity : largeCutoff;
+  const stale = new Set();
+  const staleEmbeddedObjectives = new Set();
+  const seenSnapshots = new Set();
+  let newerObjective = false;
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    if (nodes[i] > largeCutoff) continue;
+    const ev = surfaceEvents[i];
+    const kind = snapshotKind(ev);
+    if (kind) {
+      if (seenSnapshots.has(kind)) stale.add(i);
+      // Incomplete discovery is not affirmative evidence of a complete replacement.
+      if (sourceOf(ev).incomplete !== true) seenSnapshots.add(kind);
+    }
+    if (storedObjective(ev)) {
+      if (newerObjective) {
+        if (layerOf(ev) === 'objective') stale.add(i);
+        else staleEmbeddedObjectives.add(i);
+      }
+      newerObjective = true;
     }
   }
-  const decisionHasNudge = (Array.isArray(decisionMessages) ? decisionMessages : []).some(
-    (msg) => msg?.source?.kind === FOCUS_SOURCE_KIND && msg?.source?.layer === 'nudge',
-  );
-  if (decisionHasNudge) return null;
 
-  if (lastNudgeIdx === -1) {
-    if (unconvertedChars < config.nudgeChars) return null;
-  } else {
-    const charsSinceLastNudge = unconvertedEvents
-      .slice(lastNudgeIdx + 1)
-      .reduce((sum, ev) => sum + charsOfSurfaceEvent(ev), 0) + incomingChars;
-    const repeatStep = Math.max(8000, Math.floor(config.nudgeChars / 2));
-    if (charsSinceLastNudge < repeatStep) return null;
+  const conclusionIndices = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (layerOf(surfaceEvents[i]) !== 'conclusion') continue;
+    // Never purge a retirement or evict an older version without seeing all
+    // records that participate in last-write-wins, including legacy records.
+    if (!usableConclusion(surfaceEvents[i]) || !cuts[i] || !cuts[i + 1]) return null;
+    if (nodes[i] > conclusionCutoff) continue;
+    conclusionIndices.push(i);
+  }
+  const raw = conclusionIndices.map(i => sourceOf(surfaceEvents[i]).entries);
+  const { entries, droppedKeys } = compactConclusionEntries(raw, config.maxConclusionChars);
+  const lastOwner = new Map();
+  for (const i of conclusionIndices) for (const e of sourceOf(surfaceEvents[i]).entries) lastOwner.set(e.key, i);
+  const retained = new Map();
+  for (const entry of entries) {
+    const i = lastOwner.get(entry.key);
+    if (!retained.has(i)) retained.set(i, []);
+    retained.get(i).push(entry);
   }
 
-  const nudgeMessage = buildNudgeMessage();
-  onDiagnostic({
-    event: 'nudged',
-    sessionId: session?.id ?? null,
-    unconvertedChars,
-    nudgeChars: config.nudgeChars,
-  });
-  return nudgeMessage;
+  const eligible = new Set([...conclusionIndices, ...stale]);
+  const inputs = [];
+  let beforeNodes = 0, beforeChars = 0;
+  for (let i = 0; i < nodes.length;) {
+    if (!eligible.has(i) || !cuts[i] || !cuts[i + 1]) { i++; continue; }
+    const start = i;
+    const group = [];
+    let hasConclusion = false, objective = null;
+    do {
+      const ev = surfaceEvents[i];
+      if (usableConclusion(ev)) {
+        hasConclusion = true;
+        if (!staleEmbeddedObjectives.has(i)) objective = storedObjective(ev) ?? objective;
+        for (const entry of retained.get(i) ?? []) group.push(entry);
+      }
+      i++;
+    } while (i < nodes.length && eligible.has(i) && cuts[i] && cuts[i + 1]);
+    if (i === start + 1 && hasConclusion && !staleEmbeddedObjectives.has(start)) {
+      const old = sourceOf(surfaceEvents[start]).entries;
+      if (old.length === group.length && old.every((e, k) => e.key === group[k].key && e.text === group[k].text)) continue;
+    }
+    const message = hasConclusion ? conclusionMessage(group, now, objective) : {
+      ...buildConclusionMessage([], now),
+      content: [{ type: 'text', text: '[Superseded context omitted.]' }],
+      source: { kind: FOCUS_SOURCE_KIND, layer: 'superseded' },
+    };
+    inputs.push(replaceInput(nodes, start, i - 1, message));
+    beforeNodes += i - start;
+    for (let j = start; j < i; j++) beforeChars += charsOfSurfaceEvent(surfaceEvents[j]);
+  }
+  if (!inputs.length) return null;
+  session.append(inputs);
+  const result = { reason: idle ? 'idle' : threshold ? 'threshold' : 'host-compaction', beforeNodes, afterNodes: inputs.length,
+    beforeChars, afterChars: inputs.reduce((n, [, msg]) => n + charsOfMessage(msg), 0), removedKeys: droppedKeys };
+  onDiagnostic({ event: 'compacted', sessionId: session.id, ...result });
+  return result;
 }
 
-export function createPreStepHandler({
-  loadConfig,
-  allowed,
-  now = () => Date.now(),
-  onDiagnostic = () => {},
-}) {
+export function evaluateUnconvertedNudge(session, decisionMessages, config, { onDiagnostic = () => {} } = {}) {
+  const { surfaceEvents, unconvertedStartIdx } = inspectLayers(session);
+  const work = surfaceEvents.slice(unconvertedStartIdx);
+  const incoming = Array.isArray(decisionMessages) ? decisionMessages : [];
+  if (incoming.some(msg => msg?.source?.kind === FOCUS_SOURCE_KIND && msg.source.layer === 'nudge')) return null;
+  const incomingChars = incoming.reduce((n, msg) => n + charsOfMessage(msg), 0);
+  const lastNudge = work.findLastIndex(ev => layerOf(ev) === 'nudge');
+  const unconvertedChars = work.reduce((n, ev) => n + charsOfSurfaceEvent(ev), incomingChars);
+  if (lastNudge < 0 ? unconvertedChars < config.nudgeChars :
+    work.slice(lastNudge + 1).reduce((n, ev) => n + charsOfSurfaceEvent(ev), incomingChars) < Math.max(8000, Math.floor(config.nudgeChars / 2))) return null;
+  onDiagnostic({ event: 'nudged', sessionId: session.id, unconvertedChars, nudgeChars: config.nudgeChars });
+  return buildNudgeMessage();
+}
+
+export function createPreStepHandler({ loadConfig, allowed, now = () => Date.now(), onDiagnostic = () => {} }) {
   return async (payload, next) => {
     const { agent, messages, turn, step, signal } = payload ?? {};
-    if (!agent?.session || signal?.aborted || !allowed(agent)) {
-      return next();
-    }
-
-    const session = agent.session;
-    const initialEvents = readSessionEvents(session);
-    if (hasActiveCompaction(initialEvents)) {
-      return next();
-    }
-
+    if (!agent?.session || signal?.aborted || !allowed(agent)) return next();
+    const { session } = agent;
+    if (hasActiveCompaction(readSessionEvents(session))) return next();
+    const report = (event, error) => onDiagnostic({ event, sessionId: session.id, message: String(error?.message ?? error) });
     let config;
-    try {
-      config = loadConfig();
-    } catch (error) {
-      onDiagnostic({
-        event: 'config-error',
-        sessionId: session.id ?? null,
-        message: String(error?.message ?? error),
-      });
-      return next();
-    }
-
-    let deferredObjectiveMessage = null;
-    const currentNow = now();
-
-    // Stage A: Fold completed focus_conclude call(s) before inner pre-step listeners inspect surface
-    try {
-      const folded = foldPendingConclusions(session, {
-        now: currentNow,
-        turn,
-        step,
-        onDiagnostic,
-      });
-      if (folded?.deferredObjectiveMessage) {
-        deferredObjectiveMessage = folded.deferredObjectiveMessage;
-      }
-    } catch (error) {
-      onDiagnostic({
-        event: 'fold-error',
-        sessionId: session.id ?? null,
-        message: String(error?.message ?? error),
-      });
-    }
-
-    // Stage B: Deterministic conclusion-layer compaction on threshold or idle timeout
-    try {
-      compactConclusionsIfNeeded(session, config, {
-        incomingMessages: messages,
-        now: currentNow,
-        onDiagnostic,
-      });
-    } catch (error) {
-      onDiagnostic({
-        event: 'compact-error',
-        sessionId: session.id ?? null,
-        message: String(error?.message ?? error),
-      });
-    }
-
+    try { config = loadConfig(); } catch (error) { report('config-error', error); return next(); }
+    const time = now();
+    try { foldPendingConclusions(session, { now: time, turn, step, onDiagnostic }); }
+    catch (error) { report('fold-error', error); }
+    try { compactConclusionsIfNeeded(session, config, { incomingMessages: messages, now: time, onDiagnostic }); }
+    catch (error) { report('compact-error', error); }
     const decision = await next();
-    if (!decision || decision.kind === 'reject' || signal?.aborted) {
-      return decision;
-    }
-
-    let nextMessages = Array.isArray(decision.messages) ? decision.messages : [];
-    let mutated = false;
-
-    if (deferredObjectiveMessage) {
-      nextMessages = [...nextMessages, deferredObjectiveMessage];
-      mutated = true;
-    }
-
-    // Stage C: Unconverted layer thickness nudge
+    if (!decision || decision.kind === 'reject' || signal?.aborted) return decision;
     try {
-      const nudge = evaluateUnconvertedNudge(session, nextMessages, config, { onDiagnostic });
-      if (nudge) {
-        nextMessages = [...nextMessages, nudge];
-        mutated = true;
-      }
-    } catch (error) {
-      onDiagnostic({
-        event: 'nudge-error',
-        sessionId: session.id ?? null,
-        message: String(error?.message ?? error),
-      });
-    }
-
-    return mutated ? { ...decision, messages: nextMessages } : decision;
+      const nudge = evaluateUnconvertedNudge(session, decision.messages, config, { onDiagnostic });
+      if (nudge) return { ...decision, messages: [...decision.messages, nudge] };
+    } catch (error) { report('nudge-error', error); }
+    return decision;
   };
 }

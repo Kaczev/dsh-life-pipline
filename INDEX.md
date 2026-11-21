@@ -2,7 +2,7 @@
 
 `dsh-life-pipline` 是聚合安装入口，选择生命核心和独立管线；所有 `dsh-lpipe-*` 直接依赖 `dsh-life-core`。共享设置与主会话逻辑由核心提供，根 `src/` 只保留兼容转发及聚合激活。
 
-- [聚焦管线导航](components/dsh-lpipe-focus/INDEX.md)：单会话窗口四层结论堆叠、`focus_conclude`、过线／闲置程序整理、设置块与图标；[局部设计](不入库/设计/dsh-lpipe-focus-配置块.html)。
+- [聚焦管线导航](components/dsh-lpipe-focus/INDEX.md)：单会话结论折叠、用户与宿主原文及已加载技能的保留规则、程序整理与设置块；[局部设计](不入库/设计/dsh-lpipe-focus-配置块.html)。
 - [语气管线导航](components/dsh-lpipe-tone/INDEX.md)：四项语言呈现规则、主会话系统提示词、设置块与图标。
 - [语气设置块](components/dsh-lpipe-tone/client/panel.js)：四个多行输入、字符计数、保存／撤回／清空与读取失败重试；构建到 [lib/client.js](components/dsh-lpipe-tone/lib/client.js)，[回归](components/dsh-lpipe-tone/test/client.test.mjs)，[局部设计](不入库/设计/dsh-lpipe-tone-配置块.html)。
 - [生命核心导航](components/dsh-life-core/INDEX.md)：共享设置、隔离、数据路径与前置协调。

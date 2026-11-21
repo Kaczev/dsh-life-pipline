@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lpipe Focus",
-    "description": "Stack working conclusions in the main session while preserving the prompt prefix cache, compacting deterministically only on threshold or idle timeout."
+    "description": "Keep the findings needed for the next step. Ordinary folds preserve user messages, host context and loaded skills."
   }
 }

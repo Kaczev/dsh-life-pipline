@@ -114,7 +114,7 @@ export function createFocusConcludeTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
     description:
-      'Stack concise conclusions onto the main-session conclusion layer and fold consumed raw search or file-editing steps before the next request, keeping the prompt prefix cache intact. Must be called alone without any sibling tool calls in the same response.',
+      'Record conclusions that replace a completed span of work. Call this tool alone, after all tool results you need have arrived.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -122,7 +122,7 @@ export function createFocusConcludeTool({ onDiagnostic = () => {} } = {}) {
       properties: {
         conclusions: {
           type: 'array',
-          description: 'Conclusions to stack onto the conclusion layer (1..32 items). Each item sets or updates a slot key; pass text: "" to retire an obsolete key.',
+          description: 'One to 32 entries, each setting or updating a key.',
           items: {
             type: 'object',
             additionalProperties: false,
@@ -130,7 +130,7 @@ export function createFocusConcludeTool({ onDiagnostic = () => {} } = {}) {
             properties: {
               key: {
                 type: 'string',
-                description: "Short slot identifier for same-slot supersession, e.g. 'wake.timer' or 'file.rpc'.",
+                description: "Stable name for the finding, e.g. 'file.rpc'. Reuse it to update the finding.",
               },
               text: {
                 type: 'string',
@@ -141,7 +141,7 @@ export function createFocusConcludeTool({ onDiagnostic = () => {} } = {}) {
         },
         objective: {
           type: 'string',
-          description: 'Optional single current objective for the next step. Omit or pass "" to carry forward the active user request.',
+          description: 'Optional standalone sentence naming the current task and next action. Omit or pass "" to keep the current task; do not replace it with "continue". User instructions take precedence.',
         },
       },
     },
