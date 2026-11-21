@@ -2,6 +2,7 @@
 
 `dsh-life-pipline` 是聚合安装入口，选择生命核心和独立管线；所有 `dsh-lpipe-*` 直接依赖 `dsh-life-core`。共享设置与主会话逻辑由核心提供，根 `src/` 只保留兼容转发及聚合激活。
 
+- [聚焦管线导航](components/dsh-lpipe-focus/INDEX.md)：单会话窗口四层结论堆叠、`focus_conclude`、过线／闲置程序整理、设置块与图标；[局部设计](不入库/设计/dsh-lpipe-focus-配置块.html)。
 - [语气管线导航](components/dsh-lpipe-tone/INDEX.md)：四项语言呈现规则、主会话系统提示词、设置块与图标。
 - [语气设置块](components/dsh-lpipe-tone/client/panel.js)：四个多行输入、字符计数、保存／撤回／清空与读取失败重试；构建到 [lib/client.js](components/dsh-lpipe-tone/lib/client.js)，[回归](components/dsh-lpipe-tone/test/client.test.mjs)，[局部设计](不入库/设计/dsh-lpipe-tone-配置块.html)。
 - [生命核心导航](components/dsh-life-core/INDEX.md)：共享设置、隔离、数据路径与前置协调。
@@ -11,7 +12,7 @@
 - [组件开关回归](test/components-control.test.mjs)：前置顺序、级联关闭和非 applied 失败。
 - [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
 
-- [README.md](README.md)：中英安装指南、八条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
+- [README.md](README.md)：中英安装指南、九条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
 - [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
 - [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。
 - [components/dsh-life-core/client/panel.js](components/dsh-life-core/client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。

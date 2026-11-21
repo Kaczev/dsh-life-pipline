@@ -1,0 +1,31 @@
+{
+  "name": "dsh-lpipe-focus",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Short-term working context focus and conclusion stacking for the Lpipe main session.",
+  "license": "AGPL-3.0-or-later",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./assets/icon.png",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "dependencies": { "dsh-life-core": "^0.1.2" },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "build-client": "node scripts/build-client.mjs"
+  },
+  "files": ["src", "lib", "client", "locale", "assets", "cordis.patch.yml", "README.md", "INDEX.md", "LICENSE"],
+  "engines": { "node": "^22.19 || >=24", "dsh": ">=0.2.0-rc.2" },
+  "repository": { "type": "git", "url": "git+https://github.com/Kaczev/dsh-life-pipline.git", "directory": "components/dsh-lpipe-focus" },
+  "icon": "assets/icon.png",
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-slots"],
+      "platform": "web"
+    }
+  }
+}

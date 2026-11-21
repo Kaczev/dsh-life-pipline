@@ -17,6 +17,7 @@ function fixture(names = [CORE, ...COMPONENTS]) {
 
 test('recall prerequisites are unique and topologically ordered', () => {
   assert.deepEqual(prerequisites('dsh-lpipe-recall'), [CORE, 'dsh-lpipe-memory', 'dsh-lpipe-starmap']);
+  assert.deepEqual(prerequisites('dsh-lpipe-focus'), [CORE]);
 });
 
 test('standalone recall selects missing canonical bundles, without aggregate', async () => {

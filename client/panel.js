@@ -1,6 +1,6 @@
 const React = require('react');
 const h = React.createElement;
-const labels = {'dsh-life-core':'生命核心','dsh-lpipe-chat':'聊天管线','dsh-lpipe-home':'栖所管线','dsh-lpipe-bili':'B 站管线','dsh-lpipe-wake':'唤醒管线','dsh-lpipe-memory':'记忆管线','dsh-lpipe-starmap':'星图管线','dsh-lpipe-recall':'回忆管线','dsh-lpipe-tone':'语气管线'};
+const labels = {'dsh-life-core':'生命核心','dsh-lpipe-chat':'聊天管线','dsh-lpipe-home':'栖所管线','dsh-lpipe-bili':'B 站管线','dsh-lpipe-wake':'唤醒管线','dsh-lpipe-memory':'记忆管线','dsh-lpipe-starmap':'星图管线','dsh-lpipe-recall':'回忆管线','dsh-lpipe-tone':'语气管线','dsh-lpipe-focus':'聚焦管线'};
 function project(rows, name, enabled) {
   const target = rows.find(row => row.name === name);
   return rows.map(row => row.name === name || (enabled ? target?.prerequisites.includes(row.name) : row.prerequisites.includes(name)) ? {...row, enabled} : row);

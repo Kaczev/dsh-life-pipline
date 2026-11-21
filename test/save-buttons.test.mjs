@@ -30,13 +30,14 @@ for (const spec of [
   {path:'components/dsh-lpipe-chat/client/panel.js', name:'ChatSettingsPanel', baseline(s){s[0]={config:{quietSeconds:1,windowSeconds:5,outputBytes:50331648,downloadBytes:536870912,downloadRetentionDays:7},channels:{}};}, edit(s){s[7]='8';}, revert(s){s[7]='7';}, invalid(s){s[7]='0';}},
   {path:'components/dsh-lpipe-bili/client/panel.js', name:'BiliSettingsPanel', baseline(s){s[0]={downloadRetentionDays:7};}, edit(s){s[4]='8';}, revert(s){s[4]='7';}, invalid(s){s[4]='0';}},
   {path:'components/dsh-lpipe-home/client/panel.js', name:'HomeSettingsPanel', baseline(s){s[0]={config:{location:'none',customPath:''}};s[5]=false;}, edit(s){s[1]={...s[1],location:'workspace'};}, revert(s){s[1]={...s[1],location:'none'};}},
+  {path:'components/dsh-lpipe-focus/client/panel.js', name:'FocusSettingsPanel', baseline(s){s[0]={allSessions:false,idleMinutes:60,compactChars:512000,nudgeChars:256000,maxConclusionChars:64000};s[1]={idleMinutes:'60',compactChars:'512K',nudgeChars:'256K',maxConclusionChars:'64K'};s[2]=false;s[3]='';}, edit(s){s[1]={...s[1],idleMinutes:'45'};}, revert(s){s[1]={...s[1],idleMinutes:'60'};}, invalid(s){s[1]={...s[1],nudgeChars:'600K'};}},
 ]) {
   test(`${spec.name}: unchanged, edited, reverted and committed save states`, async () => {
     const p = await panel(spec.path,spec.name);
     p.render(); spec.baseline(p.states);
     let button = saves(p.render())[0]; assert.ok(button); assert.equal(button.props.disabled,true); assert.equal(button.props.style.opacity,0.42);
     spec.edit(p.states); button=saves(p.render())[0]; assert.equal(button.props.disabled,false); assert.equal(button.props.style.opacity,1);
-    const busyIndex = ({CommonBlock:5, ChatSettingsPanel:2, BiliSettingsPanel:5, HomeSettingsPanel:4})[spec.name];
+    const busyIndex = ({CommonBlock:5, ChatSettingsPanel:2, BiliSettingsPanel:5, HomeSettingsPanel:4, FocusSettingsPanel:4})[spec.name];
     p.states[busyIndex]=true;
     assert.equal(saves(p.render())[0].props.disabled,true);
     p.states[busyIndex]=false;
@@ -45,6 +46,10 @@ for (const spec of [
       p.states[5]='50331648'; p.states[6]='512 MB';
       assert.equal(saves(p.render())[0].props.disabled,true, 'equivalent byte notation is not a change');
     }
+    if(spec.name==='FocusSettingsPanel') {
+      p.states[1]={idleMinutes:'60',compactChars:'512000',nudgeChars:'0.256M',maxConclusionChars:'64000'};
+      assert.equal(saves(p.render())[0].props.disabled,true, 'equivalent K/M notation is not a change');
+    }
     if(spec.invalid){spec.invalid(p.states); assert.equal(saves(p.render())[0].props.disabled,true);}
     spec.baseline(p.states); spec.edit(p.states);
     // Advance stored config to the edited value, as a successful save response does.
@@ -52,6 +57,7 @@ for (const spec of [
     if(spec.name==='ChatSettingsPanel') p.states[0].config.downloadRetentionDays=8;
     if(spec.name==='BiliSettingsPanel') p.states[0].downloadRetentionDays=8;
     if(spec.name==='HomeSettingsPanel') p.states[0].config.location='workspace';
+    if(spec.name==='FocusSettingsPanel') p.states[0].idleMinutes=45;
     assert.equal(saves(p.render())[0].props.disabled,true);
   });
 }

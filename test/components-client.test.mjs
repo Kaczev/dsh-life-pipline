@@ -32,9 +32,10 @@ test('failed intent reads actual state and reports error',async()=>{
  await controller.load();controller.toggle('child');await tick();
  assert.equal(states.at(-1).every(row=>!row.enabled),true);assert.deepEqual(errors,['failed']);
 });
-test('every canonical component has a Chinese label, including the tone pipeline',()=>{
+test('every canonical component has a Chinese label, including the tone and focus pipelines',()=>{
  for(const name of [CORE,...COMPONENTS]) assert.equal(typeof labels[name],'string',`missing label for ${name}`);
  assert.equal(labels['dsh-lpipe-tone'],'语气管线');
+ assert.equal(labels['dsh-lpipe-focus'],'聚焦管线');
  assert.equal(labels[CORE],'生命核心');
  // A label is the switch's visible name and its aria-label; an unknown row would
  // otherwise render an empty switch that cannot be identified.
