@@ -1,8 +1,8 @@
 {
   "name": "dsh-lpipe-focus",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "type": "module",
-  "description": "Short-term working context focus and conclusion stacking for the Lpipe main session.",
+  "description": "Short-term working context management with equivalence layers for Lpipe.",
   "license": "AGPL-3.0-or-later",
   "main": "src/index.js",
   "exports": {

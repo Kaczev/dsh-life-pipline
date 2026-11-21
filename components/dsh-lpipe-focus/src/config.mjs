@@ -10,15 +10,17 @@ export const FIELD_BOUNDS = Object.freeze({
   idleMinutes: Object.freeze({ min: 5, max: 1440, default: 60, label: '闲置整理时长' }),
   compactChars: Object.freeze({ min: 32000, max: 4000000, default: 512000, label: '过线整理阈值' }),
   nudgeChars: Object.freeze({ min: 16000, max: 2000000, default: 256000, label: '未转化提醒线' }),
-  maxConclusionChars: Object.freeze({ min: 4000, max: 512000, default: 64000, label: '结论层上限' }),
 });
+
+const SCOPE_LABELS = Object.freeze({ allSessions: '所有顶层对话生效', includeSubagents: '包含子智能体' });
 
 export const DEFAULT_CONFIG = Object.freeze({
   allSessions: false,
+  includeSubagents: true,
   ...Object.fromEntries(Object.entries(FIELD_BOUNDS).map(([key, spec]) => [key, spec.default])),
 });
 
-const KNOWN_KEYS = new Set(['allSessions', ...Object.keys(FIELD_BOUNDS)]);
+const KNOWN_KEYS = new Set(Object.keys(DEFAULT_CONFIG));
 
 export class FocusConfigError extends Error {
   constructor(code, message, details = {}) {
@@ -36,11 +38,12 @@ export function normalize(raw, errorCode = 'focus/invalid-config') {
     throw new FocusConfigError(errorCode, '聚焦配置必须是对象。');
   }
   const config = { ...DEFAULT_CONFIG };
-  if (Object.hasOwn(raw, 'allSessions')) {
-    if (typeof raw.allSessions !== 'boolean') {
-      throw new FocusConfigError(errorCode, '所有对话生效（allSessions）必须是布尔值。', { field: 'allSessions' });
+  for (const [key, label] of Object.entries(SCOPE_LABELS)) {
+    if (!Object.hasOwn(raw, key)) continue;
+    if (typeof raw[key] !== 'boolean') {
+      throw new FocusConfigError(errorCode, `${label}（${key}）必须是布尔值。`, { field: key });
     }
-    config.allSessions = raw.allSessions;
+    config[key] = raw[key];
   }
   for (const [key, spec] of Object.entries(FIELD_BOUNDS)) {
     if (!Object.hasOwn(raw, key)) continue;
@@ -59,13 +62,6 @@ export function normalize(raw, errorCode = 'focus/invalid-config') {
       errorCode,
       '未转化提醒线（nudgeChars）不能高于过线整理阈值（compactChars）。',
       { field: 'nudgeChars' },
-    );
-  }
-  if (config.maxConclusionChars >= config.compactChars) {
-    throw new FocusConfigError(
-      errorCode,
-      '结论层上限（maxConclusionChars）必须小于过线整理阈值（compactChars）。',
-      { field: 'maxConclusionChars' },
     );
   }
   return config;
@@ -111,23 +107,6 @@ export function saveConfig(patch, root = focusRoot()) {
   const keys = Object.keys(patch);
   if (keys.length === 0 || keys.some((key) => !KNOWN_KEYS.has(key))) {
     throw new FocusConfigError('focus/bad-request', '没有有效的聚焦配置字段。');
-  }
-  for (const key of keys) {
-    if (key === 'allSessions') {
-      if (typeof patch.allSessions !== 'boolean') {
-        throw new FocusConfigError('focus/bad-request', '所有对话生效（allSessions）必须是布尔值。', { field: 'allSessions' });
-      }
-      continue;
-    }
-    const spec = FIELD_BOUNDS[key];
-    const value = patch[key];
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < spec.min || value > spec.max) {
-      throw new FocusConfigError(
-        'focus/bad-request',
-        `${spec.label}（${key}）必须是 ${spec.min}–${spec.max} 之间的整数。`,
-        { field: key, min: spec.min, max: spec.max },
-      );
-    }
   }
   // Never overwrite malformed persisted configuration, even when patch would overwrite bad fields.
   const existing = readRawDiskConfig(root);

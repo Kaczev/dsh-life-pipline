@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 /**
  * The settings block of the focus pipeline (`dsh-lpipe-focus`).
  * Contributes a single compact card to `lpipe.settings.panel` (`id: 'focus'`),
- * reading and saving the four threshold fields through `/api/dsh-lpipe-focus`.
+ * reading and saving scope and threshold settings through `/api/dsh-lpipe-focus`.
  */
 const React = require('react');
 
@@ -31,7 +31,7 @@ const COLORS = {
   accent: 'var(--dsw-alias-state-business-primary)',
   accentSoft: 'var(--dsw-alias-state-business-tertiary)',
   onAccent: 'var(--dsw-alias-label-on-color)',
-  thumb: 'var(--dsw-alias-switch-thumb)',
+  thumb: 'var(--dsw-alias-label-on-color)',
   success: 'var(--dsw-alias-state-success-primary)',
   warning: 'var(--dsw-alias-state-warn-primary)',
   danger: 'var(--dsw-alias-state-error-primary)',
@@ -181,13 +181,13 @@ const FIELDS = Object.freeze([
   { key: 'idleMinutes', label: '闲置整理时长（默认：60）', unit: '分钟', min: 5, max: 1440, fallback: 60, compact: false, rangeHint: '5–1440' },
   { key: 'compactChars', label: '过线整理阈值（默认：512K）', unit: '字符', min: 32000, max: 4000000, fallback: 512000, compact: true, rangeHint: '32K–4M' },
   { key: 'nudgeChars', label: '未转化提醒线（默认：256K）', unit: '字符', min: 16000, max: 2000000, fallback: 256000, compact: true, rangeHint: '16K–2M（≤ 过线）' },
-  { key: 'maxConclusionChars', label: '结论层上限（默认：64K）', unit: '字符', min: 4000, max: 512000, fallback: 64000, compact: true, rangeHint: '4K–512K（< 过线）' },
 ]);
 
-const SCOPE_LABEL = '所有对话生效';
+const SCOPE_LABELS = Object.freeze({ allSessions: '所有顶层对话生效', includeSubagents: '包含子智能体' });
 
 const DEFAULT_VALUES = Object.freeze({
   allSessions: false,
+  includeSubagents: true,
   ...Object.fromEntries(FIELDS.map((item) => [item.key, item.fallback])),
 });
 
@@ -249,18 +249,16 @@ function validateDraft(draft = {}) {
   if (!errors.compactChars && !errors.nudgeChars && values.nudgeChars > values.compactChars) {
     errors.nudgeChars = '未转化提醒线不能高于过线整理阈值。';
   }
-  if (!errors.compactChars && !errors.maxConclusionChars && values.maxConclusionChars >= values.compactChars) {
-    errors.maxConclusionChars = '结论层上限必须小于过线整理阈值。';
-  }
   return { values, errors };
 }
 
 function normalizeConfig(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const config = {
-    allSessions: Object.hasOwn(raw, 'allSessions') ? raw.allSessions : false,
-  };
-  if (typeof config.allSessions !== 'boolean') return null;
+  const config = {};
+  for (const key of Object.keys(SCOPE_LABELS)) {
+    config[key] = Object.hasOwn(raw, key) ? raw[key] : DEFAULT_VALUES[key];
+    if (typeof config[key] !== 'boolean') return null;
+  }
   for (const item of FIELDS) {
     const value = raw[item.key];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < item.min || value > item.max) {
@@ -269,7 +267,6 @@ function normalizeConfig(raw) {
     config[item.key] = value;
   }
   if (config.nudgeChars > config.compactChars) return null;
-  if (config.maxConclusionChars >= config.compactChars) return null;
   return config;
 }
 
@@ -354,8 +351,23 @@ function fieldView(item, form, errors, disabled, onChange) {
   );
 }
 
+function scopeSwitch(key, on, hint, busy, onToggle) {
+  const hintId = `focus-${key}-hint`;
+  return h('div', { style: scopeRow },
+    h('div', { style: { minWidth: 0 } },
+      h('div', { style: scopeTitle }, SCOPE_LABELS[key]),
+      h('div', { id: hintId, style: scopeHint }, hint),
+    ),
+    h('button', {
+      type: 'button', role: 'switch', 'aria-label': SCOPE_LABELS[key], 'aria-describedby': hintId,
+      'aria-checked': on, disabled: busy, style: switchTrackStyle(on, busy), onClick: () => onToggle(key),
+    }, h('span', { 'aria-hidden': 'true', style: switchThumbStyle(on) })),
+  );
+}
+
 function FocusForm({
   allSessions,
+  includeSubagents,
   scopeSaving,
   form,
   defaults,
@@ -371,46 +383,18 @@ function FocusForm({
   onSave,
 }) {
   const hasErrors = Object.keys(errors || {}).length > 0;
-  const canSave = dirty && !hasErrors && !saving;
+  const scopeBusy = Boolean(scopeSaving || saving);
+  const canSave = dirty && !hasErrors && !scopeBusy;
   const canRevert = dirty && !saving;
   const isAtDefault = Boolean(defaults && draftMatchesConfig(form, defaults));
   const canReset = Boolean(defaults) && !isAtDefault && !saving;
-  const scopeOn = Boolean(allSessions);
-  const scopeBusy = Boolean(scopeSaving || saving);
 
   return h(
     'div',
     null,
-    h('p', { style: desc }, '将已消费的搜索与编辑过程折叠为结论层，日常只追加不改前缀；仅在过线或闲置超时后由程序去重裁剪。'),
-    h(
-      'div',
-      { style: scopeRow, 'data-testid': 'focus-scope' },
-      h(
-        'div',
-        { style: { minWidth: 0 } },
-        h('div', { style: scopeTitle }, SCOPE_LABEL),
-        h(
-          'div',
-          { style: scopeHint },
-          scopeOn
-            ? '已对全部顶层对话启用聚焦折叠与结论整理（子 agent 仍保持隔离）。'
-            : '默认关闭，仅对当前绑定的 LP 主会话生效；打开后所有对话均可使用。',
-        ),
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          role: 'switch',
-          'aria-label': SCOPE_LABEL,
-          'aria-checked': scopeOn,
-          disabled: scopeBusy,
-          onClick: onToggleScope,
-          style: switchTrackStyle(scopeOn, scopeBusy),
-        },
-        h('span', { 'aria-hidden': 'true', style: switchThumbStyle(scopeOn) }),
-      ),
-    ),
+    h('p', { style: desc }, '用等效层保留一段工作中的定义、经验或结论。上下文过线或会话闲置时，只回收后续层明确替代的旧层。'),
+    scopeSwitch('allSessions', allSessions, '关闭时仅选中绑定的 LP 主会话；开启时选中所有顶层对话。', scopeBusy, onToggleScope),
+    scopeSwitch('includeSubagents', includeSubagents, '仅对所选顶层对话下的子智能体生效。每个子智能体独立整理自己的上下文。', scopeBusy, onToggleScope),
     h('div', { style: grid }, FIELDS.map((item) => fieldView(item, form, errors, saving, onChange))),
     h(
       'div',
@@ -567,7 +551,7 @@ function FocusSettingsPanel({ rpcCall }) {
   let statusText = '当前与已保存配置一致，下次请求装配生效。';
   if (firstError) {
     statusTone = 'error';
-    statusText = firstError;
+    statusText = saved?.tone === 'error' ? `${saved.text} ${firstError}` : firstError;
   } else if (saving || scopeSaving) {
     statusTone = 'muted';
     statusText = '保存中…';
@@ -583,39 +567,39 @@ function FocusSettingsPanel({ rpcCall }) {
   } else if (
     committed
     && defaults
-    && Boolean(committed.allSessions) === Boolean(defaults.allSessions)
+    && Object.keys(SCOPE_LABELS).every((key) => committed[key] === defaults[key])
     && FIELDS.every((item) => committed[item.key] === defaults[item.key])
   ) {
     statusText = '全部为默认值，下次请求装配生效。';
   }
 
-  const toggleScope = () => {
+  const toggleScope = (key) => {
     if (!committed || saving || scopeSaving) return;
-    const previous = Boolean(committed.allSessions);
+    const previous = committed[key];
     const nextScope = !previous;
-    setCommitted((prev) => (prev ? { ...prev, allSessions: nextScope } : prev));
+    setCommitted((prev) => (prev ? { ...prev, [key]: nextScope } : prev));
     setScopeSaving(true);
     setSaved({ tone: 'muted', text: '保存中…' });
     Promise.resolve()
-      .then(() => rpcCall('focus.config.save', { allSessions: nextScope }))
+      .then(() => rpcCall('focus.config.save', { [key]: nextScope }))
       .then((reply) => {
         if (!alive.current) return;
         const next = configOf(reply);
-        if (!reply || reply.ok === false || !next) {
-          setCommitted((prev) => (prev ? { ...prev, allSessions: previous } : prev));
-          setSaved({ tone: 'error', text: `切换失败：${reply?.error?.message || '响应异常'}。` });
+        if (!next || next[key] !== nextScope) {
+          setCommitted((prev) => (prev ? { ...prev, [key]: previous } : prev));
+          setSaved({ tone: 'error', text: `切换失败（${SCOPE_LABELS[key]}）：${reply?.error?.message || '响应异常'}。` });
           return;
         }
         setCommitted(next);
         setSaved({
           tone: 'success',
-          text: next.allSessions ? '已开启：所有对话均可使用聚焦管线。' : '已关闭：仅 LP 主会话使用聚焦管线。',
+          text: `已${next[key] ? '开启' : '关闭'}「${SCOPE_LABELS[key]}」。`,
         });
       })
       .catch((error) => {
         if (!alive.current) return;
-        setCommitted((prev) => (prev ? { ...prev, allSessions: previous } : prev));
-        setSaved({ tone: 'error', text: `切换失败：${String(error?.message || error)}。` });
+        setCommitted((prev) => (prev ? { ...prev, [key]: previous } : prev));
+        setSaved({ tone: 'error', text: `切换失败（${SCOPE_LABELS[key]}）：${String(error?.message || error)}。` });
       })
       .finally(() => {
         if (alive.current) setScopeSaving(false);
@@ -643,7 +627,7 @@ function FocusSettingsPanel({ rpcCall }) {
   };
 
   const save = () => {
-    if (!form || saving || !dirty || firstError) return;
+    if (!form || saving || scopeSaving || !dirty || firstError) return;
     const gen = generation.current;
     setSaving(true);
     setSaved({ tone: 'muted', text: '保存中…' });
@@ -676,6 +660,7 @@ function FocusSettingsPanel({ rpcCall }) {
   };
 
   const allSessionsOn = Boolean(committed?.allSessions);
+  const scopeSummary = `${allSessionsOn ? '所有顶层对话' : 'LP 主会话'}${committed?.includeSubagents ? '及其子智能体' : ''}`;
   const header = h(
     'div',
     { style: head },
@@ -688,7 +673,7 @@ function FocusSettingsPanel({ rpcCall }) {
     h(
       'span',
       { style: { marginLeft: 'auto', fontSize: 10.5, color: COLORS.faint } },
-      allSessionsOn ? '短期上下文 · 所有对话生效' : '短期上下文 · 仅 LP 主会话生效',
+      committed ? `短期上下文 · ${scopeSummary}` : '短期上下文',
     ),
   );
 
@@ -706,6 +691,7 @@ function FocusSettingsPanel({ rpcCall }) {
           ? LoadErrorView({ message: loadError, onRetry: () => setReloadKey((k) => k + 1) })
           : FocusForm({
             allSessions: allSessionsOn,
+            includeSubagents: committed?.includeSubagents,
             scopeSaving,
             form,
             defaults,

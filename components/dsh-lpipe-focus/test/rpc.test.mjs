@@ -48,10 +48,12 @@ test('RPC route handles config read/save, preserves unknown keys, and validates 
       value: { config: DEFAULT_CONFIG, defaults: DEFAULT_CONFIG },
     });
 
+    await call(envelope('focus.config.save', { allSessions: true }));
+    const scope = await call(envelope('focus.config.save', { includeSubagents: false }));
+    assert.deepEqual(scope.result.value.config, { ...DEFAULT_CONFIG, allSessions: true, includeSubagents: false });
     const updated = await call(envelope('focus.config.save', { idleMinutes: 45, compactChars: 500000 }));
-    assert.equal(updated.result.ok, true);
-    assert.equal(updated.result.value.config.idleMinutes, 45);
-    assert.equal(updated.result.value.config.compactChars, 500000);
+    assert.deepEqual(updated.result.value.config, { ...scope.result.value.config, idleMinutes: 45, compactChars: 500000 });
+    assert.deepEqual((await call(envelope('focus.config'))).result.value.config, updated.result.value.config);
 
     // Non-empty payload on focus.config is rejected
     const badRead = await call(envelope('focus.config', { extra: 1 }));
@@ -64,7 +66,7 @@ test('RPC route handles config read/save, preserves unknown keys, and validates 
     assert.equal(unknown.result.error.code, 'focus/unknown-method');
 
     // Bad save payloads
-    for (const bad of [null, [], {}, { idleMinutes: '45' }, { extra: 10 }, { compactChars: 100000, nudgeChars: 120000 }]) {
+    for (const bad of [null, [], {}, { idleMinutes: '45' }, { allSessions: 0 }, { includeSubagents: 'false' }, { extra: 10 }, { compactChars: 100000, nudgeChars: 120000 }]) {
       const res = await call(envelope('focus.config.save', bad));
       assert.equal(res.result.ok, false);
     }

@@ -5,30 +5,21 @@ import { appendDiagnostic } from 'dsh-life-core/diagnostics';
 import { focusRoot, loadConfig, saveConfig } from './config.mjs';
 import { createFocusRpcHandler, registerFocusRpc } from './rpc.mjs';
 import { FOCUS_PROMPT_ORDER, FOCUS_PROMPT_SECTION_NAME, FOCUS_SYSTEM_PROMPT } from './prompt.mjs';
-import { createFocusConcludeTool } from './tools.mjs';
+import { createFocusEquateTool } from './tools.mjs';
 import { createPreStepHandler } from './surface.mjs';
 
 export const name = 'dsh-lpipe-focus';
 
-export function isSubagentSubject(subject) {
-  if (!subject || typeof subject !== 'object') return false;
-  if (typeof subject.options?.subagentDepth === 'number' && subject.options.subagentDepth > 0) return true;
-  const header = subject.session?.header;
-  if (header?.origin === 'subagent') return true;
-  if (typeof header?.delegationDepth === 'number' && header.delegationDepth > 0) return true;
-  if (typeof subject.parentSession === 'string' && subject.parentSession.trim().length > 0) return true;
-  return false;
-}
-
-export function createFocusSessionGate(root = focusRoot()) {
-  return (subject) => {
-    const id = typeof subject === 'string' ? subject : subject?.id;
-    if (typeof id !== 'string' || !id.trim()) return false;
-    if (isSubagentSubject(subject)) return false;
-    if (isMainSession(id)) return true;
+export function createFocusSessionGate(root, rootOf) {
+  return (agent) => {
+    if (!agent || typeof agent !== 'object') return false;
     try {
-      return loadConfig(root).allSessions === true;
+      const owner = rootOf(agent);
+      if (!owner?.session?.id) return false;
+      const config = loadConfig(root);
+      return (owner === agent || config.includeSubagents) && (config.allSessions || isMainSession(owner.session.id));
     } catch {
+      // The host rejects stale agents and sessions outside its managed tree.
       return false;
     }
   };
@@ -40,7 +31,7 @@ export function registerFocusTool(ctx, tool, allowed) {
       ...tool,
       execute(args, exec) {
         if (!allowed(exec?.agent)) {
-          throw new Error('focus_conclude is not enabled for this session');
+          throw new Error(`${tool.name} is not enabled for this session`);
         }
         return tool.execute(args, exec);
       },
@@ -52,7 +43,14 @@ export function registerFocusTool(ctx, tool, allowed) {
 export function apply(ctx, options = {}) {
   registerDependencies(ctx);
   const root = options.root ?? focusRoot();
-  const allowed = options.allowed ?? createFocusSessionGate(root);
+  let rootOf;
+  ctx.inject(['subagents'], (scopeCtx) => {
+    scopeCtx.effect(() => {
+      rootOf = agent => scopeCtx.subagents.rootOf(agent);
+      return () => { rootOf = undefined; };
+    });
+  });
+  const allowed = options.allowed ?? createFocusSessionGate(root, agent => rootOf?.(agent));
   const now = options.now ?? (() => Date.now());
   const diagnosticPath = join(root, 'focus.jsonl');
 
@@ -78,7 +76,7 @@ export function apply(ctx, options = {}) {
   }
 
   ctx.inject(['tools'], (toolsCtx) => {
-    const tool = createFocusConcludeTool({ onDiagnostic: writeDiagnostic });
+    const tool = createFocusEquateTool({ onDiagnostic: writeDiagnostic });
     toolsCtx.effect(() => registerFocusTool(toolsCtx, tool, allowed));
   });
 

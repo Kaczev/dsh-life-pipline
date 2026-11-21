@@ -19,7 +19,7 @@
 | B 站 | 浏览推荐、搜索、评论、字幕与视频分镜 |
 | 栖所 | 为模型指定个人文件夹 |
 | 语气 | 分别设置措辞、句式、节奏和表达的显隐，只改变主对话的表达方式 |
-| 聚焦 | 用结论替代已完成的工作；普通折叠保留用户原话、宿主上下文和已加载的技能 |
+| 聚焦 | 用等效层替代一段已完成的工作，按需保留定义、经验和结论 |
 
 ### 安装与开始使用
 
@@ -34,7 +34,7 @@
 
 ### 使用前了解
 
-- 聊天、唤醒、B 站、栖所和语气默认服务于 LP 主对话；聚焦默认只服务于 LP 主对话，打开其设置块中的「所有对话生效」后可用于全部顶层对话。记忆默认只记录主对话；打开记忆中的「所有对话生效」后，记忆、星图和回忆会一同扩展到其他会话。
+- 聊天、唤醒、B 站、栖所和语气默认服务于 LP 主对话；聚焦默认服务于 LP 主对话及其子智能体。可扩展到所有顶层对话，也可单独关闭子智能体继承。记忆默认只记录主对话；打开记忆中的「所有对话生效」后，记忆、星图和回忆会一同扩展到其他会话。
 - 语气提供四项可编辑的英文默认值，支持任意语言填写；四项全空时不注入。它只改变表达，不改变内容、态度和行为。旧版非空描述／示例需先备份并手动迁移，详见[语气管线说明](components/dsh-lpipe-tone/README.md)。
 - 星图整理记忆需要调用所选模型，唤醒也可能产生新的模型用量。启用前请检查模型和预算。
 - 关闭前置组件会连带关闭依赖它的组件；重新打开前置后，下游需要自行开启。关闭整合包入口不会移除已经启用的独立管线。
@@ -62,7 +62,7 @@ Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili
 - **Bilibili:** recommendations, search, comments, subtitles and video storyboards.
 - **Home:** a personal folder for the model.
 - **Tone:** configure diction, syntax, rhythm and expression visibility without changing content, attitude or behavior.
-- **Focus:** replace completed work with the findings needed for the next step. Ordinary folds keep user messages, host context and loaded skills intact.
+- **Focus:** replace completed work with the findings needed for the next step.
 
 ### Install and start
 
@@ -77,7 +77,7 @@ You can install individual `dsh-lpipe-*` plugins instead. Every pipeline require
 
 ### Before using it
 
-Chat, Wake, Bilibili, Home and Tone serve the LP main conversation; Focus defaults to the LP main conversation and extends to all top-level conversations when its **all sessions** switch is enabled. Memory defaults to that conversation; its **all sessions** switch also extends Starmap and Recall. Starmap extraction and wake-up turns can incur model usage.
+Chat, Wake, Bilibili, Home and Tone serve the LP main conversation; Focus defaults to the LP main conversation and its subagents. You can enable all top-level conversations or turn off subagent inheritance separately. Memory defaults to that conversation; its **all sessions** switch also extends Starmap and Recall. Starmap extraction and wake-up turns can incur model usage.
 
 Tone provides editable English defaults for four fields; rules may be written in any language. With all four fields blank, nothing is injected. Only expression changes, not content, attitude or behavior. Back up and manually migrate nonempty legacy descriptions or examples; see the [Tone guide](components/dsh-lpipe-tone/README.md).
 

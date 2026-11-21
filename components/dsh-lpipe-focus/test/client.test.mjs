@@ -159,10 +159,12 @@ test('panel field defaults and bounds strictly match host config.mjs', () => {
     idleMinutes: '60',
     compactChars: '512K',
     nudgeChars: '256K',
-    maxConclusionChars: '64K',
   });
-  assert.equal(h.api.validateDraft({ idleMinutes: '60', compactChars: '300K', nudgeChars: '320K', maxConclusionChars: '64K' }).errors.nudgeChars, '未转化提醒线不能高于过线整理阈值。');
-  assert.equal(h.api.validateDraft({ idleMinutes: '60', compactChars: '100K', nudgeChars: '80K', maxConclusionChars: '100K' }).errors.maxConclusionChars, '结论层上限必须小于过线整理阈值。');
+  assert.deepEqual({ ...h.api.DEFAULT_VALUES }, DEFAULT_CONFIG);
+  assert.equal(h.api.validateDraft({ idleMinutes: '60', compactChars: '300K', nudgeChars: '320K' }).errors.nudgeChars, '未转化提醒线不能高于过线整理阈值。');
+  for (const key of ['allSessions', 'includeSubagents']) {
+    assert.equal(h.api.normalizeConfig({ ...DEFAULT_CONFIG, [key]: 'false' }), null);
+  }
 });
 
 test('panel handles load failure with retry protection, and supports edit, reset, revert, save, and late-reply safety', async () => {
@@ -206,7 +208,7 @@ test('panel handles load failure with retry protection, and supports edit, reset
 
   tree = walk(h.render(rpc));
   const inputs = tree.filter((n) => n.type === 'input');
-  assert.equal(inputs.length, 4);
+  assert.deepEqual(inputs.map((node) => node.props.id), ['focus-idleMinutes', 'focus-compactChars', 'focus-nudgeChars']);
   assert.equal(inputs[0].props.inputMode, 'numeric', 'idleMinutes uses numeric keypad');
   assert.equal(inputs[1].props.inputMode, 'text', 'K/M fields use text inputMode so K/M/dot can be typed');
   assert.match(inputs[1].props['aria-describedby'], /focus-compactChars-range focus-compactChars-unit/);
@@ -247,25 +249,64 @@ test('panel handles load failure with retry protection, and supports edit, reset
   assert.equal(findBtn('保存').props.disabled, false);
   assert.equal(findBtn('恢复默认').props.disabled, true);
 
-  // Scope switch defaults to false, toggles immediately via focus.config.save, and rolls back on error
-  const findSwitch = () => tree.find((n) => n.type === 'button' && n.props.role === 'switch');
-  assert.ok(findSwitch(), 'allSessions switch must render');
-  assert.equal(findSwitch().props['aria-checked'], false);
-  findSwitch().props.onClick();
-  tree = walk(h.render(rpc));
-  assert.equal(findSwitch().props['aria-checked'], true, 'optimistically flips switch');
-  await tick();
-  tree = walk(h.render(rpc));
-  assert.equal(calls.at(-1).method, 'focus.config.save');
-  assert.deepEqual({ ...calls.at(-1).payload }, { allSessions: true });
-  assert.equal(findSwitch().props['aria-checked'], true);
-  assert.ok(JSON.stringify(tree).includes('短期上下文 · 所有对话生效'));
-
-  // Failed switch save rolls back to previous state
+  // Each switch saves only itself and leaves the reset numeric draft untouched.
+  const switches = () => tree.filter(n => n.props.role === 'switch');
+  const states = () => switches().map(n => n.props['aria-checked']);
+  const status = () => tree.find(n => n.props.id === 'focus-status-text').children[0];
+  assert.deepEqual(switches().map(n => n.props['aria-label']), ['所有顶层对话生效', '包含子智能体']);
+  assert.deepEqual(states(), [false, true]);
+  for (const toggle of switches()) {
+    assert.equal(toggle.children[0].props.style.background, 'var(--dsw-alias-label-on-color)',
+      'both switch thumbs use the theme white in either position');
+  }
+  for (const [i, key] of ['allSessions', 'includeSubagents'].entries()) {
+    const before = states();
+    const after = before.map((value, index) => index === i ? !value : value);
+    failSave = true;
+    switches()[i].props.onClick();
+    tree = walk(h.render(rpc));
+    assert.deepEqual(states(), after, 'optimistic state');
+    assert.ok(switches().every(n => n.props.disabled));
+    assert.equal(findBtn('保存').props.disabled, true, 'numeric writes cannot race a switch');
+    await tick();
+    tree = walk(h.render(rpc));
+    assert.deepEqual(states(), before, 'failure rolls back only the changed switch');
+    assert.match(status(), /写入失败/);
+    failSave = false;
+    switches()[i].props.onClick();
+    await tick();
+    tree = walk(h.render(rpc));
+    assert.deepEqual({ ...calls.at(-1).payload }, { [key]: after[i] });
+    assert.deepEqual(states(), after);
+    assert.equal(tree.find(n => n.props.id === 'focus-idleMinutes').props.value, '60');
+    assert.equal(savedState.idleMinutes, 45, 'scope changes never save the draft');
+  }
+  assert.deepEqual(states(), [true, false]);
   failSave = true;
-  findSwitch().props.onClick();
+  findBtn('保存').props.onClick();
   await tick();
   tree = walk(h.render(rpc));
-  assert.equal(findSwitch().props['aria-checked'], true, 'rolled back to true after save failure');
-  assert.ok(JSON.stringify(tree).includes('切换失败'));
+  assert.match(status(), /写入失败.*草稿已保留/);
+  assert.equal(findBtn('保存').props.disabled, false);
+  failSave = false;
+  findBtn('保存').props.onClick();
+  tree = walk(h.render(rpc));
+  assert.ok(switches().every(n => n.props.disabled));
+  await tick();
+  tree = walk(h.render(rpc));
+  assert.deepEqual({ ...calls.at(-1).payload }, { idleMinutes: 60, compactChars: 512000, nudgeChars: 256000 });
+  assert.deepEqual(states(), [true, false]);
+  assert.deepEqual(savedState, { ...DEFAULT_CONFIG, allSessions: true, includeSubagents: false });
+  assert.equal(findBtn('保存').props.disabled, true);
+
+  tree.find(n => n.props.id === 'focus-nudgeChars').props.onChange({ target: { value: '600K' } });
+  tree = walk(h.render(rpc));
+  assert.equal(findBtn('保存').props.disabled, true);
+  failSave = true;
+  switches()[1].props.onClick();
+  await tick();
+  tree = walk(h.render(rpc));
+  assert.deepEqual(states(), [true, false]);
+  assert.match(status(), /写入失败/);
+  assert.match(status(), /未转化提醒线不能高于/);
 });

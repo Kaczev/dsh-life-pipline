@@ -2,9 +2,11 @@ export const FOCUS_PROMPT_SECTION_NAME = 'dsh-lpipe-focus';
 export const FOCUS_PROMPT_ORDER = 712;
 
 export const FOCUS_SYSTEM_PROMPT = [
-  '## Context focus (`focus_conclude`)',
+  '## Context equivalence (`focus_equate`)',
   '',
-  'Fold a completed stage when its conclusion and the current workspace let you take the next step without replaying that stage. Keep what the work established, not a log of how you got there.',
-  'After a search, keep the useful location and what it is for. After writing a test, keep the command to run it; report a pass or failure only if you ran it. Keep a constraint or failed approach when it changes the next decision.',
-  'If you still need the raw output to edit, quote, or check something, use it before folding. Do not copy user instructions, host context, or skill text into conclusions. When you can already answer or need a decision from the user, respond directly.',
+  'When a stage of work is complete, ask: if the original span were no longer visible, could I continue correctly from the proposed layer, the remaining context, and the workspace? If so, the span is ready to equate. Otherwise, keep it. A reminder is not a requirement to act. If you are ready to answer or ask a question, do that directly.',
+  '',
+  'Use the latest definition of a term by default. When interpreting an earlier exchange, use its meaning in that context if it is still visible. Do not infer a lost definition.',
+  '',
+  'Continue from the layers that remain. Preserve the difference between what was reported and what was verified. Do not repeat completed work unless something has changed or needs checking.',
 ].join('\n');

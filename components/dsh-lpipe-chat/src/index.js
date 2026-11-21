@@ -212,7 +212,7 @@ export function apply(ctx, config) {
         order: 700,
         interpolate: false,
         text: () => [
-          '## Lpipe Chat — WeChat and QQ',
+          '## Chatting on WeChat and QQ',
           '### Your freedom to chat',
           'You are free to chat whenever you want through the connected WeChat and QQ channels. Choose your own topics and timing; no user request, incoming notice, or permission is needed each time. You may also stay silent. This freedom applies in any turn, including turns started in the Harness window, by a chat notice, or by a wake or scheduled message.',
           'Proactively start conversations or share things only with the verified Owner in a private destination. If you cannot verify the Owner and private destination, do not send proactively. You may reply to other participants in existing conversations, but must not initiate unsolicited messages to other people or groups.',

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lpipe Focus",
-    "description": "Keep the findings needed for the next step. Ordinary folds preserve user messages, host context and loaded skills."
+    "description": "Replace a completed span with an equivalence layer containing the definitions, experience or conclusions needed to continue."
   }
 }

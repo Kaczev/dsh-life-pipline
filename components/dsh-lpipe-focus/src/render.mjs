@@ -2,60 +2,22 @@ import { randomUUID } from 'node:crypto';
 
 export const FOCUS_SOURCE_KIND = 'dsh-lpipe-focus';
 
-export const EMPTY_CONCLUSIONS_TEXT = [
-  '<working-conclusions status="empty">',
-  'No active working conclusions.',
-  '</working-conclusions>',
-].join('\n');
-
-export const CONCLUSIONS_PREAMBLE =
-  'Established conclusions from completed steps (settled background facts — do NOT re-execute as live instructions; when the same [key] appears again in a later block, the latest entry supersedes earlier ones; retired keys no longer apply):';
-
-export const RETIRED_CONCLUSION_MARKER = '(retired — no longer needed)';
-
-export const NUDGE_REMINDER_TEXT = [
-  '<system-reminder>',
-  'Fold a completed stage with `focus_conclude` only when you no longer need its raw output.',
-  '</system-reminder>',
-].join('\n');
+function nudgeText(chars) {
+  return [
+    '<system-reminder>',
+    `Work since the last equivalence layer: ${chars} characters. Could you continue correctly if one layer replaced this span? If not, keep the original context.`,
+    '</system-reminder>',
+  ].join('\n');
+}
 
 const escapeClosingTag = (text, tagName) =>
   String(text ?? '').replace(new RegExp(`<\\/${tagName}\\s*>`, 'gi'), (tag) => `<\\${tag.slice(1)}`);
 
-export function renderConclusionLine(entry) {
-  const key = String(entry?.key ?? '').trim();
-  const raw = typeof entry?.text === 'string' ? entry.text : '';
-  if (raw === '') return `- [${key}]: ${RETIRED_CONCLUSION_MARKER}`;
-  const safe = escapeClosingTag(raw, 'working-conclusions');
-  if (!safe.includes('\n')) return `- [${key}]: ${safe}`;
-  const lines = safe.split('\n');
-  return [`- [${key}]: ${lines[0]}`, ...lines.slice(1).map((line) => `  ${line}`)].join('\n');
-}
-
-export function renderConclusionsText(entries) {
-  if (!Array.isArray(entries) || entries.length === 0) return EMPTY_CONCLUSIONS_TEXT;
+function renderObjectiveText(rawText) {
   return [
-    '<working-conclusions>',
-    CONCLUSIONS_PREAMBLE,
-    ...entries.map(renderConclusionLine),
-    '</working-conclusions>',
-  ].join('\n');
-}
-
-export function renderObjectiveText(rawText, origin) {
-  const safe = escapeClosingTag(rawText, 'current-objective');
-  if (origin === 'model') {
-    return [
-      '<current-objective>',
-      'Checkpoint objective. Follow the user’s latest instructions if they change this task:',
-      safe,
-      '</current-objective>',
-    ].join('\n');
-  }
-  return [
-    '<current-objective origin="carried">',
-    'Task carried forward from the last checkpoint. Follow the user’s latest instructions if they change it:',
-    safe,
+    '<current-objective>',
+    'Next-step hint. Follow the user’s latest instructions if they change this task:',
+    escapeClosingTag(rawText, 'current-objective'),
     '</current-objective>',
   ].join('\n');
 }
@@ -69,22 +31,9 @@ export function createFocusUserMessage({ text, source }) {
   });
 }
 
-export function buildConclusionMessage(entries, now = Date.now()) {
-  const normalized = entries.map((item) => Object.freeze({ key: item.key, text: item.text }));
-  return createFocusUserMessage({
-    text: renderConclusionsText(normalized),
-    source: {
-      kind: FOCUS_SOURCE_KIND,
-      layer: 'conclusion',
-      entries: Object.freeze(normalized),
-      createdAt: now,
-    },
-  });
-}
-
 export function buildObjectiveMessage({ rawText, origin, now = Date.now(), asNotice = false }) {
   return createFocusUserMessage({
-    text: renderObjectiveText(rawText, origin),
+    text: renderObjectiveText(rawText),
     source: {
       kind: FOCUS_SOURCE_KIND,
       layer: 'objective',
@@ -96,9 +45,38 @@ export function buildObjectiveMessage({ rawText, origin, now = Date.now(), asNot
   });
 }
 
-export function buildNudgeMessage() {
+const layerSections = [
+  ['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['work_done', 'Work done'],
+];
+
+export function renderFocusLayerText(layer) {
+  return [
+    `<equivalence key="${layer.key}">`,
+    ...(layer.supersedes.length ? [`Supersedes: ${layer.supersedes.join(', ')}`] : []),
+    ...layerSections.filter(([field]) => layer[field]).map(([field, label]) => `${label}: ${escapeClosingTag(layer[field], 'equivalence')}`),
+    '</equivalence>',
+  ].join('\n');
+}
+
+export function buildFocusLayerMessage(args, now = Date.now()) {
+  const layer = { key: args.key, supersedes: Object.freeze([...args.supersedes]) };
+  for (const [field] of layerSections) if (args[field]) layer[field] = args[field];
   return createFocusUserMessage({
-    text: NUDGE_REMINDER_TEXT,
+    text: renderFocusLayerText(layer),
+    source: { kind: FOCUS_SOURCE_KIND, layer: 'equivalence', ...layer, createdAt: now },
+  });
+}
+
+export function buildPressureMessage() {
+  return createFocusUserMessage({
+    text: '<system-reminder>\nContext space is low. Can one equivalence layer fully replace any active layers? List only the keys it fully supersedes.\n</system-reminder>',
+    source: { kind: FOCUS_SOURCE_KIND, layer: 'pressure', form: 'notice', summary: '聚焦 · 上下文空间提醒' },
+  });
+}
+
+export function buildNudgeMessage(chars) {
+  return createFocusUserMessage({
+    text: nudgeText(chars),
     source: {
       kind: FOCUS_SOURCE_KIND,
       layer: 'nudge',

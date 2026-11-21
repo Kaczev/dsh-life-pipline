@@ -48,7 +48,7 @@ test('component loads, registers four tools and the prompt guidance', () => {
   assert.equal(guidance.interpolate, false);
   const text = guidance.text({ scope: { id: 'main-test' } });
   assert.equal(guidance.text({ scope: { id: 'other' } }), '');
-  assert.ok(text.startsWith('## Lpipe Chat — WeChat and QQ\n\n'));
+  assert.ok(text.startsWith('## Chatting on WeChat and QQ\n\n'));
   assert.deepEqual(text.match(/^### .+$/gm), ['### Your freedom to chat', '### Owner and trust', '### Receiving and sending', '### Ending a notice turn']);
   assert.match(text, /You are free to chat/);
   assert.match(text, /only with the verified Owner in a private destination/);

@@ -28,10 +28,10 @@ test('focusRoot follows DSH_HOME and missing file returns doubled character defa
     const cfg = loadConfig(root);
     assert.deepEqual(cfg, {
       allSessions: false,
+      includeSubagents: true,
       idleMinutes: 60,
       compactChars: 512000,
       nudgeChars: 256000,
-      maxConclusionChars: 64000,
     });
     assert.equal(existsSync(root), false, 'missing config must not create empty directory');
   } finally {
@@ -44,8 +44,8 @@ test('focusRoot follows DSH_HOME and missing file returns doubled character defa
 test('normalize validates integer bounds and cross-field constraints', () => {
   assert.deepEqual(normalize({}), DEFAULT_CONFIG);
   assert.deepEqual(
-    normalize({ allSessions: true, idleMinutes: 5, compactChars: 32000, nudgeChars: 32000, maxConclusionChars: 31999 }),
-    { allSessions: true, idleMinutes: 5, compactChars: 32000, nudgeChars: 32000, maxConclusionChars: 31999 },
+    normalize({ allSessions: true, idleMinutes: 5, compactChars: 32000, nudgeChars: 32000 }),
+    { allSessions: true, includeSubagents: true, idleMinutes: 5, compactChars: 32000, nudgeChars: 32000 },
   );
 
   // Out of bounds or non-integer
@@ -62,19 +62,15 @@ test('normalize validates integer bounds and cross-field constraints', () => {
     { compactChars: 4000001 },
     { nudgeChars: 15999 },
     { nudgeChars: 2000001 },
-    { maxConclusionChars: 3999 },
-    { maxConclusionChars: 512001 },
-    // Relationship violations: nudgeChars <= compactChars, maxConclusionChars < compactChars
-    { compactChars: 100000, nudgeChars: 100001, maxConclusionChars: 32000 },
-    { compactChars: 100000, nudgeChars: 80000, maxConclusionChars: 100000 },
-    { compactChars: 100000, nudgeChars: 80000, maxConclusionChars: 120000 },
+    { includeSubagents: 'false' },
+    { includeSubagents: null },
+    { compactChars: 100000, nudgeChars: 100001 },
   ]) {
     assert.throws(() => normalize(bad), FocusConfigError);
   }
 
   assert.equal(FIELD_BOUNDS.compactChars.default, 512000);
   assert.equal(FIELD_BOUNDS.nudgeChars.default, 256000);
-  assert.equal(FIELD_BOUNDS.maxConclusionChars.default, 64000);
 });
 
 test('corrupt or out-of-range disk config throws structured error and is never overwritten', () => {
@@ -116,15 +112,18 @@ test('saveConfig supports partial updates, validates cross-field relations again
     const saved = saveConfig({ compactChars: 600000, nudgeChars: 200000 }, root);
     assert.deepEqual(saved, {
       allSessions: false,
+      includeSubagents: true,
       idleMinutes: 90,
       compactChars: 600000,
       nudgeChars: 200000,
-      maxConclusionChars: 64000,
     });
 
     const toggled = saveConfig({ allSessions: true }, root);
     assert.equal(toggled.allSessions, true);
     assert.equal(toggled.compactChars, 600000);
+    assert.equal(toggled.includeSubagents, true);
+    assert.deepEqual(saveConfig({ includeSubagents: false }, root), { ...toggled, includeSubagents: false });
+    assert.deepEqual(saveConfig({ idleMinutes: 40 }, root), { ...toggled, includeSubagents: false, idleMinutes: 40 });
 
     const rawOnDisk = JSON.parse(readFileSync(file, 'utf8'));
     assert.deepEqual(rawOnDisk.customExtension, { keep: true });
@@ -138,7 +137,7 @@ test('saveConfig supports partial updates, validates cross-field relations again
     assert.equal(loadConfig(root).compactChars, 600000);
 
     // Reject unknown or empty patch fields
-    for (const badPatch of [null, [], {}, { unknownKey: 1 }, { idleMinutes: '60' }, { allSessions: 'false' }]) {
+    for (const badPatch of [null, [], {}, { unknownKey: 1 }, { idleMinutes: '60' }, { allSessions: 'false' }, { includeSubagents: 1 }]) {
       assert.throws(() => saveConfig(badPatch, root), FocusConfigError);
     }
   } finally {

@@ -7,8 +7,8 @@ import test from 'node:test';
 import { configPath } from 'dsh-life-core/internal/paths';
 import { apply } from '../src/index.js';
 import { DEFAULT_CONFIG, saveConfig } from '../src/config.mjs';
-import { EMPTY_CONCLUSIONS_TEXT, FOCUS_SOURCE_KIND } from '../src/render.mjs';
-import { FOCUS_TOOL_NAME, FocusToolArgsError, validateFocusConcludeArgs } from '../src/tools.mjs';
+import { FOCUS_SOURCE_KIND } from '../src/render.mjs';
+import { FOCUS_TOOL_NAME, FocusToolArgsError, validateFocusEquateArgs } from '../src/tools.mjs';
 
 const SURFACE_TYPES = new Set([
   'system/message',
@@ -196,7 +196,13 @@ function createPluginHarness() {
   const routes = [];
   const disposers = [];
 
+  const owners = new WeakMap();
   const ctx = {
+    subagents: { rootOf(agent) {
+      if (owners.has(agent)) return owners.get(agent);
+      if (agent.session?.header?.origin === 'subagent' || agent.options?.subagentDepth) throw Error('not managed');
+      return agent;
+    } },
     on(event, fn, opts) {
       if (event === 'agent/pre-step') preStepListeners.push({ fn, opts });
       return () => {};
@@ -256,6 +262,7 @@ function createPluginHarness() {
     dshHome,
     focusDir,
     bindMain,
+    owners,
     setNow: (ms) => { currentNow = ms; },
     getNow: () => currentNow,
     preStepListeners,
@@ -274,124 +281,7 @@ function seedBaseLayer(session) {
   return [sys.seq, rt.seq, sk.seq];
 }
 
-test('1. four-layer daily folding preserves base layer & prior conclusion seqs verbatim across 3 consecutive folds', async () => {
-  const h = createPluginHarness();
-  try {
-    assert.equal(h.preStepListeners[0].opts?.prepend, true, 'pre-step must register with prepend: true');
-    const session = new FakeSession('main-session');
-    const agent = { id: 'main-session', session };
-    const baseSeqs = seedBaseLayer(session);
-
-    // Turn 1: User asks question -> search tool -> focus_conclude #1
-    session.append('turn/start', { turn: 1 });
-    session.append('step/start', { turn: 1, step: 1 });
-    const request = session.append('user/message', userMsg('Investigate wake timer and rpc routes'), { surfaceOp: 'append' });
-    const prefix = [...baseSeqs, request.seq];
-    session.append('assistant/message', assistantToolCallMsg(1, 1, [{ id: 'c-read-1', name: 'read', args: { file_path: 'runner.mjs' } }], 'reading runner'), { surfaceOp: 'append' });
-    session.append('tool/result', toolResultMsg(1, 1, 'c-read-1', 'runner polls every 30s...'.repeat(40)), { surfaceOp: 'append' });
-    session.append('step/end', { turn: 1, step: 1 });
-
-    // Step 2: Model calls focus_conclude alone
-    session.append('step/start', { turn: 1, step: 2 });
-    const fcArgs1 = {
-      conclusions: [{ key: 'wake.timer', text: 'runner.mjs polls every 30s and delivers via agent.followup.' }],
-      objective: 'Inspect rpc.mjs next',
-    };
-    session.append('assistant/message', assistantToolCallMsg(1, 2, [{ id: 'fc-1', name: FOCUS_TOOL_NAME, args: fcArgs1 }]), { surfaceOp: 'append' });
-    const toolDef = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
-    const out1 = await toolDef.execute(fcArgs1, { agent });
-    session.append('tool/result', toolResultMsg(1, 2, 'fc-1', out1.summary), { surfaceOp: 'append' });
-    session.append('step/end', { turn: 1, step: 2 });
-
-    // Step 3 pre-step: folds into Conclusion #1 + Objective #1
-    await h.runPreStep(agent, [], { turn: 1, step: 3 });
-
-    const nodesAfterFold1 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold1.slice(0, -2), prefix, 'base and user request seqs must stay untouched');
-    const [conc1Seq, obj1Seq] = nodesAfterFold1.slice(-2);
-    assert.equal(session.eventAt(conc1Seq).data.source.layer, 'conclusion');
-    assert.equal(session.eventAt(obj1Seq).data.source.layer, 'objective');
-    assert.equal(session.eventAt(obj1Seq).data.source.origin, 'model');
-    assert.match(session.eventAt(obj1Seq).data.content[0].text, /Inspect rpc\.mjs next/);
-
-    // Step 3 -> Step 4: More exploration + focus_conclude #2
-    session.append('assistant/message', assistantToolCallMsg(1, 3, [{ id: 'c-read-2', name: 'read', args: { file_path: 'rpc.mjs' } }]), { surfaceOp: 'append' });
-    session.append('tool/result', toolResultMsg(1, 3, 'c-read-2', 'rpc uses /api/dsh-lpipe-wake'), { surfaceOp: 'append' });
-    const fcArgs2 = {
-      conclusions: [{ key: 'wake.rpc', text: 'rpc.mjs registers POST /api/dsh-lpipe-wake.' }],
-      objective: 'Check client panel',
-    };
-    session.append('assistant/message', assistantToolCallMsg(1, 4, [{ id: 'fc-2', name: FOCUS_TOOL_NAME, args: fcArgs2 }]), { surfaceOp: 'append' });
-    const out2 = await toolDef.execute(fcArgs2, { agent });
-    session.append('tool/result', toolResultMsg(1, 4, 'fc-2', out2.summary), { surfaceOp: 'append' });
-
-    await h.runPreStep(agent, [], { turn: 1, step: 5 });
-    const nodesAfterFold2 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold2.slice(0, -2), [...prefix, conc1Seq], 'base, request and first conclusion must stay untouched');
-    const [conc2Seq, obj2Seq] = nodesAfterFold2.slice(-2);
-    assert.notEqual(obj2Seq, obj1Seq, 'old objective was replaced');
-
-    // Fold #3 with retirement tombstone
-    const fcArgs3 = {
-      conclusions: [
-        { key: 'wake.panel', text: 'panel.js registers into lpipe.settings.panel.' },
-        { key: 'wake.timer', text: '' },
-      ],
-    };
-    session.append('assistant/message', assistantToolCallMsg(1, 5, [{ id: 'fc-3', name: FOCUS_TOOL_NAME, args: fcArgs3 }]), { surfaceOp: 'append' });
-    const out3 = await toolDef.execute(fcArgs3, { agent });
-    session.append('tool/result', toolResultMsg(1, 5, 'fc-3', out3.summary), { surfaceOp: 'append' });
-
-    await h.runPreStep(agent, [], { turn: 1, step: 6 });
-    const nodesAfterFold3 = session.surface.nodes;
-    assert.deepEqual(nodesAfterFold3.slice(0, -2), [...prefix, conc1Seq, conc2Seq], 'protected prefix and both earlier conclusions must stay untouched');
-    const conc3Event = session.eventAt(nodesAfterFold3.at(-2));
-    assert.match(conc3Event.data.content[0].text, /\(retired — no longer needed\)/);
-    // Since no new user message arrived in Fold #3 and objective was omitted, it carried forward Objective #2 ('Check client panel')
-    const obj3Event = session.eventAt(nodesAfterFold3.at(-1));
-    assert.equal(obj3Event.data.source.origin, 'carried');
-    assert.match(obj3Event.data.content[0].text, /Check client panel/);
-  } finally {
-    h.cleanup();
-  }
-});
-
-test('2. objective carry-forward picks the latest real user/chat/wake trigger across multi-turn unconverted spans', async () => {
-  const h = createPluginHarness();
-  try {
-    const session = new FakeSession('main-session');
-    const agent = { id: 'main-session', session };
-    seedBaseLayer(session);
-
-    // Turn 1 answered without folding
-    session.append('user/message', userMsg('First old question about tone'), { surfaceOp: 'append' });
-    session.append('assistant/message', assistantTextMsg(1, 1, 'Tone has 4 fields.'), { surfaceOp: 'append' });
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
-
-    // Turn 2: new user question + runtime notice + exploration + focus_conclude without objective
-    session.append('user/message', userMsg('Second active question: refactor focus config bounds'), { surfaceOp: 'append' });
-    session.append('user/message', userMsg('<system-reminder>clock tick</system-reminder>', { kind: 'lpipe-clock', form: 'notice', summary: 'clock' }), { surfaceOp: 'append' });
-    session.append('assistant/message', assistantToolCallMsg(2, 1, [{ id: 'g1', name: 'grep', args: { pattern: 'DEFAULT_CONFIG' } }]), { surfaceOp: 'append' });
-    session.append('tool/result', toolResultMsg(2, 1, 'g1', 'found config.mjs'), { surfaceOp: 'append' });
-
-    const fcArgs = { conclusions: [{ key: 'cfg.bounds', text: 'compactChars default is 512K.' }] };
-    session.append('assistant/message', assistantToolCallMsg(2, 2, [{ id: 'fc-a', name: FOCUS_TOOL_NAME, args: fcArgs }]), { surfaceOp: 'append' });
-    session.append('tool/result', toolResultMsg(2, 2, 'fc-a', 'Recorded 1 conclusion(s)'), { surfaceOp: 'append' });
-
-    await h.runPreStep(agent, [], { turn: 2, step: 3 });
-
-    const objSeq = session.surface.nodes.at(-1);
-    const objEvent = session.eventAt(objSeq);
-    assert.equal(objEvent.data.source.layer, 'objective');
-    assert.equal(objEvent.data.source.origin, 'carried');
-    assert.match(objEvent.data.content[0].text, /Second active question: refactor focus config bounds/);
-    assert.doesNotMatch(objEvent.data.content[0].text, /First old question/);
-  } finally {
-    h.cleanup();
-  }
-});
-
-test('3. parallel sibling tool calls with focus_conclude are hard-rejected and never fold the surface', async () => {
+test('parallel sibling tool calls with focus_equate are hard-rejected and never fold the surface', async () => {
   const h = createPluginHarness();
   try {
     const session = new FakeSession('main-session');
@@ -399,8 +289,8 @@ test('3. parallel sibling tool calls with focus_conclude are hard-rejected and n
     seedBaseLayer(session);
     session.append('user/message', userMsg('Read file and conclude at once'), { surfaceOp: 'append' });
 
-    // Assistant emits both `read` and `focus_conclude` in the same message
-    const fcArgs = { conclusions: [{ key: 'bad.parallel', text: 'should reject' }] };
+    // Assistant emits both `read` and `focus_equate` in the same message
+    const fcArgs = { key: 'bad-parallel', supersedes: [], conclusions: 'should reject' };
     session.append(
       'assistant/message',
       assistantToolCallMsg(1, 1, [
@@ -416,7 +306,7 @@ test('3. parallel sibling tool calls with focus_conclude are hard-rejected and n
       (err) => err instanceof FocusToolArgsError && err.code === 'INVALID_ARGS' && /alone/.test(err.message),
     );
 
-    // Log sibling success and focus_conclude error result
+    // Log sibling success and focus_equate error result
     session.append('tool/result', toolResultMsg(1, 1, 'call-read', 'file content intact'), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 1, 'call-fc', 'invalid arguments: must be called alone', true), { surfaceOp: 'append' });
 
@@ -432,124 +322,13 @@ test('3. parallel sibling tool calls with focus_conclude are hard-rejected and n
   }
 });
 
-test('4. deterministic compaction deduplicates keys, purges tombstones, handles all-empty state, evicts oldest over maxConclusionChars, preserves surrounding seqs, and skips no-op idle rewrites', async () => {
-  const h = createPluginHarness();
-  try {
-    saveConfig({
-      idleMinutes: 30,
-      compactChars: 50000,
-      nudgeChars: 40000,
-      maxConclusionChars: 4000,
-    }, h.focusDir);
-
-    const session = new FakeSession('main-session');
-    const agent = { id: 'main-session', session };
-    const baseSeqs = seedBaseLayer(session);
-    const toolDef = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
-
-    // Fold 1
-    const request = session.append('user/message', userMsg('Task part 1'), { surfaceOp: 'append' });
-    const prefix = [...baseSeqs, request.seq];
-    appendRead(session, 'input-1', 'Raw source for the first three entries.');
-    const a1 = {
-      conclusions: [
-        { key: 'slot.dup', text: 'old value v1' },
-        { key: 'slot.retire', text: 'temporary note' },
-        { key: 'slot.oldest', text: 'X'.repeat(2400) },
-      ],
-      objective: 'Continue work',
-    };
-    session.append('assistant/message', assistantToolCallMsg(1, 1, [{ id: 'fc1', name: FOCUS_TOOL_NAME, args: a1 }]), { surfaceOp: 'append' });
-    await toolDef.execute(a1, { agent });
-    session.append('tool/result', toolResultMsg(1, 1, 'fc1', 'ok'), { surfaceOp: 'append' });
-    await h.runPreStep(agent, [], { turn: 1, step: 2 });
-
-    // Fold 2: supersede slot.dup, retire slot.retire, add slot.newest that pushes slot.oldest over 4000 cap
-    const a2 = {
-      conclusions: [
-        { key: 'slot.dup', text: 'updated value v2' },
-        { key: 'slot.retire', text: '' },
-        { key: 'slot.newest', text: 'Y'.repeat(2200) },
-      ],
-      objective: 'Final step',
-    };
-    session.append('assistant/message', assistantToolCallMsg(1, 2, [{ id: 'fc2', name: FOCUS_TOOL_NAME, args: a2 }]), { surfaceOp: 'append' });
-    await toolDef.execute(a2, { agent });
-    session.append('tool/result', toolResultMsg(1, 2, 'fc2', 'ok'), { surfaceOp: 'append' });
-    await h.runPreStep(agent, [], { turn: 1, step: 3 });
-
-    // Add an unconverted assistant reply and close turn 1 at t0
-    session.setClock(h.getNow());
-    const tailAsst = session.append('assistant/message', assistantTextMsg(1, 3, 'Done for now.'), { surfaceOp: 'append' });
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
-
-    const preCompactNodes = session.surface.nodes;
-    assert.deepEqual(preCompactNodes.slice(0, -4), prefix);
-    const preservedObjectiveSeq = preCompactNodes.at(-2);
-    assert.equal(session.eventAt(preservedObjectiveSeq).data.source.layer, 'objective');
-    const preservedTailSeq = tailAsst.seq;
-
-    // Advance clock by 31 minutes (>= idleMinutes=30) and start Turn 2
-    const tIdle = h.getNow() + 31 * 60_000;
-    h.setNow(tIdle);
-    session.setClock(tIdle);
-    session.append('turn/start', { turn: 2 });
-
-    await h.runPreStep(agent, [userMsg('Back after break')], { turn: 2, step: 1 });
-
-    const postCompactNodes = session.surface.nodes;
-    // 2 conclusion nodes collapsed into 1; baseSeqs, objectiveSeq, and tailAsstSeq preserved verbatim!
-    assert.deepEqual(postCompactNodes.slice(0, -3), prefix);
-    assert.equal(postCompactNodes.at(-2), preservedObjectiveSeq, 'prompt layer seq must stay untouched by stage B compaction');
-    assert.equal(postCompactNodes.at(-1), preservedTailSeq, 'unconverted layer seq must stay untouched by stage B compaction');
-
-    const mergedText = session.eventAt(postCompactNodes.at(-3)).data.content[0].text;
-    assert.match(mergedText, /\[slot\.dup\]: updated value v2/);
-    assert.doesNotMatch(mergedText, /old value v1/);
-    assert.doesNotMatch(mergedText, /slot\.retire/, 'retired key and tombstone must be purged');
-    assert.doesNotMatch(mergedText, /slot\.oldest/, 'oldest entry exceeding maxConclusionChars must be evicted');
-    assert.match(mergedText, /\[slot\.newest\]: Y+/);
-    assert.ok(mergedText.length <= 4000, `compacted conclusion text (${mergedText.length}) must fit maxConclusionChars`);
-
-    // Verify no-op guard: another 40 minutes idle when already compacted to 1 clean node must NOT emit another replace
-    const genBeforeNoOp = session.surface.replaceGeneration;
-    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } });
-    const tIdle2 = tIdle + 40 * 60_000;
-    h.setNow(tIdle2);
-    session.setClock(tIdle2);
-    session.append('turn/start', { turn: 3 });
-    await h.runPreStep(agent, [userMsg('Another idle ping')], { turn: 3, step: 1 });
-    assert.equal(session.surface.replaceGeneration, genBeforeNoOp, 'clean single-node conclusion layer must skip no-op replace');
-
-    // Now retire remaining keys and trigger threshold compaction -> verify non-empty placeholder conclusion node
-    const aRetireAll = {
-      conclusions: [
-        { key: 'slot.dup', text: '' },
-        { key: 'slot.newest', text: '' },
-      ],
-    };
-    session.append('assistant/message', assistantToolCallMsg(3, 1, [{ id: 'fc3', name: FOCUS_TOOL_NAME, args: aRetireAll }]), { surfaceOp: 'append' });
-    session.append('tool/result', toolResultMsg(3, 1, 'fc3', 'ok'), { surfaceOp: 'append' });
-
-    // Pass huge incoming message to cross compactChars (50000) right after folding
-    await h.runPreStep(agent, [userMsg('Z'.repeat(52000))], { turn: 3, step: 2 });
-    const [emptyConcEvent] = focusEvents(session, 'conclusion');
-    assert.equal(focusEvents(session, 'conclusion').length, 1);
-    assert.equal(emptyConcEvent.data.content[0].text, EMPTY_CONCLUSIONS_TEXT);
-    assert.deepEqual(emptyConcEvent.data.source.entries, []);
-  } finally {
-    h.cleanup();
-  }
-});
-
-test('5. unconverted nudge triggers without percentages, throttles repeats by half-step, and is shadowed upon folding', async () => {
+test('unconverted nudge triggers without percentages, throttles repeats by half-step, and is shadowed upon folding', async () => {
   const h = createPluginHarness();
   try {
     saveConfig({
       idleMinutes: 60,
       compactChars: 200000,
       nudgeChars: 20000,
-      maxConclusionChars: 16000,
     }, h.focusDir);
 
     const session = new FakeSession('main-session');
@@ -582,8 +361,8 @@ test('5. unconverted nudge triggers without percentages, throttles repeats by ha
     assert.equal(d3.messages.length, 1);
     const nudgeEvent2 = session.append('user/message', d3.messages[0], { surfaceOp: 'append' });
 
-    // Step 5: model calls focus_conclude -> both nudges in unconverted layer are shadowed and gone from surface.nodes
-    const fcArgs = { conclusions: [{ key: 'search.done', text: 'Summarized huge, small, and more files.' }] };
+    // Step 5: model calls focus_equate -> both nudges in unconverted layer are shadowed and gone from surface.nodes
+    const fcArgs = { key: 'search-done', supersedes: [], conclusions: 'Summarized huge, small, and more files.' };
     session.append('assistant/message', assistantToolCallMsg(1, 4, [{ id: 'fc-clean', name: FOCUS_TOOL_NAME, args: fcArgs }]), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 4, 'fc-clean', 'ok'), { surfaceOp: 'append' });
 
@@ -595,31 +374,95 @@ test('5. unconverted nudge triggers without percentages, throttles repeats by ha
   }
 });
 
-test('6. active compaction lock avoidance, stale pre-seed lock handling, and strict LP main-session isolation', async () => {
+test('nudge counts unfinished work across turns and replay, pacing reminders until a successful fold', async () => {
   const h = createPluginHarness();
   try {
-    saveConfig({ ...DEFAULT_CONFIG, nudgeChars: 16000, compactChars: 64000, maxConclusionChars: 8000 }, h.focusDir);
+    saveConfig({ nudgeChars: 20000 }, h.focusDir);
+    let session = new FakeSession();
+    const append = (type, data) => session.append(type, data, { surfaceOp: 'append' });
+    const check = (turn, messages = []) => h.runPreStep({ id: session.id, session }, messages, { turn, step: 1 });
+    const work = (turn, size) => append('assistant/message', assistantTextMsg(turn, 1, 'x'.repeat(size)));
+    seedBaseLayer(session);
+    append('user/message', userMsg('Inspect the first part'));
+    work(1, 10000);
+    const largeRequest = userMsg('u'.repeat(30000));
+    assert.deepEqual((await check(1, [largeRequest])).messages, [largeRequest], 'incoming user bytes do not advance the reminder meter');
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
+    session.append('turn/start', { turn: 2 });
+    append('user/message', largeRequest);
+    append('assistant/message', assistantToolCallMsg(2, 1, [{ id: 'skill', name: 'skill', args: { name: 'example' } }]));
+    append('tool/result', toolResultMsg(2, 1, 'skill', 's'.repeat(30000)));
+    const head = session.surface.nodes[0];
+    work(2, 9999);
+    assert.deepEqual((await check(2)).messages, [], 'user and skill bytes neither add to nor erase work');
+    work(2, 1);
+    session = replaySession(session);
+    const first = (await check(2)).messages;
+    assert.equal(first.length, 1, 'two subthreshold turns reach the threshold together');
+    assert.equal(first[0].source.layer, 'nudge');
+    assert.match(first[0].content[0].text, /20,?000/);
+    assert.deepEqual((await check(2, first)).messages, first, 'do not double-inject an incoming nudge');
+    append('user/message', first[0]);
+    work(2, 6000);
+    append('user/message', userMsg('Continue'));
+    work(3, 3999);
+    session = replaySession(session);
+    assert.deepEqual((await check(3)).messages, [], 'replay remembers previous nudge and cross-turn growth');
+    work(3, 1);
+    const repeat = (await check(3)).messages;
+    assert.equal(repeat.length, 1, 'repeat at exactly half a threshold of new work');
+    append('user/message', repeat[0]);
+    appendCheckpoint(session, 'across-turns', { key: 'both-parts', supersedes: [], conclusions: 'Both parts checked.' });
+    assert.deepEqual((await check(3)).messages, [], 'successful fold starts a fresh reminder interval');
+    const [conclusion] = focusEvents(session, 'equivalence');
+    assert.deepEqual(session.surface.nodes, [head, conclusion.seq], 'the whole skill batch folds with earlier work, continue and both nudges');
+    session = replaySession(session);
+    work(4, 19999);
+    assert.deepEqual((await check(4)).messages, [], 'pre-fold work and nudges stay out after resume');
+    work(4, 1);
+    assert.equal((await check(4)).messages[0]?.source.layer, 'nudge');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('active compaction lock avoidance, stale pre-seed lock handling, and strict LP main-session isolation', async () => {
+  const h = createPluginHarness();
+  try {
+    saveConfig({ ...DEFAULT_CONFIG, nudgeChars: 16000, compactChars: 64000 }, h.focusDir);
 
     const session = new FakeSession('main-session');
     const mainAgent = { id: 'main-session', session };
     const otherSession = new FakeSession('other-session');
     const otherAgent = { id: 'other-session', session: otherSession };
-    const childAgent = { id: 'subagent-1', parentSession: 'main-session', session: new FakeSession('subagent-1') };
+    const childSession = Object.assign(new FakeSession('subagent-1'), { header: { origin: 'subagent', delegationDepth: 1, parentSession: 'main-session' } });
+    const childAgent = { id: childSession.id, session: childSession };
+    const grandchild = { id: 'grandchild', session: new FakeSession('grandchild') };
+    h.owners.set(childAgent, mainAgent);
+    h.owners.set(grandchild, mainAgent);
 
     // Tool visibility & execution gate + prompt section isolation
     const { tool, options } = h.registeredTools.get(FOCUS_TOOL_NAME);
     assert.equal(options.when({ agent: mainAgent }), true);
     assert.equal(options.when({ agent: otherAgent }), false);
-    assert.equal(options.when({ agent: childAgent }), false);
-    assert.throws(() => tool.execute({ conclusions: [{ key: 'k', text: 'v' }] }, { agent: otherAgent }), /not enabled/);
+    assert.equal(options.when({ agent: childAgent }), true);
+    assert.equal(options.when({ agent: grandchild }), true);
+    assert.match(h.sections[0].text({ scope: grandchild }), /focus_equate/);
+    seedBaseLayer(grandchild.session);
+    appendSurface(grandchild.session, 'user/message', userMsg('Inspect the nested task.'));
+    appendSurface(grandchild.session, 'assistant/message', assistantToolCallMsg(1, 1, [{ id: 'nested-read', name: 'read', args: {} }]));
+    appendSurface(grandchild.session, 'tool/result', toolResultMsg(1, 1, 'nested-read', 'x'.repeat(20000)));
+    assert.equal((await h.runPreStep(grandchild)).messages[0]?.source?.layer, 'nudge');
+    assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: 'v' }, { agent: otherAgent }), /not enabled/);
 
     const section = h.sections[0];
     assert.equal(section.name, 'dsh-lpipe-focus');
     assert.equal(section.order, 712);
     assert.equal(section.interpolate, false);
-    assert.match(section.text({ scope: mainAgent }), /focus_conclude/);
+    assert.match(section.text({ scope: mainAgent }), /focus_equate/);
     assert.equal(section.text({ scope: otherAgent }), '');
-    assert.equal(section.text({ scope: childAgent }), '');
+    assert.match(section.text({ scope: childAgent }), /focus_equate/);
+    assert.equal((await tool.execute({ key: 'child-check', supersedes: [], conclusions: 'OK' }, { agent: childAgent })).key, 'child-check');
 
     // Non-main session does not fold or nudge
     seedBaseLayer(otherSession);
@@ -630,7 +473,7 @@ test('6. active compaction lock avoidance, stale pre-seed lock handling, and str
     // Active compaction lock on main session skips surface rewrite
     seedBaseLayer(session);
     session.append('user/message', userMsg('Work item'), { surfaceOp: 'append' });
-    const fcArgs = { conclusions: [{ key: 'k1', text: 'val1' }] };
+    const fcArgs = { key: 'lock-test', supersedes: [], conclusions: 'val1' };
     session.append('assistant/message', assistantToolCallMsg(1, 1, [{ id: 'fc-lock', name: FOCUS_TOOL_NAME, args: fcArgs }]), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 1, 'fc-lock', 'ok'), { surfaceOp: 'append' });
     session.append('compaction/start', { compactionId: 'c-1', turn: 1 });
@@ -649,21 +492,27 @@ test('6. active compaction lock avoidance, stale pre-seed lock handling, and str
     assert.equal(options.when({ agent: mainAgent }), false);
     assert.equal(options.when({ agent: otherAgent }), true);
     assert.equal(section.text({ scope: mainAgent }), '');
-    assert.match(section.text({ scope: otherAgent }), /focus_conclude/);
+    assert.match(section.text({ scope: otherAgent }), /focus_equate/);
 
-    // Enabling allSessions opens focus to all top-level conversations while keeping subagents isolated
+    assert.equal(options.when({ agent: childAgent }), false, 'child follows the rebound main session');
+    // Turning subagent inheritance off leaves the all-top-level setting independent.
     saveConfig({ allSessions: true }, h.focusDir);
     assert.equal(options.when({ agent: mainAgent }), true, 'former main session now admitted via allSessions');
     assert.equal(options.when({ agent: otherAgent }), true);
-    assert.match(section.text({ scope: mainAgent }), /focus_conclude/);
+    assert.match(section.text({ scope: mainAgent }), /focus_equate/);
+    assert.equal(options.when({ agent: childAgent }), true);
+    const unmanaged = { ...childAgent, session: childSession };
+    assert.equal(options.when({ agent: unmanaged }), false, 'matching ids are not proof of ownership');
+    saveConfig({ includeSubagents: false }, h.focusDir);
+    assert.equal((await h.runPreStep(grandchild, [userMsg('x'.repeat(20000))])).messages.length, 1);
     for (const sub of [
-      childAgent,
+      childAgent, grandchild,
       { id: 'spawn-sub', options: { subagentDepth: 1 }, session: new FakeSession('spawn-sub') },
       { id: 'resumed-sub', session: Object.assign(new FakeSession('resumed-sub'), { header: { origin: 'subagent', delegationDepth: 1 } }) },
     ]) {
       assert.equal(options.when({ agent: sub }), false, 'subagent must stay isolated even when allSessions is true');
       assert.equal(section.text({ scope: sub }), '');
-      assert.throws(() => tool.execute({ conclusions: [{ key: 'k', text: 'v' }] }, { agent: sub }), /not enabled/);
+      assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: 'v' }, { agent: sub }), /not enabled/);
     }
     const thirdSession = new FakeSession('third-session');
     const thirdAgent = { id: 'third-session', session: thirdSession };
@@ -700,51 +549,6 @@ function appendRead(session, id, text) {
 const focusEvents = (session, layer) => session.surface.nodes.map(seq => session.eventAt(seq)).filter(event =>
   event.type === 'user/message' && event.data.source?.kind === FOCUS_SOURCE_KIND && event.data.source.layer === layer);
 
-test('ordinary folds preserve the prefix through the last protected node and consume only later work', async t => {
-  const protectedUser = (text, source) => session => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' });
-  for (const [name, addBoundary] of [
-    ['human request', protectedUser('Keep the original instructions and exclusions', { kind: 'user' })],
-    ['chat request', protectedUser('Also review the linked checklist', { kind: 'dsh-lpipe-chat', form: 'notice', channels: ['wechat'] })],
-    ['planned wake', protectedUser('Check the nightly results', { kind: 'dsh-lpipe-wake', form: 'notice', wake: 'planned' })],
-    ['runtime snapshot', protectedUser('Workspace changed', { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'workspace', text: 'New directory' }] })],
-    ['skill catalog', protectedUser('Updated skill catalog', { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'example', description: 'Example skill' }], update: true })],
-    ['agent instructions', protectedUser('Observe the new directory instructions', { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'set', scope: 'project', path: 'AGENTS.md', digest: 'abc' }] })],
-    ['invoked skill', protectedUser('<skill_content name="example">Use the instructions.</skill_content>', { kind: 'skill-invocation', form: 'instructions', name: 'example' })],
-    ['developer message', session => session.append('developer/message', { turn: 1, step: 2, message: { ...userMsg('Developer constraints'), role: 'developer' } }, { surfaceOp: 'append' })],
-    ['loaded skill in a parallel batch', session => {
-      const calls = [{ id: 'skill-1', name: 'skill', args: { name: 'example' } }, { id: 'sibling', name: 'read', args: { file_path: 'notes.txt' } }];
-      session.append('assistant/message', assistantToolCallMsg(1, 2, calls), { surfaceOp: 'append' });
-      session.append('tool/result', toolResultMsg(1, 2, 'skill-1', '<skill_content name="example">\n<skill_instructions>Full skill instructions</skill_instructions>\n</skill_content>'), { surfaceOp: 'append' });
-      session.append('tool/result', toolResultMsg(1, 2, 'sibling', 'Last result in the protected batch'), { surfaceOp: 'append' });
-    }],
-  ]) {
-    await t.test(name, async () => {
-      const h = createPluginHarness();
-      try {
-        const session = new FakeSession();
-        const agent = { id: session.id, session };
-        seedBaseLayer(session);
-        session.append('user/message', userMsg('Inspect the workspace without editing it'), { surfaceOp: 'append' });
-        appendRead(session, 'before', 'Work before the boundary stays at its original position');
-        addBoundary(session);
-        const prefix = session.surface.nodes;
-        const time = session.append('user/message', userMsg('Time sampled at step 3', { kind: 'time-context', form: 'snapshot', sections: [{ name: 'time-context', text: 'Time sampled at step 3' }] }), { surfaceOp: 'append' });
-        const nudge = session.append('user/message', userMsg('Consider folding', { kind: FOCUS_SOURCE_KIND, form: 'notice', layer: 'nudge' }), { surfaceOp: 'append' });
-        appendRead(session, 'after', 'Only this work is consumed');
-        const entries = [{ key: 'inspection', text: 'Inspected without editing.' }];
-        appendCheckpoint(session, 'fc', { conclusions: entries });
-        const consumed = session.surface.nodes.slice(prefix.length);
-        await h.runPreStep(agent);
-        assert.deepEqual(session.surface.nodes.slice(0, prefix.length), prefix, 'protected prefix must keep its original event seqs and order');
-        assert.deepEqual(session.surface.nodes.filter(seq => consumed.includes(seq)), [], `suffix including time ${time.seq} and nudge ${nudge.seq} must fold`);
-        assert.deepEqual(focusEvents(session, 'conclusion').map(ev => ev.data.source.entries), [entries]);
-      } finally {
-        h.cleanup();
-      }
-    });
-  }
-});
-
 function replaySession(original) {
   const restored = new FakeSession(original.id);
   for (const { type, time, data, surfaceOp, sourceEventSeqs } of original.snapshotEvents()) {
@@ -756,189 +560,416 @@ function replaySession(original) {
   return restored;
 }
 
-function objectiveText(session) {
-  const objective = session.surface.nodes.map(seq => session.eventAt(seq).data).findLast(data =>
-    data.source?.kind === FOCUS_SOURCE_KIND && data.content.some(block => block.text?.includes('<current-objective')));
-  assert.ok(objective, 'a checkpoint must expose its objective to the model');
-  return objective.content.map(block => block.text).join('\n').match(/<current-objective\b[^>]*>([\s\S]*?)<\/current-objective>/)?.[1];
+function fixture(t, config) {
+  const h = createPluginHarness();
+  t.after(h.cleanup);
+  if (config) saveConfig(config, h.focusDir);
+  const session = new FakeSession();
+  const agent = { id: session.id, session };
+  const check = (incoming = []) => h.runPreStep(agent, incoming);
+  const applyLayer = async args => {
+    appendCheckpoint(session, args.key, args);
+    return check();
+  };
+  return { h, session, agent, check, applyLayer };
 }
 
-test('fold keeps new incoming directions ahead of any stale objective; replay carries a concrete objective through continue', async () => {
-  const h = createPluginHarness();
-  try {
-    const session = new FakeSession();
-    const agent = { id: session.id, session };
-    seedBaseLayer(session);
-    session.append('user/message', userMsg('Audit the release configuration without editing it'), { surfaceOp: 'append' });
-    appendCheckpoint(session, 'first', { conclusions: [{ key: 'release', text: 'Build verified' }], objective: 'Check the signing certificate' });
-    const suffix = session.append('user/message', userMsg('Use the new staging workspace', { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'workspace', text: 'staging' }] }), { surfaceOp: 'append' });
-    const nextUser = userMsg('Instead, check the package license');
-    const updatedCatalog = userMsg('New skill available', { kind: 'skill-catalog', form: 'catalog', update: true, entries: [{ name: 'license', description: 'Inspect package licenses' }] });
-    const incoming = [nextUser, updatedCatalog];
-    const decision = await h.runPreStep(agent, incoming);
-    assert.deepEqual(decision.messages, incoming, 'host messages and newer user requests must pass through without a stale appended objective');
-    assert.equal(session.surface.nodes.at(-1), suffix.seq, 'already-committed messages after the checkpoint must also retain their place');
-    assert.match(objectiveText(session), /Check the signing certificate/);
-    for (const message of decision.messages) session.append('user/message', message, { surfaceOp: 'append' });
-    appendCheckpoint(session, 'second', { conclusions: [{ key: 'license', text: 'Located package metadata' }] });
-    await h.runPreStep(agent);
-    assert.match(objectiveText(session), /Instead, check the package license/);
+const layer = (key, conclusions, extra = {}) => ({ key, supersedes: [], conclusions, ...extra });
+const appendSurface = (session, type, data) => session.append(type, data, { surfaceOp: 'append' });
+const textOf = event => event.data.content.map(block => block.text).join('\n');
 
-    const restored = replaySession(session);
-    const resumed = { id: restored.id, session: restored };
-    const logEnd = restored.seq;
-    assert.deepEqual((await h.runPreStep(resumed)).messages, []);
-    assert.equal(restored.seq, logEnd, 'resume must not re-submit a completed checkpoint');
-    const cont = restored.append('user/message', userMsg('continue'), { surfaceOp: 'append' });
-    appendRead(restored, 'read-metadata', 'License field exists');
-    appendCheckpoint(restored, 'third', { conclusions: [{ key: 'field', text: 'License declared' }] });
-    await h.runPreStep(resumed);
-    assert.match(objectiveText(restored), /Instead, check the package license/);
-    assert.ok(restored.surface.nodes.includes(cont.seq), 'continuation stays verbatim even though it is not the objective');
-    assert.deepEqual(focusEvents(restored, 'conclusion').flatMap(ev => ev.data.source.entries.map(entry => entry.key)), ['release', 'license', 'field']);
-  } finally {
-    h.cleanup();
+function assertLayer(event, { next, ...expected }) {
+  assert.ok(event, `expected an equivalence layer for ${expected.key}`);
+  const { kind, layer: name, createdAt, ...fields } = event.data.source;
+  assert.equal(kind, FOCUS_SOURCE_KIND);
+  assert.equal(name, 'equivalence');
+  assert.deepEqual(fields, expected, 'only durable fields belong in the layer source');
+  const text = textOf(event);
+  assert.ok(text.startsWith(`<equivalence key="${expected.key}">\n`) && text.endsWith('\n</equivalence>'));
+  for (const [field, label] of [['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['work_done', 'Work done']]) {
+    if (expected[field]) assert.ok(text.includes(`${label}: ${expected[field]}`));
+    else assert.ok(!text.includes(`\n${label}:`), `no empty ${field} section`);
   }
-});
+  if (next) assert.ok(!textOf(event).includes(next), 'next is never part of the durable equivalence layer');
+}
 
-test('resume wording keeps a specific objective but a new restriction takes precedence', async () => {
-  const h = createPluginHarness();
-  try {
-    const session = new FakeSession();
-    const agent = { id: session.id, session };
-    seedBaseLayer(session);
-    const user = text => session.append('user/message', userMsg(text), { surfaceOp: 'append' }).seq;
-    const checkpoint = async (id, objective) => {
-      appendCheckpoint(session, id, { conclusions: [{ key: id, text: 'Checked.' }], objective });
-      await h.runPreStep(agent);
-      return objectiveText(session);
-    };
-    const request = user('核对两个发布包的许可证');
-    assert.match(await checkpoint('a', '检查整合包的许可证'), /检查整合包的许可证/);
-    const resume = user('噢，我知道原因了。没事，继续原本的工作就好。');
-    assert.match(await checkpoint('b', 'continue'), /检查整合包的许可证/);
-    const redirect = user('继续检查许可证，不要发布。');
-    assert.match(await checkpoint('c', '现在发布'), /继续检查许可证，不要发布/);
-    assert.deepEqual(session.surface.nodes.filter(seq => [request, resume, redirect].includes(seq)), [request, resume, redirect]);
-  } finally {
-    h.cleanup();
-  }
-});
-
-test('separated conclusion runs resolve updates and retirements globally without replacing protected messages', async t => {
-  for (const mode of ['idle', 'threshold']) {
-    await t.test(mode, async () => {
-      const h = createPluginHarness();
-      try {
-        saveConfig({ idleMinutes: 5, nudgeChars: 24000, compactChars: 32000, maxConclusionChars: 4000 }, h.focusDir);
-        const session = new FakeSession();
-        const agent = { id: session.id, session };
-        seedBaseLayer(session);
-        const appendUser = (text, source) => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' }).seq;
-        const first = appendUser('Analyze packaging');
-        appendRead(session, 'inputs', 'package inputs');
-        appendCheckpoint(session, 'a', { conclusions: [{ key: 'kept', text: 'Only in early run' }, { key: 'updated', text: 'Obsolete' }, { key: 'retired', text: 'Remove me' }] });
-        await h.runPreStep(agent);
-        const early = focusEvents(session, 'conclusion')[0].seq;
-        const second = appendUser('Audit the new manifest');
-        const instructions = appendUser('Do not edit the manifest', { kind: 'agent-instructions', form: 'instructions', changes: [{ action: 'set', scope: 'project', path: 'AGENTS.md', digest: 'new' }] });
-        appendRead(session, 'manifest', 'new manifest');
-        appendCheckpoint(session, 'b', { conclusions: [{ key: 'updated', text: 'Current' }, { key: 'retired', text: '' }, { key: 'new', text: 'Only in later run' }] });
-        await h.runPreStep(agent);
-        assert.equal(focusEvents(session, 'conclusion')[0].seq, early, 'ordinary fold must preserve the first run');
-        const tail = session.append('assistant/message', assistantTextMsg(1, 5, 'Awaiting review'), { surfaceOp: 'append' });
-        const identities = [first, second, instructions, tail.seq];
-        if (mode === 'idle') h.setNow(h.getNow() + 6 * 60000);
-        const incoming = mode === 'threshold' ? [userMsg('Z'.repeat(33000))] : [];
-        await h.runPreStep(agent, incoming);
-        assert.deepEqual(session.surface.nodes.filter(seq => identities.includes(seq)), identities);
-        const active = focusEvents(session, 'conclusion').flatMap(ev => ev.data.source.entries);
-        assert.deepEqual(active, [{ key: 'kept', text: 'Only in early run' }, { key: 'updated', text: 'Current' }, { key: 'new', text: 'Only in later run' }]);
-        assert.match(objectiveText(session), /Audit the new manifest/);
-        const restored = replaySession(session);
-        const logEnd = restored.seq;
-        await h.runPreStep({ id: restored.id, session: restored }, incoming);
-        assert.equal(restored.seq, logEnd, 'rechecking the clean state after replay must not submit another rewrite');
-      } finally {
-        h.cleanup();
-      }
-    });
-  }
-});
-
-test('only idle or completed host compaction can retire superseded snapshots', async t => {
-  for (const mode of ['chars', 'idle', 'open', 'failed', 'success']) {
-    await t.test(mode, async () => {
-      const h = createPluginHarness();
-      try {
-        const session = new FakeSession();
-        const agent = { id: session.id, session };
-        const append = (text, source) => session.append('user/message', userMsg(text, source), { surfaceOp: 'append' }).seq;
-        const runtime = text => append(text, { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'cwd', text }] });
-        const catalog = (name, incomplete = false) => append(name, { kind: 'skill-catalog', form: 'catalog', entries: [{ name, description: name }], incomplete });
-        seedBaseLayer(session);
-        const human = append('Preserve the original request', { kind: 'user' });
-        const old = runtime('A');
-        const current = runtime('B');
-        const full = catalog('full');
-        const partial = catalog('partial', true);
-        session.append('assistant/message', assistantTextMsg(1, 1, 'Acknowledged'), { surfaceOp: 'append' });
-        if (mode === 'idle') h.setNow(h.getNow() + 61 * 60000);
-        if (['open', 'failed', 'success'].includes(mode)) {
-          session.append('compaction/start', { compactionId: 'boundary', turn: 1 });
-          if (mode !== 'open') session.append('compaction/end', { compactionId: 'boundary', turn: 1, ...(mode === 'failed' ? { error: { message: 'cancelled' } } : {}) });
-        }
-        const incoming = mode === 'chars' ? [userMsg('Z'.repeat(DEFAULT_CONFIG.compactChars))] : [];
-        await h.runPreStep(agent, incoming);
-        const cleaned = mode === 'idle' || mode === 'success';
-        assert.equal(session.surface.nodes.includes(old), !cleaned, 'char threshold, active lock and failed compaction must not clean up old snapshots');
-        for (const seq of [human, current, full, partial]) assert.ok(session.surface.nodes.includes(seq));
-        if (mode === 'success') {
-          const post1 = runtime('post-compaction C');
-          const post2 = runtime('post-compaction D');
-          const gen = session.surface.replaceGeneration;
-          await h.runPreStep(agent);
-          assert.equal(session.surface.replaceGeneration, gen, 'the same completed transaction cannot authorize cleanup of later records');
-          for (const seq of [post1, post2]) assert.ok(session.surface.nodes.includes(seq));
-        }
-      } finally {
-        h.cleanup();
-      }
-    });
-  }
-});
-
-test('validateFocusConcludeArgs enforces key/text/objective limits and deduplicates repeated keys in call order', () => {
-  const res = validateFocusConcludeArgs({
-    conclusions: [
-      { key: '  dup.key  ', text: 'first' },
-      { key: 'other.key', text: 'line1\n\tline2' },
-      { key: 'dup.key', text: 'second wins' },
-    ],
-    objective: '  Next target  ',
+test('complete tail folds across turns, chat, host updates, skill and parallel results; next remains a separate disposable hint', async t => {
+  const { h, session, agent, check } = fixture(t);
+  assert.equal(h.preStepListeners[0].opts?.prepend, true);
+  const [system] = seedBaseLayer(session);
+  const post = (text, source) => appendSurface(session, 'user/message', userMsg(text, source));
+  post('Audit both packages. Do not edit or publish.');
+  appendRead(session, 'manifest', 'Raw package metadata');
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
+  session.append('turn/start', { turn: 2 });
+  post('Editor: v2.4 is in staging.', { kind: 'dsh-lpipe-chat', form: 'notice', channels: ['wechat'] });
+  post('Check release state', { kind: 'dsh-lpipe-wake', form: 'notice', wake: 'planned' });
+  post('Workspace changed', { kind: 'runtime-context', form: 'snapshot', sections: [] });
+  post('Updated catalog', { kind: 'skill-catalog', form: 'catalog', entries: [], update: true });
+  post('Do not publish', { kind: 'agent-instructions', form: 'instructions', changes: [] });
+  post('Skill instructions', { kind: 'skill-invocation', form: 'instructions', name: 'audit' });
+  post('Sampled time', { kind: 'time-context', form: 'snapshot', sections: [] });
+  const declarations = [{ name: 'audit', description: 'Check the release.', parameters: { type: 'object' } }];
+  const header = session.append('request/header', { header: { tools: declarations }, reason: 'change' });
+  session.requestHeader = () => header.data.header;
+  session.toolHistory = () => ({ tools: declarations, updates: [] });
+  appendSurface(session, 'developer/message', {
+    turn: 2, step: 1, headerSeq: header.seq,
+    message: { id: randomUUID(), role: 'developer', source: { kind: 'tool-registry' }, content: [
+      { type: 'tool-removal', toolName: 'old-audit' }, { type: 'tool-addition', toolName: 'audit' },
+    ] },
   });
-  assert.deepEqual(res, {
-    entries: [
-      { key: 'other.key', text: 'line1\n\tline2' },
-      { key: 'dup.key', text: 'second wins' },
-    ],
-    objective: 'Next target',
-  });
+  post('Consider a checkpoint', { kind: FOCUS_SOURCE_KIND, layer: 'nudge', form: 'notice' });
+  const calls = [{ id: 'load-skill', name: 'skill', args: { name: 'audit' } }, { id: 'sibling', name: 'read', args: { file_path: 'input' } }];
+  appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 1, calls));
+  appendSurface(session, 'tool/result', toolResultMsg(2, 1, 'sibling', 'Package input'));
+  appendSurface(session, 'tool/result', toolResultMsg(2, 1, 'load-skill', 'Read-only audit instructions'));
+  post('Continue');
+  const a = layer('release-audit', 'The user authorized a read-only audit of both packages; no publication. The editor reports v2.4 is in staging; this is unverified.', { work_done: 'Compared both manifests.', next: 'Inspect the signing certificates.' });
+  const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
+  appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 2, [{ id: 'first', name: FOCUS_TOOL_NAME, args: a }]));
+  const output = await tool.execute(a, { agent });
+  appendSurface(session, 'tool/result', toolResultMsg(2, 2, 'first', output.summary));
+  const consumed = session.surface.nodes.slice(1);
+  const incoming = [userMsg('Start with the integration package.')];
+  assert.deepEqual((await check(incoming)).messages, incoming, 'uncommitted directions keep their place');
+  const [first] = focusEvents(session, 'equivalence');
+  const [hint] = focusEvents(session, 'objective');
+  assertLayer(first, a);
+  assert.equal(hint.data.source.origin, 'model');
+  assert.ok(textOf(hint).includes(a.next));
+  assert.deepEqual(session.surface.nodes, [system, first.seq, hint.seq]);
+  assert.deepEqual([...first.sourceEventSeqs, ...(hint.sourceEventSeqs ?? [])].filter(seq => consumed.includes(seq)).sort((a, b) => a - b), consumed, 'every original tail node is shadowed');
 
-  for (const invalid of [
-    null,
-    {},
-    { conclusions: [] },
-    { conclusions: Array.from({ length: 33 }, (_, i) => ({ key: `k${i}`, text: 'v' })) },
-    { conclusions: [{ key: '   ', text: 'v' }] },
-    { conclusions: [{ key: 'bad\nkey', text: 'v' }] },
-    { conclusions: [{ key: 'k'.repeat(121), text: 'v' }] },
-    { conclusions: [{ key: 'k', text: 'v'.repeat(16001) }] },
-    { conclusions: [{ key: 'k', text: 'bad\x00char' }] },
-    { conclusions: [{ key: 'k', text: 'v', extra: 1 }] },
-    { conclusions: [{ key: 'k', text: 'v' }], objective: 'o'.repeat(8001) },
-    { conclusions: [{ key: 'k', text: 'v' }], unknownTop: true },
+  const restored = replaySession(session);
+  const resume = () => h.runPreStep({ id: restored.id, session: restored });
+  const end = restored.seq;
+  await resume();
+  assert.equal(restored.seq, end, 'replaying a successful checkpoint never repeats it');
+  appendSurface(restored, 'user/message', userMsg('Check licenses instead.'));
+  const b = layer('package-licenses', 'Both packages declare MIT.');
+  appendCheckpoint(restored, 'second', b);
+  await resume();
+  const [, second] = focusEvents(restored, 'equivalence');
+  assertLayer(second, b);
+  assert.deepEqual(restored.surface.nodes, [system, first.seq, second.seq], 'the first layer stays verbatim; its next and the redirect fold with the work');
+  assert.ok(!textOf(second).includes(a.next));
+  assert.equal(focusEvents(restored, 'objective').length, 0, 'an omitted next is never inferred or carried');
+});
+
+test('a checkpoint with no preceding ordinary work can emit next without protecting it', async t => {
+  const { session, applyLayer } = fixture(t);
+  const head = appendSurface(session, 'system/message', sysMsg());
+  const firstArgs = layer('package-scope', 'Read-only audit.', { next: 'Read the manifest.' });
+  await applyLayer(firstArgs);
+  const [first] = focusEvents(session, 'equivalence');
+  const [next] = focusEvents(session, 'objective');
+  assertLayer(first, firstArgs);
+  assert.deepEqual(session.surface.nodes, [head.seq, first.seq, next.seq]);
+  assert.ok(textOf(next).includes(firstArgs.next));
+  const secondArgs = layer('license', 'The manifest declares MIT.');
+  await applyLayer(secondArgs);
+  const [, second] = focusEvents(session, 'equivalence');
+  assertLayer(second, secondArgs);
+  assert.deepEqual(session.surface.nodes, [head.seq, first.seq, second.seq]);
+});
+
+test('an unsafe span is left untouched, not partially folded after the obstacle', async t => {
+  for (const [name, obstacle] of [
+    ['later system instructions', s => appendSurface(s, 'system/message', sysMsg('New system instructions'))],
+    ['later developer instructions', s => appendSurface(s, 'developer/message', { turn: 1, step: 3, message: { ...userMsg('Never publish.'), role: 'developer', source: { kind: 'developer' } } })],
+    ['missing sibling result', s => {
+      appendSurface(s, 'assistant/message', assistantToolCallMsg(1, 3, [{ id: 'a', name: 'read', args: {} }, { id: 'b', name: 'skill', args: {} }]));
+      appendSurface(s, 'tool/result', toolResultMsg(1, 3, 'a', 'Only one result'));
+    }],
+    ['result with wrong call ID', s => {
+      appendSurface(s, 'assistant/message', assistantToolCallMsg(1, 3, [{ id: 'a', name: 'read', args: {} }]));
+      appendSurface(s, 'tool/result', toolResultMsg(1, 3, 'other', 'Not its result'));
+    }],
+    ['result from a different step', s => {
+      appendSurface(s, 'assistant/message', assistantToolCallMsg(1, 3, [{ id: 'a', name: 'read', args: {} }]));
+      appendSurface(s, 'tool/result', toolResultMsg(1, 4, 'a', 'Unrelated step'));
+    }],
+    ['orphan result', s => appendSurface(s, 'tool/result', toolResultMsg(1, 3, 'unknown', 'Orphan'))],
   ]) {
-    assert.throws(() => validateFocusConcludeArgs(invalid), FocusToolArgsError);
+    await t.test(name, async t => {
+      const { session, check } = fixture(t);
+      seedBaseLayer(session);
+      appendRead(session, 'before', 'Must not be stranded.');
+      obstacle(session);
+      appendRead(session, 'after', 'Must not be replaced either.');
+      appendCheckpoint(session, 'blocked', layer('blocked', 'Do not apply.'));
+      const nodes = session.surface.nodes;
+      const seq = session.seq;
+      await check();
+      assert.deepEqual(session.surface.nodes, nodes);
+      assert.equal(session.seq, seq, 'no replacements, even an empty placeholder');
+    });
+  }
+});
+
+test('pending, failed, interrupted and invalid checkpoints never authorize a fold on replay', async t => {
+  for (const mode of ['pending', 'failed', 'interrupted', 'invalid']) {
+    await t.test(mode, async t => {
+      const { h, session } = fixture(t);
+      seedBaseLayer(session);
+      appendRead(session, 'raw', 'This evidence must remain available.');
+      const args = mode === 'invalid' ? { conclusions: [{ key: 'legacy', text: 'not accepted' }] } : layer('review', 'Checked the evidence.');
+      const call = assistantToolCallMsg(1, 3, [{ id: 'review', name: FOCUS_TOOL_NAME, args }]);
+      if (mode === 'interrupted') call.interrupted = true;
+      appendSurface(session, 'assistant/message', call);
+      if (mode !== 'pending') appendSurface(session, 'tool/result', toolResultMsg(1, 3, 'review', mode, mode === 'failed'));
+      const restored = replaySession(session);
+      const agent = { id: restored.id, session: restored };
+      const end = restored.seq;
+      await h.runPreStep(agent);
+      assert.deepEqual(restored.surface.nodes, session.surface.nodes);
+      assert.equal(restored.seq, end);
+      if (mode === 'pending') {
+        appendSurface(restored, 'tool/result', toolResultMsg(1, 3, 'review', 'Recorded'));
+        await h.runPreStep(agent);
+        assertLayer(focusEvents(restored, 'equivalence')[0], args);
+      }
+    });
+  }
+});
+
+test('a completed checkpoint before a later committed direction and open batch preserves both', async t => {
+  const { h, session } = fixture(t);
+  const [head] = seedBaseLayer(session);
+  appendRead(session, 'search', 'Located the manifest.');
+  const args = layer('manifest-file', 'The manifest is in packages/core.', { next: 'Read its metadata.' });
+  appendCheckpoint(session, 'manifest', args);
+  const redirect = appendSurface(session, 'user/message', userMsg('Inspect its license first.'));
+  const open = appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 1, [{ id: 'later', name: 'read', args: { file_path: 'LICENSE' } }]));
+  const restored = replaySession(session);
+  await h.runPreStep({ id: restored.id, session: restored });
+  const [conclusion] = focusEvents(restored, 'equivalence');
+  const [hint] = focusEvents(restored, 'objective');
+  assertLayer(conclusion, args);
+  assert.deepEqual(restored.surface.nodes, [head, conclusion.seq, hint.seq, redirect.seq, open.seq]);
+  assert.deepEqual(restored.eventAt(redirect.seq), redirect);
+  assert.deepEqual(restored.eventAt(open.seq), open);
+});
+
+test('two balanced checkpoints pending at resume retain both layers in order', async t => {
+  const { h, session } = fixture(t);
+  const [head] = seedBaseLayer(session);
+  const a = layer('package-location', 'The manifest is under packages/core.', { next: 'Inspect the license.' });
+  const b = layer('license-result', 'The package is licensed under MIT.', { next: 'Verify the license notice.' });
+  appendCheckpoint(session, 'location', a);
+  appendRead(session, 'license', 'MIT');
+  appendCheckpoint(session, 'license-done', b);
+  const restored = replaySession(session);
+  const agent = { id: restored.id, session: restored };
+  await h.runPreStep(agent);
+  const [first, second] = focusEvents(restored, 'equivalence');
+  assertLayer(first, a);
+  assertLayer(second, b);
+  const [next] = focusEvents(restored, 'objective');
+  assert.ok(textOf(next).includes(b.next));
+  assert.deepEqual(restored.surface.nodes, [head, first.seq, second.seq, next.seq]);
+  const end = restored.seq;
+  await h.runPreStep(agent);
+  assert.equal(restored.seq, end);
+});
+
+test('a changed definition keeps both meanings in order until a later layer explicitly covers both', async t => {
+  const { h, session, applyLayer, check } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
+  const [head] = seedBaseLayer(session);
+  const prompt = h.sections[0].text({ scope: { id: session.id, session } });
+  assert.match(prompt, /latest definition of a term by default/i);
+  assert.match(prompt, /earlier exchange, use its meaning in that context if it is still visible/i);
+  assert.match(prompt, /do not infer a lost definition/i);
+  const first = { key: 'launch-in-design', supersedes: [], definitions: 'In design, launch means the first internal demo.' };
+  const second = { key: 'launch-in-ops', supersedes: [], definitions: 'In operations, launch means public availability.', next: 'Ask which audience is in scope.' };
+  await applyLayer(first);
+  await applyLayer(second);
+  const [a, b] = focusEvents(session, 'equivalence');
+  const [hint] = focusEvents(session, 'objective');
+  assertLayer(a, first);
+  assertLayer(b, second);
+  assert.ok(textOf(hint).includes(second.next));
+  const pressure = [userMsg('x'.repeat(32000))];
+  assert.equal((await check(pressure)).messages.at(-1).source.layer, 'pressure');
+  assert.deepEqual(session.surface.nodes, [head, a.seq, b.seq, hint.seq]);
+
+  const restored = replaySession(session);
+  const agent = { id: restored.id, session: restored };
+  const current = { key: 'launch-by-stage', supersedes: [first.key, second.key],
+    definitions: `${first.definitions}\n${second.definitions}`, experience: 'Check the audience before scheduling a launch.',
+    conclusions: 'The operations launch is still pending.', work_done: 'Confirmed the design demo took place.' };
+  appendCheckpoint(restored, 'both-meanings', current);
+  await h.runPreStep(agent);
+  assert.deepEqual(focusEvents(restored, 'equivalence').map(e => e.data.source.key), [first.key, second.key, current.key]);
+  await h.runPreStep(agent, pressure);
+  const [survivor] = focusEvents(restored, 'equivalence');
+  assert.deepEqual(restored.surface.nodes, [head, survivor.seq]);
+  assertLayer(survivor, current);
+  assert.deepEqual(restored.eventAt(a.seq), a);
+  assert.deepEqual(restored.eventAt(b.seq), b);
+});
+
+test('older tool receipts and conclusion sources are ordinary context, not equivalence boundaries', async t => {
+  const { h, session } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
+  const [head] = seedBaseLayer(session);
+  appendSurface(session, 'assistant/message', assistantTextMsg(1, 1, 'a'.repeat(16000)));
+  const old = { key: 'old-layer', supersedes: [], result: 'A historical conclusion.' };
+  appendSurface(session, 'assistant/message', assistantToolCallMsg(1, 2, [{ id: 'old', name: 'focus_conclude', args: old }]));
+  appendSurface(session, 'tool/result', toolResultMsg(1, 2, 'old', 'Recorded'));
+  appendSurface(session, 'user/message', userMsg(old.result, { kind: FOCUS_SOURCE_KIND, layer: 'conclusion', ...old }));
+  const restored = replaySession(session);
+  const agent = { id: restored.id, session: restored };
+  const original = restored.surface.nodes;
+  const request = userMsg('x'.repeat(32000));
+  const { messages } = await h.runPreStep(agent, [request]);
+  assert.deepEqual(restored.surface.nodes, original, 'old calls do not materialize on replay');
+  assert.deepEqual(messages.map(m => m.source.layer), [undefined, 'nudge'], 'old layers neither reset the meter nor trigger pressure');
+  const args = { key: 'observations', supersedes: [], experience: 'Use the trace to distinguish attempts from success.' };
+  appendCheckpoint(restored, 'observations', args);
+  await h.runPreStep(agent);
+  const [current] = focusEvents(restored, 'equivalence');
+  assertLayer(current, args);
+  assert.deepEqual(restored.surface.nodes, [head, current.seq], 'the old source does not mark the start of the fold');
+});
+
+test('invalid equivalence sources do not reset the work meter, trigger pressure or fence off earlier work', async t => {
+  const { session, check, applyLayer } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
+  const [head] = seedBaseLayer(session);
+  appendSurface(session, 'assistant/message', assistantTextMsg(1, 1, 'x'.repeat(16000)));
+  const source = { kind: FOCUS_SOURCE_KIND, layer: 'equivalence', key: 'mixed', supersedes: [], definitions: 'New spelling.' };
+  appendSurface(session, 'user/message', userMsg('Mixed format.', { ...source, result: 'Obsolete field.' }));
+  appendSurface(session, 'user/message', userMsg('Unknown reference.', { ...source, key: 'unknown', supersedes: ['missing'] }));
+  const before = session.surface.nodes;
+  const input = userMsg('x'.repeat(32000));
+  const { messages } = await check([input]);
+  assert.deepEqual(messages.map(m => m.source.layer), [undefined, 'nudge']);
+  assert.deepEqual(session.surface.nodes, before);
+  const args = layer('verified', 'A valid replacement.');
+  await applyLayer(args);
+  const [current] = focusEvents(session, 'equivalence');
+  assertLayer(current, args);
+  assert.deepEqual(session.surface.nodes, [head, current.seq]);
+});
+
+test('idle and pressure remove only explicitly superseded layers, preserving full active history and unrelated tail nodes', async t => {
+  for (const trigger of ['idle', 'pressure']) {
+    await t.test(trigger, async t => {
+      const { h, session, check, applyLayer } = fixture(t, { idleMinutes: 5, compactChars: 32000, nudgeChars: 20000 });
+      const [head] = seedBaseLayer(session);
+      const a = layer('original-location', 'The first manifest was under src.');
+      const keep = layer('original-constraints', 'Keep intact: ' + 'x'.repeat(4700) + ' END_OF_RECORD', { work_done: 'Captured the original constraints.' });
+      const b = layer('temp-location', 'An intermediate manifest used tmp/.');
+      const current = layer('verified-location', 'The current manifest is under pkg/.', { supersedes: [a.key, b.key], next: 'Run the audit without editing.' });
+      for (const args of [a, keep, b, current]) await applyLayer(args);
+      assert.deepEqual(focusEvents(session, 'equivalence').map(e => e.data.source.key), [a.key, keep.key, b.key, current.key], 'ordinary folds stack even explicitly covered layers until cleanup');
+      const [hint] = focusEvents(session, 'objective');
+      const tail = appendSurface(session, 'user/message', userMsg('Do not edit.'));
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
+      const incoming = trigger === 'pressure' ? [userMsg('z'.repeat(33000))] : [];
+      if (trigger === 'idle') h.setNow(h.getNow() + 6 * 60000);
+      await check(incoming);
+      const active = focusEvents(session, 'equivalence');
+      assert.deepEqual(active.map(e => e.data.source.key), [keep.key, current.key]);
+      assertLayer(active[0], keep);
+      assertLayer(active[1], current);
+      assert.deepEqual(session.surface.nodes, [head, ...active.map(e => e.seq), hint.seq, tail.seq], 'head, next and raw tail retain their original identities');
+      const restored = replaySession(session);
+      const gen = restored.surface.replaceGeneration;
+      await h.runPreStep({ id: restored.id, session: restored }, incoming);
+      assert.equal(restored.surface.replaceGeneration, gen, 'a clean stack cannot be compacted again to meet a character quota');
+    });
+  }
+});
+
+test('low-space notices do not evict or truncate valid layers and are deduplicated on input and replay', async t => {
+  const { h, session, check, applyLayer } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
+  const [head] = seedBaseLayer(session);
+  const record = layer('full-result', 'a'.repeat(7000) + ' EXACT_END', { work_done: 'Verified the full record.' });
+  await applyLayer(record);
+  const [conclusion] = focusEvents(session, 'equivalence');
+  const input = userMsg('z'.repeat(33000));
+  const decision = await check([input]);
+  assert.equal(decision.messages[0], input);
+  const notices = decision.messages.filter(m => m.source?.kind === FOCUS_SOURCE_KIND && m.source.layer === 'pressure');
+  assert.equal(notices.length, 1, 'suggest explicit consolidation rather than silently discarding data');
+  assert.deepEqual((await check(decision.messages)).messages, decision.messages, 'no duplicate if one is already incoming');
+  assert.deepEqual(session.surface.nodes, [head, conclusion.seq]);
+  assertLayer(conclusion, record);
+  appendSurface(session, 'user/message', notices[0]);
+  const restored = replaySession(session);
+  const before = restored.surface.nodes;
+  assert.deepEqual((await h.runPreStep({ id: restored.id, session: restored }, [input])).messages, [input]);
+  assert.deepEqual(restored.surface.nodes, before);
+  assertLayer(focusEvents(restored, 'equivalence')[0], record);
+});
+
+test('the public tool requires a fresh key, explicit supersedes and nonblank equivalence content', t => {
+  const { h } = fixture(t);
+  assert.deepEqual([...h.registeredTools.keys()], ['focus_equate']);
+  const parameters = h.registeredTools.get(FOCUS_TOOL_NAME).tool.parameters;
+  assert.deepEqual(Object.keys(parameters.properties).sort(), ['conclusions', 'definitions', 'experience', 'key', 'next', 'supersedes', 'work_done']);
+  assert.deepEqual([...parameters.required].sort(), ['key', 'supersedes']);
+  const valid = layer('release-audit-2', 'Located both manifests.\nOne uses MIT.', { supersedes: ['old-audit'], work_done: 'Read both manifests.', next: 'Compare their licenses.' });
+  assert.deepEqual(validateFocusEquateArgs(valid), valid);
+  const minimal = layer('complete', 'Checked.');
+  assert.deepEqual(validateFocusEquateArgs({ ...minimal, next: '  ', work_done: '' }), minimal);
+  for (const bad of [null, {}, { ...minimal, key: ['a', 'b'] }, ...['', 'a.b', 'A-b', '-a', 'a-', 'a--b', 'two_words', 'a b', ' trim', 'bad\nkey'].map(key => ({ ...minimal, key })),
+    { key: 'a', conclusions: 'Missing array' }, { ...minimal, supersedes: 'old-audit' }, { ...minimal, supersedes: [12] },
+    { ...minimal, supersedes: ['old-audit', 'old-audit'] }, { ...minimal, supersedes: ['complete'] }, { ...minimal, supersedes: ['bad.key'] },
+    { ...minimal, conclusions: '' }, { ...minimal, conclusions: '\n\t' }, { ...minimal, conclusions: 'bad\x00char' }, { ...minimal, next: 7 }, { ...minimal, work_done: false },
+    { ...minimal, objective: 'obsolete' }, { conclusions: [{ key: 'k', text: '' }] }, { ...minimal, extra: true },
+  ]) assert.throws(() => validateFocusEquateArgs(bad), FocusToolArgsError);
+});
+
+test('duplicate keys and unknown references cannot supersede anything, even after cleanup and replay', async t => {
+  const { h, session, applyLayer } = fixture(t, { idleMinutes: 5 });
+  seedBaseLayer(session);
+  const first = layer('manifest-location', 'First manifest location.');
+  const latest = layer('verified-manifest', 'Verified new location.', { supersedes: [first.key] });
+  await applyLayer(first);
+  await applyLayer(latest);
+  h.setNow(h.getNow() + 6 * 60000);
+  const originalAgent = { id: session.id, session };
+  await h.runPreStep(originalAgent);
+  assert.deepEqual(focusEvents(session, 'equivalence').map(e => e.data.source.key), [latest.key]);
+  const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
+  for (const args of [layer(latest.key, 'Implicit overwrite.'), layer(first.key, 'Reused historical key.'), layer('invented-ref', 'No such layer.', { supersedes: ['absent-layer'] })]) {
+    const restored = replaySession(session);
+    const agent = { id: restored.id, session: restored };
+    appendSurface(restored, 'assistant/message', assistantToolCallMsg(2, 1, [{ id: 'invalid', name: FOCUS_TOOL_NAME, args }]));
+    await assert.rejects(() => tool.execute(args, { agent }), FocusToolArgsError);
+    // A successful-looking historical receipt still cannot bypass state validation during replay.
+    appendSurface(restored, 'tool/result', toolResultMsg(2, 1, 'invalid', 'Recorded'));
+    const before = restored.surface.nodes;
+    await h.runPreStep(agent);
+    assert.deepEqual(restored.surface.nodes, before);
+    assertLayer(focusEvents(restored, 'equivalence')[0], latest);
+  }
+});
+
+test('idle, pressure and host compaction leave unconverted snapshots and legacy records alone', async t => {
+  for (const mode of ['idle', 'pressure', 'host-compaction']) {
+    await t.test(mode, async t => {
+      const { h, session, check } = fixture(t);
+      seedBaseLayer(session);
+      const legacy = userMsg('Older conclusion.', { kind: FOCUS_SOURCE_KIND, layer: 'conclusion', entries: [{ key: 'old.dotted', text: 'Preserve me.' }] });
+      appendSurface(session, 'user/message', legacy);
+      for (const version of ['old', 'new']) {
+        appendSurface(session, 'user/message', userMsg(version, { kind: 'runtime-context', form: 'snapshot', sections: [{ name: 'cwd', text: version }] }));
+        appendSurface(session, 'user/message', userMsg(version, { kind: 'skill-catalog', form: 'catalog', entries: [{ name: version, description: version }] }));
+      }
+      appendRead(session, 'raw-work', 'Do not discard the raw call or its result.');
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
+      if (mode === 'idle') h.setNow(h.getNow() + 61 * 60000);
+      if (mode === 'host-compaction') {
+        session.append('compaction/start', { compactionId: 'native', turn: 1 });
+        session.append('compaction/end', { compactionId: 'native', turn: 1 });
+      }
+      const before = session.surface.nodes;
+      await check(mode === 'pressure' ? [userMsg('z'.repeat(DEFAULT_CONFIG.compactChars))] : []);
+      assert.deepEqual(session.surface.nodes, before);
+      assert.equal(session.surface.replaceGeneration, 0);
+    });
   }
 });
