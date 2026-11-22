@@ -138,10 +138,12 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
         if (!match || !msg || data.turn !== match.turn || data.step !== match.step || msg.isError || data.error !== undefined
           || (msg.toolCallId ?? msg.source?.callId) !== match.id || (msg.source?.callId !== undefined && msg.source.callId !== match.id)) break;
         try {
-          const parse = raw => validateFocusEquateArgs(typeof raw === 'string' ? JSON.parse(raw) : raw, layersByKey);
-          const layer = parse(match.raw ?? match.trace);
-          if (match.traced && match.raw != null && match.trace !== match.raw && !isDeepStrictEqual(layer, parse(match.trace))) break;
-          checkpoints.set(match.seq, layer);
+          const decode = raw => typeof raw === 'string' ? JSON.parse(raw) : raw;
+          const args = decode(match.raw ?? match.trace);
+          const layer = validateFocusEquateArgs(args, layersByKey);
+          if (match.traced && match.raw != null && match.trace !== match.raw
+            && !isDeepStrictEqual(layer, validateFocusEquateArgs(decode(match.trace), layersByKey))) break;
+          checkpoints.set(match.seq, { layer, args });
           layersByKey.set(layer.key, layer);
         } catch (error) {
           if (!(error instanceof FocusToolArgsError || error instanceof SyntaxError)) throw error;
@@ -173,26 +175,26 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
     description:
-      'Replace the entire span since the last equivalence layer with one equivalent layer. Its definitions, experience, and conclusions must together carry what is needed from that span without relying on work_done or next. Call this tool alone, after outstanding tools return.',
+      'Replace the entire span since the last equivalence layer. After the fold, you cannot consult the original span or recover an omission from it. Submit the complete replacement in this call. Use definitions, experience, or conclusions to carry what the span established; use work_done to identify completed work and next for the immediate reminder. Call this tool alone, after all outstanding tools have returned.',
     parameters: {
       type: 'object', additionalProperties: false, required: ['key', 'supersedes'],
       anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })),
       properties: {
         key: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH,
-          description: 'A new, unique kebab-case key for this layer.' },
+          description: 'A new, unique lowercase kebab-case key for this layer.' },
         supersedes: { type: 'array',
           items: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH },
-          description: 'List only earlier layers this layer fully replaces. Pass [] if there are none. Updating one definition does not by itself replace its whole layer.' },
+          description: 'Keys of earlier layers that this layer fully replaces. Include a key only if the new layer preserves everything still needed from that earlier layer. Otherwise leave the earlier layer in place. Use [] if none qualify.' },
         definitions: { type: 'string',
-          description: 'Terms or procedures introduced or redefined in this span, with the meanings agreed here.' },
+          description: 'Terms or procedures whose meaning was established or changed. State the agreed meaning and the context in which it applies.' },
         experience: { type: 'string',
-          description: 'Reusable lessons from this span: what to do, when it applies, and why it matters.' },
+          description: 'Methods and skill instructions that remain useful. State what to do, when it applies, and any conditions or limits needed to use it correctly. For a loaded skill, retain its name and applicable rules, not just the fact that it was loaded.' },
         conclusions: { type: 'string',
-          description: 'What this stage established, including any uncertainty that matters for later work.' },
+          description: "What remains true or unresolved at the end of the span. Preserve the user's continuing goal and communication context, decisions, constraints, findings, and possibilities ruled out. State the basis and limits of each finding where they affect its meaning." },
         work_done: { type: 'string',
-          description: 'Work already completed that need not be repeated.' },
+          description: 'Work already performed that need not be repeated under the same conditions. Identify what was checked or attempted and whether it completed. Put what the work established in conclusions.' },
         next: { type: 'string', maxLength: MAX_OBJECTIVE_LENGTH,
-          description: 'Write a fresh hint for the separate prompt layer: the remaining task, its constraints, and the limits of authorization.' },
+          description: "An optional reminder for the immediate continuation, separate from the equivalence layer. State what to do next, what to hold off on, and what decision or authorization is still needed. The user's latest instructions take precedence." },
       },
     },
     output: {

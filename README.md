@@ -19,7 +19,7 @@
 | B 站 | 浏览推荐、搜索、评论、字幕与视频分镜 |
 | 栖所 | 为模型指定个人文件夹 |
 | 语气 | 分别设置措辞、句式、节奏和表达的显隐，只改变主对话的表达方式 |
-| 聚焦 | 用等效层替代一段已完成的工作，按需保留定义、经验和结论 |
+| 聚焦 | 在开始下一段实质工作前，用等效层替代已经得出结果的工作区间，并保留仍需要的定义、经验和结论 |
 
 ### 安装与开始使用
 
@@ -62,7 +62,7 @@ Life Pipline adds WeChat / QQ messaging, wake-ups, long-term memory and Bilibili
 - **Bilibili:** recommendations, search, comments, subtitles and video storyboards.
 - **Home:** a personal folder for the model.
 - **Tone:** configure diction, syntax, rhythm and expression visibility without changing content, attitude or behavior.
-- **Focus:** replace completed work with the findings needed for the next step.
+- **Focus:** before the next substantive piece of work, replace a span that already established a result, keeping the definitions, experience and conclusions still needed.
 
 ### Install and start
 

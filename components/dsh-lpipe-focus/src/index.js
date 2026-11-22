@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { isMainSession, registerMainSection } from 'dsh-life-core/main-session';
 import { registerDependencies } from 'dsh-life-core/dependencies';
-import { appendDiagnostic } from 'dsh-life-core/diagnostics';
+import { appendDiagnostic, DIAGNOSTIC_MAX_BYTES } from 'dsh-life-core/diagnostics';
 import { focusRoot, loadConfig, saveConfig } from './config.mjs';
 import { createFocusRpcHandler, registerFocusRpc } from './rpc.mjs';
 import { FOCUS_PROMPT_ORDER, FOCUS_PROMPT_SECTION_NAME, FOCUS_SYSTEM_PROMPT } from './prompt.mjs';
@@ -56,7 +56,11 @@ export function apply(ctx, options = {}) {
 
   const writeDiagnostic = (entry) => {
     try {
-      appendDiagnostic(diagnosticPath, entry);
+      // A valid fold can exceed the normal rolling budget. Fit its whole UTF-8 line.
+      const maxBytes = entry.event === 'folded'
+        ? Math.max(DIAGNOSTIC_MAX_BYTES, Buffer.byteLength(JSON.stringify(entry), 'utf8') + 1)
+        : undefined;
+      appendDiagnostic(diagnosticPath, entry, maxBytes);
     } catch {
       /* never disrupt the main conversation on diagnostic write errors */
     }

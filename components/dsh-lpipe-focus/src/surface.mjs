@@ -119,8 +119,8 @@ export function foldPendingEquivalences(session, { now = Date.now(), turn = 0, s
     if (calls.length !== 1 || calls[0].name !== FOCUS_TOOL_NAME || !cuts[i] || !cuts[i + 2]) continue;
     if (evs[i + 1]?.type !== 'tool/result' || resultId(evs[i + 1]) !== calls[0].id) continue;
     history ??= collectFocusHistory(events);
-    const layer = history.checkpoints.get(nodes[i]);
-    if (layer) matches.push({ i, layer });
+    const checkpoint = history.checkpoints.get(nodes[i]);
+    if (checkpoint) matches.push({ i, ...checkpoint });
   }
   if (!matches.length) return null;
   const inputs = [];
@@ -135,7 +135,11 @@ export function foldPendingEquivalences(session, { now = Date.now(), turn = 0, s
   session.append(inputs);
   const beforeChars = evs.slice(first, start).reduce((n, ev) => n + charsOfSurfaceEvent(ev), 0);
   const afterChars = inputs.reduce((n, [, msg]) => n + charsOfMessage(msg), 0);
-  onDiagnostic({ event: 'folded', sessionId: session.id, turn, step, keys: matches.map(m => m.layer.key), replacedRange: { startSeq: nodes[first], endSeq: nodes[start - 1] }, beforeChars, afterChars });
+  onDiagnostic({
+    event: 'folded', sessionId: session.id, turn, step,
+    keys: matches.map(m => m.layer.key), equateArgs: matches.map(m => m.args),
+    replacedRange: { startSeq: nodes[first], endSeq: nodes[start - 1] }, beforeChars, afterChars,
+  });
   return { beforeChars, afterChars };
 }
 function totalChars(evs, incoming) { return evs.reduce((n, ev) => n + charsOfSurfaceEvent(ev), 0) + incoming.reduce((n, msg) => n + charsOfMessage(msg), 0); }

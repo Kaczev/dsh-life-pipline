@@ -774,13 +774,56 @@ test('two balanced checkpoints pending at resume retain both layers in order', a
   assert.equal(restored.seq, end);
 });
 
+function readFoldDiagnostics(h) {
+  return readFileSync(join(h.focusDir, 'focus.jsonl'), 'utf8').trimEnd().split('\n')
+    .map(line => JSON.parse(line)).filter(entry => entry.event === 'folded');
+}
+
+test('folded diagnostics preserve original arguments in batch order without changing the surface', async t => {
+  const { h, session, check } = fixture(t);
+  seedBaseLayer(session);
+  const a = layer('assistant-args', '  assistant finding\n', {
+    definitions: '', experience: '\t', work_done: ' read both files ', next: ' earlier hint ',
+  });
+  const b = layer('trace-args', '\ntrace finding\t', { supersedes: [a.key], next: '', definitions: ' exact term ' });
+  const addTraced = (id, assistantArgs, traceArgs) => {
+    const step = session.seq;
+    appendSurface(session, 'assistant/message', assistantToolCallMsg(1, step, [{ id, name: FOCUS_TOOL_NAME, args: assistantArgs }]));
+    session.append('tool/call', { turn: 1, step, callId: id, name: FOCUS_TOOL_NAME, arguments: traceArgs });
+    appendSurface(session, 'tool/result', toolResultMsg(1, step, id, 'Recorded'));
+  };
+  addTraced('first', a, { ...a, conclusions: 'assistant finding', experience: '' });
+  addTraced('second', undefined, b);
+  await check();
+  await check();
+  const rows = readFoldDiagnostics(h);
+  assert.equal(rows.length, 1, 'a second pre-step must not duplicate the success');
+  assert.deepEqual(rows[0].keys, [a.key, b.key]);
+  assert.deepEqual(rows[0].equateArgs, [a, b]);
+  const [first, second] = focusEvents(session, 'equivalence');
+  assertLayer(first, layer(a.key, 'assistant finding', { work_done: 'read both files' }));
+  assertLayer(second, layer(b.key, 'trace finding', { supersedes: [a.key], definitions: 'exact term' }));
+  assert.deepEqual(focusEvents(session, 'objective'), []);
+});
+
+test('a folded diagnostic exceeding the UTF-8 rolling budget is readable as one complete row', async t => {
+  const { h, session, applyLayer } = fixture(t);
+  seedBaseLayer(session);
+  const args = layer('oversize-audit', 'Verified.', { work_done: '\u3000'.repeat(700000) + ' done ' });
+  assert.ok(Buffer.byteLength(args.work_done, 'utf8') > 2 * 1024 * 1024);
+  await applyLayer(args);
+  const rows = readFoldDiagnostics(h);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].equateArgs, [args]);
+  assertLayer(focusEvents(session, 'equivalence')[0], layer(args.key, 'Verified.', { work_done: 'done' }));
+});
+
 test('a changed definition keeps both meanings in order until a later layer explicitly covers both', async t => {
   const { h, session, applyLayer, check } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
   const prompt = h.sections[0].text({ scope: { id: session.id, session } });
-  assert.match(prompt, /latest definition of a term by default/i);
-  assert.match(prompt, /earlier exchange, use its meaning in that context if it is still visible/i);
-  assert.match(prompt, /do not infer a lost definition/i);
+  assert.match(prompt, /latest definition of a term unless interpreting an earlier exchange in its own context/i);
+  assert.match(prompt, /do not reconstruct a lost definition/i);
   const first = { key: 'launch-in-design', supersedes: [], definitions: 'In design, launch means the first internal demo.' };
   const second = { key: 'launch-in-ops', supersedes: [], definitions: 'In operations, launch means public availability.', next: 'Ask which audience is in scope.' };
   await applyLayer(first);

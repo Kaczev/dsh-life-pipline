@@ -5,7 +5,7 @@ export const FOCUS_SOURCE_KIND = 'dsh-lpipe-focus';
 function nudgeText(chars) {
   return [
     '<system-reminder>',
-    `Work since the last equivalence layer: ${chars} characters. Could you continue correctly if one layer replaced this span? If not, keep the original context.`,
+    `Work since the last equivalence layer: ${chars} characters. What has this work established? If that result can replace the span and you are starting further substantive work, call focus_equate before proceeding. If your next action is a reply or a question, respond directly.`,
     '</system-reminder>',
   ].join('\n');
 }
@@ -16,7 +16,7 @@ const escapeClosingTag = (text, tagName) =>
 function renderObjectiveText(rawText) {
   return [
     '<current-objective>',
-    'Next-step hint. Follow the user’s latest instructions if they change this task:',
+    "Next-step hint from the last equivalence layer. The user's latest instructions take precedence:",
     escapeClosingTag(rawText, 'current-objective'),
     '</current-objective>',
   ].join('\n');
@@ -69,7 +69,7 @@ export function buildFocusLayerMessage(args, now = Date.now()) {
 
 export function buildPressureMessage() {
   return createFocusUserMessage({
-    text: '<system-reminder>\nContext space is low. Can one equivalence layer fully replace any active layers? List only the keys it fully supersedes.\n</system-reminder>',
+    text: '<system-reminder>\nThe context has reached the size threshold. When you next call focus_equate, list an earlier layer in supersedes only if the new layer preserves everything still needed from it. Otherwise leave that layer in place.\n</system-reminder>',
     source: { kind: FOCUS_SOURCE_KIND, layer: 'pressure', form: 'notice', summary: '聚焦 · 上下文空间提醒' },
   });
 }

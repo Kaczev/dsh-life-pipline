@@ -51,7 +51,7 @@ test('sources trust earlier keys and identical materializations, not text, bad r
   assert.deepEqual([...history.keys], ['first', 'second', 'future']);
   assert.deepEqual([...history.sources.keys()], [0, 3, 4, 10]);
   assert.equal('next' in history.sources.get(3), false, 'next belongs to the separate prompt');
-  assert.deepEqual([...history.checkpoints], [[1, b]]);
+  assert.deepEqual([...history.checkpoints], [[1, { layer: b, args: b }]]);
   assert.deepEqual([...collectFocusHistory(events, 2).keys], ['first'], 'a call alone does not reserve a key');
 });
 
@@ -78,7 +78,7 @@ test('long content fields and work_done are admitted, rendered and replayed with
   assert.equal(message.source.layer, 'equivalence');
   for (const field of [...fields, 'work_done']) assert.ok(message.content[0].text.includes(args[field]));
   const history = collectFocusHistory([call(0, 'c', args), receipt(1, 'c'), user(2, message.source)]);
-  assert.deepEqual(history.checkpoints.get(0), args);
+  assert.deepEqual(history.checkpoints.get(0), { layer: args, args });
   assert.deepEqual(history.sources.get(2), args);
 });
 
