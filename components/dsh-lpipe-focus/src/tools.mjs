@@ -180,7 +180,7 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
       properties: {
         key: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH,
           description: 'A new, unique kebab-case key for this layer.' },
-        supersedes: { type: 'array', uniqueItems: true,
+        supersedes: { type: 'array',
           items: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH },
           description: 'List only earlier layers this layer fully replaces. Pass [] if there are none. Updating one definition does not by itself replace its whole layer.' },
         definitions: { type: 'string',

@@ -82,6 +82,16 @@ test('long content fields and work_done are admitted, rendered and replayed with
   assert.deepEqual(history.sources.get(2), args);
 });
 
+test('supersedes duplicates are rejected at runtime without an unsupported schema constraint', async () => {
+  const tool = createFocusEquateTool();
+  assert.equal(Object.hasOwn(tool.parameters.properties.supersedes, 'uniqueItems'), false);
+  const events = [stored(0, layer('old'))];
+  await assert.rejects(
+    tool.execute(layer('new', ['old', 'old']), { agent: { session: { snapshotEvents: () => events } } }),
+    /duplicate supersedes key/,
+  );
+});
+
 test('tool execute accepts a prior pending success but rejects duplicates and unsuccessful or future references', async () => {
   const a = layer('pending-a'), b = layer('pending-b', ['pending-a']);
   const events = [call(0, 'a', a), receipt(1, 'a'), call(2, 'b', b)];
