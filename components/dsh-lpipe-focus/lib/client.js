@@ -392,7 +392,7 @@ function FocusForm({
   return h(
     'div',
     null,
-    h('p', { style: desc }, '用等效层保留一段工作中的定义、经验或结论。上下文过线或会话闲置时，只回收后续层明确替代的旧层。'),
+    h('p', { style: desc }, '用等效层保留一段工作中的定义、经验、决策依据或结论。上下文过线或会话闲置时，只回收后续层明确替代的旧层。'),
     scopeSwitch('allSessions', allSessions, '关闭时仅选中绑定的 LP 主会话；开启时选中所有顶层对话。', scopeBusy, onToggleScope),
     scopeSwitch('includeSubagents', includeSubagents, '仅对所选顶层对话下的子智能体生效。每个子智能体独立整理自己的上下文。', scopeBusy, onToggleScope),
     h('div', { style: grid }, FIELDS.map((item) => fieldView(item, form, errors, saving, onChange))),

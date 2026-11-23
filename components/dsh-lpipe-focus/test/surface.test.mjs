@@ -586,10 +586,14 @@ function assertLayer(event, { next, ...expected }) {
   assert.deepEqual(fields, expected, 'only durable fields belong in the layer source');
   const text = textOf(event);
   assert.ok(text.startsWith(`<equivalence key="${expected.key}">\n`) && text.endsWith('\n</equivalence>'));
-  for (const [field, label] of [['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['work_done', 'Work done']]) {
-    if (expected[field]) assert.ok(text.includes(`${label}: ${expected[field]}`));
-    else assert.ok(!text.includes(`\n${label}:`), `no empty ${field} section`);
+  const sections = [['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['guidance', 'Guidance'], ['work_done', 'Work done']];
+  const expectedLines = [`<equivalence key="${expected.key}">`];
+  if (expected.supersedes.length) expectedLines.push(`Supersedes: ${expected.supersedes.join(', ')}`);
+  for (const [field, label] of sections) {
+    if (expected[field]) expectedLines.push(`${label}: ${expected[field]}`);
   }
+  expectedLines.push('</equivalence>');
+  assert.equal(text, expectedLines.join('\n'), 'durable sections render once in contract order');
   if (next) assert.ok(!textOf(event).includes(next), 'next is never part of the durable equivalence layer');
 }
 
@@ -756,7 +760,7 @@ test('two balanced checkpoints pending at resume retain both layers in order', a
   const { h, session } = fixture(t);
   const [head] = seedBaseLayer(session);
   const a = layer('package-location', 'The manifest is under packages/core.', { next: 'Inspect the license.' });
-  const b = layer('license-result', 'The package is licensed under MIT.', { next: 'Verify the license notice.' });
+  const b = { key: 'license-scope', supersedes: [], guidance: 'The user requires a read-only license review.', next: 'Verify the license notice.' };
   appendCheckpoint(session, 'location', a);
   appendRead(session, 'license', 'MIT');
   appendCheckpoint(session, 'license-done', b);
@@ -822,8 +826,9 @@ test('a changed definition keeps both meanings in order until a later layer expl
   const { h, session, applyLayer, check } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
   const prompt = h.sections[0].text({ scope: { id: session.id, session } });
-  assert.match(prompt, /latest definition of a term unless interpreting an earlier exchange in its own context/i);
-  assert.match(prompt, /do not reconstruct a lost definition/i);
+  assert.match(prompt, /scope and force of that guidance/i);
+  const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
+  assert.match(tool.parameters.properties.definitions.description, /retain an earlier meaning/i);
   const first = { key: 'launch-in-design', supersedes: [], definitions: 'In design, launch means the first internal demo.' };
   const second = { key: 'launch-in-ops', supersedes: [], definitions: 'In operations, launch means public availability.', next: 'Ask which audience is in scope.' };
   await applyLayer(first);
@@ -841,7 +846,8 @@ test('a changed definition keeps both meanings in order until a later layer expl
   const agent = { id: restored.id, session: restored };
   const current = { key: 'launch-by-stage', supersedes: [first.key, second.key],
     definitions: `${first.definitions}\n${second.definitions}`, experience: 'Check the audience before scheduling a launch.',
-    conclusions: 'The operations launch is still pending.', work_done: 'Confirmed the design demo took place.' };
+    conclusions: 'The operations launch is still pending.', guidance: 'Use the team’s stage-specific terminology.',
+    work_done: 'Confirmed the design demo took place.' };
   appendCheckpoint(restored, 'both-meanings', current);
   await h.runPreStep(agent);
   assert.deepEqual(focusEvents(restored, 'equivalence').map(e => e.data.source.key), [first.key, second.key, current.key]);
@@ -951,7 +957,7 @@ test('the public tool requires a fresh key, explicit supersedes and nonblank equ
   const { h } = fixture(t);
   assert.deepEqual([...h.registeredTools.keys()], ['focus_equate']);
   const parameters = h.registeredTools.get(FOCUS_TOOL_NAME).tool.parameters;
-  assert.deepEqual(Object.keys(parameters.properties).sort(), ['conclusions', 'definitions', 'experience', 'key', 'next', 'supersedes', 'work_done']);
+  assert.deepEqual(Object.keys(parameters.properties), ['key', 'supersedes', 'definitions', 'experience', 'conclusions', 'guidance', 'work_done', 'next']);
   assert.deepEqual([...parameters.required].sort(), ['key', 'supersedes']);
   const valid = layer('release-audit-2', 'Located both manifests.\nOne uses MIT.', { supersedes: ['old-audit'], work_done: 'Read both manifests.', next: 'Compare their licenses.' });
   assert.deepEqual(validateFocusEquateArgs(valid), valid);

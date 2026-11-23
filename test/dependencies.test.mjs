@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDependencyCoordinator, registerDependencies, prerequisites, CORE, COMPONENTS } from '../components/dsh-life-core/src/dependencies.mjs';
 
+const retired = ['dsh-lpipe-starmap', 'dsh-lpipe-recall'];
+
 function fixture(names = [CORE, ...COMPONENTS]) {
   const rows = new Map(names.map(name => [name, { moduleName: name, entryId: name, enabled: true }]));
   const calls = [], warnings = [];
@@ -15,59 +17,62 @@ function fixture(names = [CORE, ...COMPONENTS]) {
   return {rows, calls, warnings, coordinator, manager};
 }
 
-test('recall prerequisites are unique and topologically ordered', () => {
-  assert.deepEqual(prerequisites('dsh-lpipe-recall'), [CORE, 'dsh-lpipe-memory', 'dsh-lpipe-starmap']);
+test('memory and focus depend only on core', () => {
+  assert.deepEqual(prerequisites('dsh-lpipe-memory'), [CORE]);
   assert.deepEqual(prerequisites('dsh-lpipe-focus'), [CORE]);
 });
 
-test('standalone recall selects missing canonical bundles, without aggregate', async () => {
-  const f = fixture(['dsh-lpipe-recall']);
+test('standalone memory selects only its missing core bundle', async () => {
+  const f = fixture(['dsh-lpipe-memory']);
   await f.coordinator.schedule(true);
-  assert.deepEqual(f.calls.map(row => row[1]), [CORE, 'dsh-lpipe-memory', 'dsh-lpipe-starmap']);
+  assert.deepEqual(f.calls, [['bundle', CORE, true]]);
   assert.deepEqual(f.warnings, []);
 });
 
-test('disabling memory cascades downstream and does not undo the user switch', async () => {
-  const f = fixture(); await f.coordinator.schedule(true);
+test('standalone starmap and recall do not activate aggregate prerequisites', async () => {
+  const f = fixture(retired);
+  await f.coordinator.schedule(true);
+  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.warnings, []);
+});
+
+test('disabling memory leaves other pipelines alone', async () => {
+  const f = fixture([CORE, ...COMPONENTS, ...retired]); await f.coordinator.schedule(true);
   f.rows.get('dsh-lpipe-memory').enabled = false;
   await f.coordinator.schedule();
-  assert.deepEqual(f.calls, [['plugin','dsh-lpipe-recall',false], ['plugin','dsh-lpipe-starmap',false]]);
-  await f.coordinator.schedule();
-  assert.equal(f.rows.get('dsh-lpipe-memory').enabled, false);
-  f.rows.get('dsh-lpipe-recall').enabled = true;
-  await f.coordinator.schedule();
-  assert.deepEqual(f.calls.slice(2), [['plugin','dsh-lpipe-memory',true], ['plugin','dsh-lpipe-starmap',true]]);
+  assert.deepEqual(f.calls, []);
 });
 
-test('removing a prerequisite bundle cascades without silently reinstalling it', async () => {
+test('removing core cascades without silently reinstalling it', async () => {
   const f = fixture(); await f.coordinator.schedule(true);
-  f.rows.delete('dsh-lpipe-memory'); await f.coordinator.schedule();
-  assert.equal(f.rows.has('dsh-lpipe-memory'), false);
-  assert.equal(f.rows.get('dsh-lpipe-recall').enabled, false);
+  f.rows.delete(CORE); await f.coordinator.schedule();
+  assert.equal(f.rows.has(CORE), false);
+  assert.ok(COMPONENTS.every(name => !f.rows.get(name).enabled));
 });
 
-test('disabling core switches off all dependents', async () => {
-  const f = fixture(); await f.coordinator.schedule(true);
+test('disabling core switches off only the retained dependents', async () => {
+  const f = fixture([CORE, ...COMPONENTS, ...retired]); await f.coordinator.schedule(true);
   f.rows.get(CORE).enabled = false; await f.coordinator.schedule();
   assert.equal(f.calls.length, COMPONENTS.length);
-  assert.ok([...f.rows.values()].every(row => !row.enabled));
+  assert.ok(COMPONENTS.every(name => !f.rows.get(name).enabled));
+  assert.ok(retired.every(name => f.rows.get(name).enabled));
 });
 
 test('a repeated initial schedule does not resurrect explicitly disabled prerequisites', async () => {
   const f = fixture();
   await f.coordinator.schedule(true);
-  f.rows.get('dsh-lpipe-memory').enabled = false;
+  f.rows.get(CORE).enabled = false;
   await f.coordinator.schedule(true);
+  assert.equal(f.rows.get(CORE).enabled, false);
   assert.equal(f.rows.get('dsh-lpipe-memory').enabled, false);
-  assert.equal(f.rows.get('dsh-lpipe-starmap').enabled, false);
-  assert.equal(f.rows.get('dsh-lpipe-recall').enabled, false);
+  assert.equal(f.rows.get('dsh-lpipe-focus').enabled, false);
 });
 
 test('failed prerequisite activation disables the child and reports the failure', async () => {
-  const f = fixture(['dsh-lpipe-recall']);
+  const f = fixture(['dsh-lpipe-memory']);
   f.manager.setBundleEnabled = async name => ({application:'restart-required', target:name});
   await f.coordinator.schedule(true);
-  assert.equal(f.rows.get('dsh-lpipe-recall').enabled, false);
+  assert.equal(f.rows.get('dsh-lpipe-memory').enabled, false);
   assert.match(f.warnings[0], /restart-required/);
 });
 
@@ -86,10 +91,10 @@ test('live contexts share reconciliation and continue after one listener is disp
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
   first();
-  f.rows.get('dsh-lpipe-memory').enabled = false;
+  f.rows.get(CORE).enabled = false;
   await Promise.all([...listeners].map(fn => fn()));
-  assert.equal(f.rows.get('dsh-lpipe-recall').enabled, false);
-  assert.equal(f.rows.get('dsh-lpipe-starmap').enabled, false);
+  assert.equal(f.rows.get('dsh-lpipe-memory').enabled, false);
+  assert.equal(f.rows.get('dsh-lpipe-focus').enabled, false);
   second();
   assert.equal(listeners.size, 0);
 });

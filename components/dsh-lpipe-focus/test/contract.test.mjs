@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildFocusLayerMessage } from '../src/render.mjs';
 import { collectFocusHistory, createFocusEquateTool, validateFocusEquateArgs } from '../src/tools.mjs';
 
-const fields = ['definitions', 'experience', 'conclusions'];
+const fields = ['definitions', 'experience', 'conclusions', 'guidance'];
 const layer = (key, supersedes = []) => ({ key, supersedes, conclusions: `Verified ${key}.` });
 const user = (seq, source) => ({ seq, type: 'user/message', data: { source } });
 const stored = (seq, data) => user(seq, buildFocusLayerMessage(data, seq).source);
@@ -22,7 +22,7 @@ test('at least one content field is nonblank; work_done and next never count', a
   assert.equal(tool.parameters.additionalProperties, false);
   assert.deepEqual(Object.keys(tool.parameters.properties), ['key', 'supersedes', ...fields, 'work_done', 'next']);
   assert.deepEqual(tool.parameters.anyOf, fields.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })));
-  for (let mask = 1; mask < 8; mask++) {
+  for (let mask = 1; mask < 2 ** fields.length; mask++) {
     const args = { ...base }, expected = { ...base };
     for (const [i, field] of fields.entries()) {
       args[field] = mask & (1 << i) ? `  ${field}  ` : '\t';
@@ -31,7 +31,7 @@ test('at least one content field is nonblank; work_done and next never count', a
     assert.deepEqual(validateFocusEquateArgs(args), expected);
     assert.equal((await tool.execute(args)).key, base.key);
   }
-  for (const extra of [{}, { work_done: 'Done.', next: 'Continue.' }, { definitions: ' ', experience: '\t', conclusions: '\n' },
+  for (const extra of [{}, { work_done: 'Done.', next: 'Continue.' }, { definitions: ' ', experience: '\t', conclusions: '\n', guidance: '  ' },
     { result: 'Obsolete.', conclusions: 'Otherwise valid.' }, ...fields.map(field => ({ conclusions: 'OK', [field]: 7 })),
     ...fields.map(field => ({ conclusions: 'OK', [field]: '\x00' }))]) {
     await assert.rejects(tool.execute({ ...base, ...extra }), { code: 'INVALID_ARGS' });
@@ -39,17 +39,17 @@ test('at least one content field is nonblank; work_done and next never count', a
 });
 
 test('sources trust earlier keys and identical materializations, not text, bad references or conflicting rewrites', () => {
-  const a = layer('first'), b = { ...layer('second', ['first']), definitions: 'Clean excludes cache hits.', experience: 'Clear the cache first.', work_done: 'Read both manifests.', next: 'Compare their licenses.' };
+  const a = layer('first'), b = { ...layer('second', ['first']), definitions: 'Clean excludes cache hits.', experience: 'Clear the cache first.', guidance: 'The user prefers read-only checks.', work_done: 'Read both manifests.', next: 'Compare their licenses.' };
   const events = [
     stored(0, a), call(1, 'second-call', b), receipt(2, 'second-call'), stored(3, b),
     stored(4, b), ...[...fields, 'work_done'].map((field, i) => stored(5 + i, { ...b, [field]: 'Changed.' })),
-    stored(9, layer('future-reference', ['future'])), stored(10, layer('future')),
-    user(11, { kind: 'user', layer: 'equivalence', ...layer('not-a-key') }),
-    stored(12, { ...a, conclusions: ' ' }),
+    stored(10, layer('future-reference', ['future'])), stored(11, layer('future')),
+    user(12, { kind: 'user', layer: 'equivalence', ...layer('not-a-key') }),
+    stored(13, { ...a, conclusions: ' ' }),
   ];
   const history = collectFocusHistory(events);
   assert.deepEqual([...history.keys], ['first', 'second', 'future']);
-  assert.deepEqual([...history.sources.keys()], [0, 3, 4, 10]);
+  assert.deepEqual([...history.sources.keys()], [0, 3, 4, 11]);
   assert.equal('next' in history.sources.get(3), false, 'next belongs to the separate prompt');
   assert.deepEqual([...history.checkpoints], [[1, { layer: b, args: b }]]);
   assert.deepEqual([...collectFocusHistory(events, 2).keys], ['first'], 'a call alone does not reserve a key');

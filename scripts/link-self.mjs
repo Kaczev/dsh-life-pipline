@@ -1,54 +1,41 @@
-/**
- * The components import the shared core through its package name
- * (`dsh-life-core/clock`), which is how it resolves once published. A
- * plain checkout links the aggregate and every component, including Life Core,
- * so tests resolve the same package boundaries as a published installation.
- *
- * Idempotent, and a no-op on a machine that already has the link.
- */
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+/** Link the checkout's active packages so bare imports resolve to local source. */
+import { lstatSync, mkdirSync, mkdtempSync, realpathSync, renameSync, symlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CORE, COMPONENTS } from '../components/dsh-life-core/src/dependencies.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const link = join(root, 'node_modules', 'dsh-life-pipline');
+const modules = join(root, 'node_modules');
 
 function linkInto(name, target) {
-  const path = join(root, 'node_modules', name);
-  if (existsSync(path)) return path;
+  const path = join(modules, name);
+  const existing = lstatSync(path, { throwIfNoEntry: false });
+  let backup;
+  if (existing) {
+    try {
+      if (realpathSync(path) === realpathSync(target)) return path;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    // npm ci installs registry copies. Preserve a conflicting entry rather than
+    // deleting it or silently running the checkout against an old dependency graph.
+    backup = join(mkdtempSync(join(modules, '.lpipe-saved-')), name);
+    renameSync(path, backup);
+  }
   try {
     symlinkSync(target, path, 'junction');
-  } catch {
-    // A file may be sitting there on a broken machine; replace it once.
-    rmSync(path, { recursive: true, force: true });
-    symlinkSync(target, path, 'junction');
+  } catch (error) {
+    if (backup) renameSync(backup, path);
+    throw error;
   }
   return path;
 }
 
 export function linkSelf() {
-  mkdirSync(dirname(link), { recursive: true });
+  mkdirSync(modules, { recursive: true });
   const self = linkInto('dsh-life-pipline', root);
-  // The components depend on each other by package name (the star map reads
-  // memory through `dsh-lpipe-memory/reader`), so a plain checkout has to make
-  // every component resolvable the same way a published install would.
-  const components = join(root, 'components');
-  if (existsSync(components)) {
-    for (const entry of readdirSync(components, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const manifest = join(components, entry.name, 'package.json');
-      if (!existsSync(manifest)) continue;
-      try {
-        const { name } = JSON.parse(readFileSync(manifest, 'utf8'));
-        if (typeof name === 'string' && name) linkInto(name, join(components, entry.name));
-      } catch {
-        // 一个坏掉的 package.json 不该让整个仓库的测试跑不起来。
-      }
-    }
-  }
+  for (const name of [CORE, ...COMPONENTS]) linkInto(name, join(root, 'components', name));
   return self;
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replaceAll('\\', '/')}` || process.argv[1]?.endsWith('link-self.mjs')) {
-  linkSelf();
-}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) linkSelf();

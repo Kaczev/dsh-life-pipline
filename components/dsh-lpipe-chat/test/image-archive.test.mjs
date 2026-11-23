@@ -6,8 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { archiveInboundImages, openArchivedImage, imageHistoryHints } from '../src/image-archive.mjs';
 import { InboundGateway } from '../src/gateway.mjs';
-import { messageBodies, numericTextOf } from '../../dsh-lpipe-starmap/src/projection.mjs';
-import { recallRows } from '../../dsh-lpipe-recall/src/text.mjs';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 test('all seven images survive restart and open only by image ID; message IDs are rejected', async t => {
@@ -71,7 +69,7 @@ test('shared byte budget counts text and pictures without polluting matching', a
   assert.match(text, /共享大小上限.*chat_history/);
 });
 
-test('production gateway keeps image omissions out of star-map and recall matching, with only admitted image provenance', async t => {
+test('production gateway marks only the original body and records delivered image provenance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const notices = [];
   const gateway = new InboundGateway({ getConfig: () => ({ mainSessionId: 'main', quietSeconds: 1 }), log: { warn() {} }, deliver: async n => notices.push(n), saveImages: async inputs => inputs.map((_, i) => ({ attachmentId: `att-${i}`, mediaType: 'image/png', bytes: PNG.length })) });
@@ -81,11 +79,9 @@ test('production gateway keeps image omissions out of star-map and recall matchi
   t.mock.timers.tick(1100);
   await new Promise(setImmediate);
   const { message } = notices[0];
-  const row = { kind: 'user/message', text: message.content[0].text, source: message.source };
-  assert.deepEqual(messageBodies(row), [body]);
-  assert.equal(recallRows([row])[0].text, body);
-  assert.ok(numericTextOf(row, row.text).includes(body));
+  const text = message.content[0].text;
+  assert.deepEqual(message.source.recallOrigins.map(({ start, end }) => text.slice(start, end)), [body]);
   assert.equal(message.content.filter(p => p.type === 'image').length, 13);
   assert.equal(message.source.recallImages.length, 13);
-  assert.doesNotMatch(row.text, /未附加/);
+  assert.doesNotMatch(text, /未附加/);
 });

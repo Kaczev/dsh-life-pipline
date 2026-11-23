@@ -4,16 +4,22 @@ import { createComponentManager } from '../components/dsh-life-core/src/componen
 import { CORE, COMPONENTS } from '../components/dsh-life-core/src/dependencies.mjs';
 
 test('aggregate component control enables prerequisites first and disables dependents first', async () => {
- const rows = [CORE,...COMPONENTS].map(name=>({moduleName:name,entryId:name,enabled:false}));
+ const retired = ['dsh-lpipe-starmap', 'dsh-lpipe-recall'];
+ const rows = [CORE,...COMPONENTS,...retired].map(name=>({moduleName:name,entryId:name,enabled:retired.includes(name)}));
  const calls=[];
  const manager={async listPlugins(){return rows.map(r=>({...r}));},async setPluginEnabled(id,enabled){calls.push([id,enabled]);rows.find(r=>r.entryId===id).enabled=enabled;return {application:'applied'};}};
  const handle=createComponentManager(manager);
- await handle('pipeline.components.set',{name:'dsh-lpipe-recall',enabled:true});
- assert.deepEqual(calls.map(x=>x[0]),[CORE,'dsh-lpipe-memory','dsh-lpipe-starmap','dsh-lpipe-recall']);
+ const {value} = await handle('pipeline.components');
+ assert.deepEqual(value.map(row => row.name), [CORE,...COMPONENTS]);
+ await handle('pipeline.components.set',{name:'dsh-lpipe-memory',enabled:true});
+ assert.deepEqual(calls,[[CORE,true],['dsh-lpipe-memory',true]]);
  calls.length=0;
- await handle('pipeline.components.set',{name:'dsh-lpipe-memory',enabled:false});
- assert.deepEqual(calls.map(x=>x[0]),['dsh-lpipe-recall','dsh-lpipe-starmap','dsh-lpipe-memory']);
- await assert.rejects(handle('pipeline.components.set',{name:'arbitrary',enabled:true}),/无效/);
+ await handle('pipeline.components.set',{name:CORE,enabled:false});
+ assert.deepEqual(calls,[['dsh-lpipe-memory',false],[CORE,false]]);
+ for (const name of [...retired, 'arbitrary']) {
+   await assert.rejects(handle('pipeline.components.set',{name,enabled:false}),/无效/);
+ }
+ assert.ok(rows.filter(row => retired.includes(row.moduleName)).every(row => row.enabled));
 });
 
 test('component controls report non-applied results instead of displaying success', async()=>{

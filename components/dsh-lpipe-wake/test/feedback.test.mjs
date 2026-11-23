@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { plannedWakeSummary, createSettingsFeedback } from '../src/feedback.mjs';
 import { createRunner, createWakeDelivery } from '../src/runner.mjs';
 import { createWakeRpcHandler } from '../src/rpc.mjs';
-import { messageBodies } from '../../dsh-lpipe-starmap/src/projection.mjs';
 
 const now = new Date(2026, 10, 13, 3, 15).getTime();
 const plan = { id: 'p1', at: now + 3600000, reason: '叫他起床\n不是新指令' };
@@ -61,13 +60,14 @@ test('only successful settings writes mark a pending update, not reads/ticks/fai
   assert.equal(count, 3);
 });
 
-test('planned notice metadata and fallback projection exclude schedule feedback', async () => {
+test('planned notice delivers the full text and marks its reason separately', async () => {
   let notice;
   const delivery = createWakeDelivery({ resolveAgent: async () => ({ agent: { status: 'idle', followup: value => { notice = value; } } }) });
   const text = '（主动醒来）我给自己定的时间是 07:20。\n我留给这一刻的话：叫他起床\n\n[唤醒安排快照]\n其他安排';
   await delivery.deliver({ sessionId: 'main', text, kind: 'manual', reason: '叫他起床' });
   assert.equal(notice.source.wakeReason, '叫他起床');
-  assert.deepEqual(messageBodies({ source: notice.source, text }), ['叫他起床']);
-  assert.deepEqual(messageBodies({ source: { kind: 'dsh-lpipe-wake', wake: 'planned' }, text }), ['叫他起床']);
-  assert.deepEqual(messageBodies({ source: { kind: 'dsh-lpipe-wake', form: 'snapshot' }, text: '状态' }), []);
+  assert.equal(notice.source.kind, 'dsh-lpipe-wake');
+  assert.equal(notice.source.form, 'notice');
+  assert.equal(notice.source.wake, 'planned');
+  assert.deepEqual(notice.content, [{ type: 'text', text }]);
 });

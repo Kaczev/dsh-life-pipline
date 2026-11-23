@@ -28,8 +28,10 @@ test('聊天来源仍送模型并允许昵称配对，模糊星与 clock 只取�
 })
 
 test('自然唤醒无抽星文本，主动唤醒只抽安排理由', () => {
-  const planned = { kind: 'user/message', seq: 2, text: '（主动醒来）我给自己定的时间是 09:37。\n我留给这一刻的话：买蓝莓，晚上8点出发。', source: { kind: 'dsh-lpipe-wake', wake: 'planned' } }
+  const planned = { kind: 'user/message', seq: 2, text: '（主动醒来）我给自己定的时间是 09:37。\n我留给这一刻的话：买蓝莓，晚上8点出发。\n\n[唤醒安排快照]\n其他安排', source: { kind: 'dsh-lpipe-wake', wake: 'planned' } }
   assert.deepEqual(textsOf(planned), ['买蓝莓，晚上8点出发。'])
+  assert.deepEqual(textsOf({ ...planned, source: { ...planned.source, wakeReason: '叫他起床' } }), ['叫他起床'])
+  assert.deepEqual(textsOf({ ...planned, source: { kind: 'dsh-lpipe-wake', form: 'snapshot' } }), [])
   assert.deepEqual(textsOf({ ...planned, source: { ...planned.source, wake: 'natural' } }), [])
   const plan = planTurn({ rows: [planned] }, [])
   assert.ok([...plan.names.values()].includes('20:00'))

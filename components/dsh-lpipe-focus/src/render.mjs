@@ -46,7 +46,8 @@ export function buildObjectiveMessage({ rawText, origin, now = Date.now(), asNot
 }
 
 const layerSections = [
-  ['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['work_done', 'Work done'],
+  ['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'],
+  ['guidance', 'Guidance'], ['work_done', 'Work done'],
 ];
 
 export function renderFocusLayerText(layer) {

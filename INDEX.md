@@ -12,12 +12,13 @@
 - [组件开关回归](test/components-control.test.mjs)：前置顺序、级联关闭和非 applied 失败。
 - [依赖联动测试](test/dependencies.test.mjs)：单装、级联关闭和重新开启。
 
-- [README.md](README.md)：中英安装指南、九条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
+- [README.md](README.md)：中英安装指南、七条管线职责与依赖、主对话配置及常见问题；各组件的 README 面向普通用户介绍功能、安装设置、注意事项与许可致谢。
 - [package.json](package.json)：包名、`icon`、兼容 `exports`、聚合依赖与 `dsh.bundle`。
 - [cordis.patch.yml](cordis.patch.yml)：聚合入口自己的挂载行；各独立 bundle 通过管理服务选择，不重复插入。
 - [components/dsh-life-core/client/panel.js](components/dsh-life-core/client/panel.js)：「Lpipe 设置」容器、主会话标记及「设为 LP 主对话」会话菜单（`lp-set-main-session`，保存复用公共 RPC）；构建到 `lib/client.js`。局部设计：[菜单 HTML](不入库/设计/lp-main-session-menu.html)。
 - [scripts/build-client.mjs](scripts/build-client.mjs)：兼容转发到核心的客户端构建脚本。
-- [scripts/install-local.mjs](scripts/install-local.mjs)：把本包与 `components/*` 以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
+- [scripts/install-local.mjs](scripts/install-local.mjs)：按核心的组件清单，把整合包、核心与七条管线以 link 方式装进本机 profile，并列进 `dsh.profile.bundles`。
+- [scripts/test.mjs](scripts/test.mjs)：默认运行根测试，以及核心和七条现行管线的测试；旧星图和回忆的专属测试不计入默认套件。
 - [src/rpc.mjs](src/rpc.mjs)：公共配置与已有工作区列表、工作区选择即时持久化与失效清空、独立身份的空白 LP 主会话创建及绑定重试（只改名身份匹配的按钮创建会话）；[创建回归](test/create-main.test.mjs)，[局部设计](不入库/设计/lp-create-main-session.html)。
 - [src/main-session.mjs](src/main-session.mjs)：动态主会话门禁、工具可见性与执行复核、系统提示词隔离；[回归](test/main-session.test.mjs)。
 - [src/diagnostics.mjs](src/diagnostics.mjs)：四类诊断日志共用的 2 MiB 完整记录尾部保留；[测试](test/diagnostics.test.mjs)。
@@ -30,6 +31,11 @@
 - [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），独立设置块只依赖核心。
 - [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖核心。
 - [components/dsh-lpipe-memory/](components/dsh-lpipe-memory/)：记忆组件包（会话原文落盘，可校验），依赖核心。
+
+### 旧组件源码（不随整合包安装）
+
+以下仅用于查阅旧版星图和回忆的实现，不是当前记忆管线的前置组件。
+
 - [components/dsh-lpipe-starmap/](components/dsh-lpipe-starmap/)：星图组件包（从原文抽概念、按句连边），依赖核心与 `dsh-lpipe-memory`。
   - [src/query.mjs](components/dsh-lpipe-starmap/src/query.mjs)：进度星数 = 文星 + 时星，准确／模糊／通用互斥计数；[统计回归](components/dsh-lpipe-starmap/test/progress.test.mjs)，[星数局部 HTML](不入库/设计/dsh-lpipe-starmap-星数.html)。
   - [src/index.js](components/dsh-lpipe-starmap/src/index.js)：新增轮次的自动抽星遵守记忆作用域，手动启动抽星与原文检查覆盖全库已有历史；面板轮数也统计全库历史；[作用域切换回归](components/dsh-lpipe-starmap/test/history-progress.test.mjs)。
@@ -77,7 +83,7 @@
 - [components/dsh-lpipe-chat/src/qq/channel.mjs](components/dsh-lpipe-chat/src/qq/channel.mjs)：QQ 连接与按目标隔离的被动回复窗口、额度及明确拒绝后的单次主动降级；[路由测试](components/dsh-lpipe-chat/test/qq-routing.test.mjs)。
 - [components/dsh-lpipe-chat/src/gateway.mjs](components/dsh-lpipe-chat/src/gateway.mjs)：入站窗口合并、通知消息构造与重试；完整平台 ID 在内部匹配主人，仅对匹配消息显示 `(Owner)` 前缀，保留群聊范围。
 - [components/dsh-lpipe-chat/src/content.mjs](components/dsh-lpipe-chat/src/content.mjs)：大小单位、UTF-8 截断及 QQ 文本显示投影。
-- [图片归档](components/dsh-lpipe-chat/src/image-archive.mjs)：入站保存稳定图片 ID 和私有下载凭据，通知按预算下载、历史仅按图片 ID 补读并缓存，过期明确报错；[归档及星图／回忆交接回归](components/dsh-lpipe-chat/test/image-archive.test.mjs)。
+- [图片归档](components/dsh-lpipe-chat/src/image-archive.mjs)：入站保存稳定图片 ID 和私有下载凭据，通知按预算下载、历史仅按图片 ID 补读并缓存，过期明确报错；[图片归档回归](components/dsh-lpipe-chat/test/image-archive.test.mjs)。
 - [components/dsh-lpipe-chat/src/history.mjs](components/dsh-lpipe-chat/src/history.mjs)：有界历史、长消息续读与稳定快照游标；本地时间按距上次标记五分钟、跨天及每页首条显示。
 - [components/dsh-lpipe-chat/src/identity.mjs](components/dsh-lpipe-chat/src/identity.mjs)：通知与历史共用完整用户／群 ID 身份头，出站使用实际归档目标；[展示回归](components/dsh-lpipe-chat/test/history-display.test.mjs)。
 - [components/dsh-lpipe-chat/src/files.mjs](components/dsh-lpipe-chat/src/files.mjs)：附件引用、显式限额下载及安全命名。
@@ -122,7 +128,7 @@
 - [components/dsh-lpipe-memory/src/index.js](components/dsh-lpipe-memory/src/index.js)：宿主半边，订阅 `session/event`，一轮结束整轮落盘，并注册 `memory.stats`。
 - [components/dsh-lpipe-memory/src/stats.mjs](components/dsh-lpipe-memory/src/stats.mjs)：逐轮累计大小、磁盘占用，按 `state.seq` 缓存。
 - [components/dsh-lpipe-memory/src/config.mjs](components/dsh-lpipe-memory/src/config.mjs)：记忆拥有的 `allSessions` 布尔开关，默认 false；保存在 `life-memory/config.json`，保存保留未知键。
-- [components/dsh-lpipe-memory/src/scope.mjs](components/dsh-lpipe-memory/src/scope.mjs)：记忆／星图／回忆共用动态作用域；不影响聊天、唤醒、B 站，不删除历史数据。
+- [components/dsh-lpipe-memory/src/scope.mjs](components/dsh-lpipe-memory/src/scope.mjs)：按会话和记忆配置判断是否归档；不改变其他在用管线的范围，也不删除历史数据。
 - [components/dsh-lpipe-memory/src/rpc.mjs](components/dsh-lpipe-memory/src/rpc.mjs)：`/api/dsh-lpipe-memory`；UI 用 `memory.config` 读取 `{allSessions}`，`memory.config.save` 保存 `{allSessions: boolean}`，沿用既有 RPC 信封。
 - [components/dsh-lpipe-memory/test/config.test.mjs](components/dsh-lpipe-memory/test/config.test.mjs)：默认关闭、切换、工具与提示词、持久化与 HTTP RPC 回归。
 - [components/dsh-lpipe-memory/client/panel.js](components/dsh-lpipe-memory/client/panel.js)：设置页里的记忆块（总量 + 最近 30 轮曲线 + 「所有对话生效」开关）。

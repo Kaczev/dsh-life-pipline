@@ -13,7 +13,7 @@ const PANEL_SLOT = 'lpipe.settings.panel';
 const POLL_MS = 20000;
 const TURNS = 30;
 const SCOPE_LABEL = '所有对话生效';
-const SCOPE_HINT = '同时控制记忆、星图、回忆；不影响聊天、唤醒、B 站。';
+const SCOPE_HINT = '关闭时只记录 LP 主对话，开启后也记录其他对话。';
 
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',

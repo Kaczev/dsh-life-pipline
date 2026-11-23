@@ -40,7 +40,7 @@ function latestAssistantToolCalls(events) {
 
 const KEY_PATTERN = '^[a-z0-9]+(?:-[a-z0-9]+)*$';
 const KEBAB_KEY = new RegExp(KEY_PATTERN, 'u');
-const CONTENT_FIELDS = ['definitions', 'experience', 'conclusions'];
+const CONTENT_FIELDS = ['definitions', 'experience', 'conclusions', 'guidance'];
 const LAYER_FIELDS = new Set(['key', 'supersedes', ...CONTENT_FIELDS, 'work_done', 'next']);
 
 function checkKey(key, field) {
@@ -82,7 +82,7 @@ export function validateFocusEquateArgs(args, knownKeys) {
     }
   }
   if (!CONTENT_FIELDS.some(field => Object.hasOwn(layer, field))) {
-    throw new FocusToolArgsError('at least one of definitions, experience, or conclusions must not be blank');
+    throw new FocusToolArgsError('at least one of definitions, experience, conclusions, or guidance must not be blank');
   }
   for (const [field, limit] of [['work_done'], ['next', MAX_OBJECTIVE_LENGTH]]) {
     if (Object.hasOwn(args, field)) {
@@ -175,7 +175,7 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
     description:
-      'Replace the entire span since the last equivalence layer. After the fold, you cannot consult the original span or recover an omission from it. Submit the complete replacement in this call. Use definitions, experience, or conclusions to carry what the span established; use work_done to identify completed work and next for the immediate reminder. Call this tool alone, after all outstanding tools have returned.',
+      'Replace the entire span since the last equivalence layer in one call. Call this tool alone after all outstanding tool calls have returned. Use each field that applies. When a passage contains several kinds of information, split it by purpose and record each detail once. Include nonblank text in at least one of `definitions`, `experience`, `conclusions`, or `guidance`.',
     parameters: {
       type: 'object', additionalProperties: false, required: ['key', 'supersedes'],
       anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })),
@@ -184,17 +184,19 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
           description: 'A new, unique lowercase kebab-case key for this layer.' },
         supersedes: { type: 'array',
           items: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH },
-          description: 'Keys of earlier layers that this layer fully replaces. Include a key only if the new layer preserves everything still needed from that earlier layer. Otherwise leave the earlier layer in place. Use [] if none qualify.' },
+          description: 'Keys of earlier layers this one fully replaces. Include a key only when this layer preserves everything still needed from it. Use [] if none qualify.' },
         definitions: { type: 'string',
-          description: 'Terms or procedures whose meaning was established or changed. State the agreed meaning and the context in which it applies.' },
+          description: 'Preserve the conversation-specific meaning of terms and procedures that later reasoning depends on, including meanings established through use. For a provisional or disputed term, state what is understood and what remains open. Retain an earlier meaning when needed to interpret the exchange.' },
         experience: { type: 'string',
-          description: 'Methods and skill instructions that remain useful. State what to do, when it applies, and any conditions or limits needed to use it correctly. For a loaded skill, retain its name and applicable rules, not just the fact that it was loaded.' },
+          description: 'Preserve what the next model needs to know how to do. State each reusable method or still-applicable skill rule as an instruction, with its conditions and limits. Name the skill when retaining its guidance.' },
         conclusions: { type: 'string',
-          description: "What remains true or unresolved at the end of the span. Preserve the user's continuing goal and communication context, decisions, constraints, findings, and possibilities ruled out. State the basis and limits of each finding where they affect its meaning." },
+          description: 'What remains established or open. Record decisions, constraints, findings, and questions the user still expects you to answer. Preserve whose position a judgment represents and the evidence or uncertainty that affects it.' },
+        guidance: { type: 'string',
+          description: 'Preserve preferences, agreements, and constraints that still guide choices or actions. State whose guidance it is, where it applies, and whether it expresses a preference, a shared commitment, or a requirement.' },
         work_done: { type: 'string',
-          description: 'Work already performed that need not be repeated under the same conditions. Identify what was checked or attempted and whether it completed. Put what the work established in conclusions.' },
+          description: 'Record actions taken or attempted, their scope, and the observed result. When an action also yields guidance for future work, put that guidance in `experience`.' },
         next: { type: 'string', maxLength: MAX_OBJECTIVE_LENGTH,
-          description: "An optional reminder for the immediate continuation, separate from the equivalence layer. State what to do next, what to hold off on, and what decision or authorization is still needed. The user's latest instructions take precedence." },
+          description: 'An optional reminder for the immediate continuation. State the next action and anything it must wait for. The latest user instruction takes precedence.' },
       },
     },
     output: {

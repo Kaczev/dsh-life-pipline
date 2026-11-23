@@ -120,7 +120,8 @@ test('scope switch reflects the saved boolean and keeps failure visible', () => 
   })
   const offSwitch = findNode(off, (node) => node.props?.role === 'switch')
   assert.equal(offSwitch.props['aria-checked'], false)
-  assert.match(textOf(off), /同时控制记忆、星图、回忆/)
+  assert.match(textOf(off), /记忆/)
+  assert.doesNotMatch(textOf(off), /星图|回忆/)
 
   const on = ScopeBar({
     scope: true, loading: false, saving: false, saved: false, error: '',

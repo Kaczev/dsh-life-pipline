@@ -6,10 +6,18 @@ import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
+import { DEFAULT_CONFIG } from '../src/config.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const bundlePath = resolve(here, '../lib/client.js')
 const code = readFileSync(bundlePath, 'utf8')
+
+test('星图配置标题与宿主默认值一致，空白模型选择不冒充默认值', () => {
+  const panel = readFileSync(resolve(here, '../client/panel.js'), 'utf8')
+  assert.ok(panel.includes(`并发路数（默认：${DEFAULT_CONFIG.concurrency} 路）`))
+  assert.ok(panel.includes(`输出上限（默认：${DEFAULT_CONFIG.maxTokens}）`))
+  for (const label of ['提供者', '模型', '思考强度']) assert.ok(!panel.includes(`${label}（默认：`))
+})
 
 function loadBundle() {
   let captured = null
