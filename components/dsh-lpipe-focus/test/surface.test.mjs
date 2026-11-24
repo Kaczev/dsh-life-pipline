@@ -578,7 +578,7 @@ const layer = (key, conclusions, extra = {}) => ({ key, supersedes: [], conclusi
 const appendSurface = (session, type, data) => session.append(type, data, { surfaceOp: 'append' });
 const textOf = event => event.data.content.map(block => block.text).join('\n');
 
-function assertLayer(event, { next, ...expected }) {
+function assertLayer(event, { todos, next, ...expected }) {
   assert.ok(event, `expected an equivalence layer for ${expected.key}`);
   const { kind, layer: name, createdAt, ...fields } = event.data.source;
   assert.equal(kind, FOCUS_SOURCE_KIND);
@@ -659,6 +659,54 @@ test('complete tail folds across turns, chat, host updates, skill and parallel r
   assert.deepEqual(restored.surface.nodes, [system, first.seq, second.seq], 'the first layer stays verbatim; its next and the redirect fold with the work');
   assert.ok(!textOf(second).includes(a.next));
   assert.equal(focusEvents(restored, 'objective').length, 0, 'an omitted next is never inferred or carried');
+});
+
+test('todo checkpoint keeps its surface range when newer surface context follows it', async t => {
+  const { h, session, check } = fixture(t);
+  const head = appendSurface(session, 'system/message', sysMsg());
+  const args = layer('todo-checkpoint-followed', 'Captured the ongoing review.', {
+    todos: 'Review the remaining files.', next: 'Inspect the next file.',
+  });
+  appendCheckpoint(session, 'todo-followed', args);
+  const followup = appendSurface(session, 'user/message', userMsg('Also verify the changelog.'));
+  const before = session.surface.nodes;
+  const endSeq = session.seq;
+  await check();
+  assert.deepEqual(session.surface.nodes, before, 'new todos and next must not replace or move newer surface context');
+  assert.equal(session.seq, endSeq, 'unsafe non-tail checkpoint waits for a future fold');
+  assert.equal(focusEvents(session, 'equivalence').length, 0);
+  assert.equal(session.eventAt(followup.seq).data.content[0].text, 'Also verify the changelog.');
+  assert.ok(session.surface.nodes.includes(head.seq));
+});
+
+test('a tail todo checkpoint emits its equivalence, current todo and next in one append batch', async t => {
+  const { h, session, applyLayer } = fixture(t);
+  const head = appendSurface(session, 'system/message', sysMsg());
+  const args = layer('todo-tail', 'The work remains underway.', {
+    todos: 'Review the remaining files.', next: 'Inspect the next file.',
+  });
+  let batch;
+  const append = session.append.bind(session);
+  session.append = function (type, data, opts) {
+    if (Array.isArray(type)) batch = type;
+    return append(type, data, opts);
+  };
+  await applyLayer(args);
+  assert.ok(Array.isArray(batch), 'tail extras must be committed with a single native append batch');
+  assert.deepEqual(batch.map(([type, , opts]) => [type, opts.surfaceOp]), [
+    ['user/message', { op: 'replace', startSeq: 1, endSeq: 1 }],
+    ['user/message', { op: 'replace', startSeq: 2, endSeq: 2 }],
+    ['user/message', 'append'],
+  ]);
+  const [equivalence] = focusEvents(session, 'equivalence');
+  const [todo] = focusEvents(session, 'todos');
+  const [next] = focusEvents(session, 'objective');
+  assertLayer(equivalence, args);
+  assert.equal(todo.data.source.rawText, args.todos);
+  assert.equal(textOf(todo), `<current-todos>\n${args.todos}\n</current-todos>`);
+  assert.equal(next.data.source.layer, 'objective');
+  assert.equal(next.data.source.rawText, args.next);
+  assert.deepEqual(session.surface.nodes, [head.seq, equivalence.seq, todo.seq, next.seq]);
 });
 
 test('a checkpoint with no preceding ordinary work can emit next without protecting it', async t => {
@@ -756,26 +804,36 @@ test('a completed checkpoint before a later committed direction and open batch p
   assert.deepEqual(restored.eventAt(open.seq), open);
 });
 
-test('two balanced checkpoints pending at resume retain both layers in order', async t => {
+test('consecutive pending checkpoints retain both durable layers but only the latest todo and next on replay', async t => {
   const { h, session } = fixture(t);
   const [head] = seedBaseLayer(session);
-  const a = layer('package-location', 'The manifest is under packages/core.', { next: 'Inspect the license.' });
+  const a = layer('package-location', 'The manifest is under packages/core.', { todos: 'Review the license.', next: 'Inspect the license.' });
   const b = { key: 'license-scope', supersedes: [], guidance: 'The user requires a read-only license review.', next: 'Verify the license notice.' };
   appendCheckpoint(session, 'location', a);
-  appendRead(session, 'license', 'MIT');
-  appendCheckpoint(session, 'license-done', b);
+  appendCheckpoint(session, 'license-review', b);
   const restored = replaySession(session);
   const agent = { id: restored.id, session: restored };
   await h.runPreStep(agent);
   const [first, second] = focusEvents(restored, 'equivalence');
   assertLayer(first, a);
   assertLayer(second, b);
+  const [todo] = focusEvents(restored, 'todos');
   const [next] = focusEvents(restored, 'objective');
-  assert.ok(textOf(next).includes(b.next));
-  assert.deepEqual(restored.surface.nodes, [head, first.seq, second.seq, next.seq]);
-  const end = restored.seq;
-  await h.runPreStep(agent);
-  assert.equal(restored.seq, end);
+  assert.equal(todo.data.source.rawText, a.todos, 'the second checkpoint omits todos');
+  assert.equal(next.data.source.rawText, b.next);
+  assert.deepEqual(restored.surface.nodes, [head, first.seq, second.seq, todo.seq, next.seq]);
+  const replay = replaySession(restored);
+  const resumed = { id: replay.id, session: replay };
+  const end = replay.seq;
+  await h.runPreStep(resumed);
+  assert.equal(replay.seq, end, 'replay does not fold either checkpoint again');
+
+  const clear = layer('license-reviewed', 'The license notice is verified.', { todos: '' });
+  appendCheckpoint(replay, 'done', clear);
+  await h.runPreStep(resumed);
+  const last = focusEvents(replay, 'equivalence').at(-1);
+  assertLayer(last, clear);
+  assert.deepEqual(replay.surface.nodes, [head, first.seq, second.seq, last.seq], 'a clear removes both prompts');
 });
 
 function readFoldDiagnostics(h) {
@@ -957,7 +1015,7 @@ test('the public tool requires a fresh key, explicit supersedes and nonblank equ
   const { h } = fixture(t);
   assert.deepEqual([...h.registeredTools.keys()], ['focus_equate']);
   const parameters = h.registeredTools.get(FOCUS_TOOL_NAME).tool.parameters;
-  assert.deepEqual(Object.keys(parameters.properties), ['key', 'supersedes', 'definitions', 'experience', 'conclusions', 'guidance', 'work_done', 'next']);
+  assert.deepEqual(Object.keys(parameters.properties), ['key', 'supersedes', 'definitions', 'experience', 'conclusions', 'guidance', 'work_done', 'todos', 'next']);
   assert.deepEqual([...parameters.required].sort(), ['key', 'supersedes']);
   const valid = layer('release-audit-2', 'Located both manifests.\nOne uses MIT.', { supersedes: ['old-audit'], work_done: 'Read both manifests.', next: 'Compare their licenses.' });
   assert.deepEqual(validateFocusEquateArgs(valid), valid);

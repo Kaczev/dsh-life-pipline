@@ -2,6 +2,10 @@
 
 [中文](#中文) · [English](#english)
 
+> 历史组件。下文仅适用于与旧版记忆管线搭配的版本，不能与仓库当前的[记忆管线](../dsh-lpipe-memory/README.md)一起使用。
+>
+> Legacy component. The instructions below require an older compatible Memory release, not the current Memory plugin in this repository.
+
 ## 中文
 
 让 DeepSeek Harness 在聊天时想起相关旧事，把带有来源的原句摘录放回对话。模型还可以主动查找记忆、阅读更完整的上下文，并按需查看历史图片。

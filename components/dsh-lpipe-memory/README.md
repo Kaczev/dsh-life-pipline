@@ -1,61 +1,27 @@
-# dsh-lpipe-memory · 记忆管线
+# 记忆管线 · Lpipe Memory
 
-[中文](#中文) · [English](#english)
+在 **设置 → Lpipe → 记忆管线**，可以管理两份清单：
 
-## 中文
+- **欲望**：想做、想看看或想体验的事，比如「想找个晚上一起听那张专辑」。助手需要时可以查看，不会定时提醒，也不会把它当成待办。
+- **设定**：希望助手平时记住的事实，比如「我叫 Kaseria」或「默认用中文和我交流」。开启后，助手会参考这份清单，不用每次重说。
 
-把 DeepSeek Harness 的对话原文和媒体保存到本地。本包负责归档，不会自动把旧记录注入当前对话。
+默认只有 Lpipe 主对话使用这两份清单。打开 **所有顶层对话生效**，其他顶层对话也会使用同一份欲望和同一份设定；子代理始终不在范围内。范围开关会直接保存，不需要点 **保存选项**。
 
-### 安装与开始使用
+切换到相应页签，就能添加、编辑或删除条目。你也可以在生效范围内请助手记下、修改或移除一条。
 
-在 DSH 插件管理中安装并启用 `dsh-lpipe-memory`。插件需要生命核心，无需先装整合包。要求 DSH `>=0.2.0-rc.2`，Node.js `^22.19 || >=24`。
+两份清单各有自己的开关、条数上限和单条字数上限。改完这些选项后点 **保存选项**；关闭某份清单只会让它停止在对话中生效，已存条目仍可在面板里编辑。
 
-1. 打开 **设置 → Lpipe 设置**，绑定 LP 主对话。
-2. 默认只记录主对话。希望记录其他会话时，打开记忆中的「所有对话生效」。
-3. 完成一轮对话后查看记忆统计。
-
-「所有对话生效」决定哪些会话会被记录，不改变聊天、唤醒或 B 站的范围，也不会删除已有历史。
-
-### 会保存什么
-
-记忆保存用户与助手消息、思考内容，以及普通工具活动和相关媒体。系统提示、临时运行上下文及检索功能生成的重复注入会排除，避免把检索结果再次当成原始经历。
-
-保存通常在一轮对话结束后完成，异常情况下另有定时写入。刚收到消息时，统计可能还没有更新。
-
-### 隐私与备份
-
-记忆可能包含私人对话、思考和附件。数据保存在宿主的本地记忆目录中，默认位于用户主目录的 `.dsh/life-memory` 下；配置过宿主数据位置时，以实际目录为准。压缩和完整性检查不等于加密，也不能恢复已经丢失的文件。
-
-备份前应暂停写入，并保存完整记忆目录，包括媒体、索引与状态。只备份文字会丢失图片等资料。
-
-没有新增记录时，请检查主对话绑定、作用范围，以及当前一轮是否已经保存。
-
-许可：AGPL-3.0-or-later。
+记忆管线不会自动归档聊天，也不会把旧对话变成这两份清单。
 
 ## English
 
-Keep original DeepSeek Harness conversations and media locally. This package archives records; it does not inject them into the current conversation.
+Open **Settings → Lpipe → Memory Pipeline** to manage two lists:
 
-### Install and start
+- **Wishes** are things you want to do, explore, or experience, like listening to an album together. The assistant can look them up when relevant. Wishes aren’t tasks and won’t trigger reminders.
+- **Settings** are facts you want the assistant to remember, like your name or the language you normally use. When this list is on, you don’t have to repeat those facts each time.
 
-Install and enable `dsh-lpipe-memory` through DSH plugin management. It requires Life Core, not the aggregate package. Requires DSH `>=0.2.0-rc.2` and Node.js `^22.19 || >=24`.
+By default, only your Lpipe main conversation uses these lists. Turn on **Apply to all top-level conversations** to share both lists with other top-level conversations. Subagents are always excluded. The scope switch saves immediately without **Save options**.
 
-Bind the LP main conversation in **Settings → Lpipe settings**. Only that conversation is recorded by default; turn on **all sessions** in Memory settings to include others. Complete a turn and inspect the statistics.
+Use either tab to add, edit, or remove entries. You can also ask the assistant to make changes in any conversation within scope. Each list has its own switch and limits. Select **Save options** after changing those options. Turning a list off keeps its entries available to edit in the panel.
 
-The all-sessions option determines which conversations get recorded. It does not change Chat, Wake or Bilibili scope, or delete stored history.
-
-### What is saved
-
-Memory retains user and assistant messages, reasoning, ordinary tool activity and related media. System prompts, temporary runtime context and generated recall-like injections are excluded to avoid storing retrieved material again as an original experience.
-
-Records normally save after a turn ends, with a timed fallback. Statistics may not update immediately after a message arrives.
-
-### Privacy and backups
-
-Records may contain private conversations, reasoning and attachments. The default local folder is `.dsh/life-memory` under your home directory; a customized host data location can change this. Compression and integrity checks do not encrypt data or restore missing files.
-
-Pause writes before backing up the complete memory folder, including media, indexes and state. Text-only backups lose media.
-
-If no records appear, check the main-conversation binding, scope and whether the current turn has been saved.
-
-License: AGPL-3.0-or-later.
+Memory doesn’t archive your chats or turn old conversations into entries.

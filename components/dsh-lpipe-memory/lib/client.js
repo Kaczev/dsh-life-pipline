@@ -1,442 +1,490 @@
 window.__ModuleLoader__.load({
   id: "dsh-lpipe-memory",
   factory: (require) => {
-    var module = { exports: {} };
-    var exports = module.exports;
-'use strict';
-
-/**
- * 记忆管线的设置块：只显示「原文有多大、最近几轮怎么长」。
- * 页面本身归 dsh-life-pipline（「Lpipe 设置」），这里只往子槽里放一块。
- */
+    const module = { exports: {} };
+    const MEMORY_LOCALES = {"en":{"title":"Memory Pipeline","allSessions":"Apply to all top-level conversations","mainOnly":"Lpipe main session only","scopeHint":"On: wishes and settings apply to all top-level conversations. Off: only the Lpipe main session. Subagents are always excluded.","wishesHint":"Things you want to do, without deadlines or reminders.","settingsHint":"Information eligible conversations can use by default.","saveOptions":"Save options","unsaved":"Save to apply your changes.","types":"Memory type","wishes":"Wishes","settings":"Settings","enableWishes":"Enable wishes","enableSettings":"Enable settings","disabled":"Off · You can still manage entries","maxEntries":"Maximum entries","maxTextLength":"Characters per entry","save":"Save","saving":"Saving…","loading":"Loading memory…","loadFailed":"Could not load memory. Try again.","saveFailed":"Could not confirm the save. Reload memory before making another change.","reloadMemory":"Reload memory","retry":"Retry","countWishes":"{count} / {limit} wishes","countSettings":"{count} / {limit} settings","full":" · Full","emptyWishes":"No wishes yet.","emptySettings":"No settings yet.","addWishes":"Add wish","addSettings":"Add setting","edit":"Edit","editWishes":"Edit wish","editSettings":"Edit setting","removeWishes":"Remove wish","removeSettings":"Delete setting","removeWishAction":"Remove","removeSettingAction":"Delete","entryAction":"{action}: {text}","confirmWish":"Remove “{text}”?","confirmSetting":"Delete “{text}”?","body":"Text","charCount":"{count} / {limit} characters","cancel":"Cancel","savedWishesConfig":"Wish options saved.","savedSettingsConfig":"Setting options saved.","savedWishes":"Wish saved.","savedSettings":"Setting saved.","removedWishes":"Wish removed.","removedSettings":"Setting deleted.","requiredText":"Enter text.","textLimit":"Use at most {limit} characters.","addLimit":"The list is full. Remove an entry first.","entriesRange":"Enter a whole number from 1 to {limit}.","textRange":"Enter a whole number from 1 to {limit}.","existingEntries":"Remove entries before lowering the limit this far.","existingText":"Shorten or remove entries that exceed the new character limit."},"zh":{"title":"记忆管线","allSessions":"所有顶层对话生效","mainOnly":"仅 Lpipe 主会话","scopeHint":"开启后，欲望与设定在所有顶层对话中生效；关闭后仅在 Lpipe 主会话中生效。子代理始终不受影响。","wishesHint":"想做的事，不是待办，也不会定时提醒。","settingsHint":"生效范围内的对话可以默认采用的信息。","saveOptions":"保存选项","unsaved":"有未保存的修改，保存后生效。","types":"记忆类型","wishes":"欲望","settings":"设定","enableWishes":"启用欲望","enableSettings":"启用设定","disabled":"已关闭 · 仍可管理条目","maxEntries":"最多条数","maxTextLength":"单条字数","save":"保存","saving":"保存中…","loading":"正在读取记忆…","loadFailed":"无法读取记忆，请重试。","saveFailed":"无法确认是否已保存。请先重新读取记忆，再继续修改。","reloadMemory":"重新读取记忆","retry":"重试","countWishes":"{count} / {limit} 条欲望","countSettings":"{count} / {limit} 条设定","full":" · 已满","emptyWishes":"还没有欲望。","emptySettings":"还没有设定。","addWishes":"添加欲望","addSettings":"添加设定","edit":"编辑","editWishes":"编辑欲望","editSettings":"编辑设定","removeWishes":"移除欲望","removeSettings":"删除设定","removeWishAction":"移除","removeSettingAction":"删除","entryAction":"{action}：{text}","confirmWish":"确定移除「{text}」？","confirmSetting":"确定删除「{text}」？","body":"正文","charCount":"{count} / {limit} 字","cancel":"取消","savedWishesConfig":"已保存欲望选项。","savedSettingsConfig":"已保存设定选项。","savedWishes":"已保存欲望。","savedSettings":"已保存设定。","removedWishes":"已移除欲望。","removedSettings":"已删除设定。","requiredText":"请输入正文。","textLimit":"正文最多 {limit} 字。","addLimit":"已达条数上限，请先删除一条。","entriesRange":"请输入 1 到 {limit} 之间的整数。","textRange":"请输入 1 到 {limit} 之间的整数。","existingEntries":"现有条目多于拟设上限，请先删除多出的条目。","existingText":"有条目超过拟设字数，请先缩短或删除。"}};
 const React = require('react');
-
 const h = React.createElement;
-
 const RPC_ENDPOINT = 'dsh-lpipe-memory';
 const PANEL_SLOT = 'lpipe.settings.panel';
-const POLL_MS = 20000;
-const TURNS = 30;
-const SCOPE_LABEL = '所有对话生效';
-const SCOPE_HINT = '关闭时只记录 LP 主对话，开启后也记录其他对话。';
-
-const COLORS = {
-  text: 'var(--dsw-alias-label-primary)',
-  muted: 'var(--dsw-alias-label-secondary)',
-  faint: 'var(--dsw-alias-label-tertiary)',
-  border: 'var(--dsw-alias-border-l)',
-  borderStrong: 'var(--dsw-alias-border-l2)',
-  bg: 'var(--dsw-alias-bg-layer-1)',
-  accent: '#5ec9b4',
-  disk: '#8b93f8',
+const LOCALE_NS = 'lpipe.memory.settings';
+const KINDS = ['wishes', 'settings'];
+const LIMITS = { maxEntries: 32, maxTextLength: 500 };
+const LABELS = {
+  wishes: { enable: 'enableWishes', count: 'countWishes', empty: 'emptyWishes', add: 'addWishes', edit: 'editWishes', remove: 'removeWishes', removeAction: 'removeWishAction', confirm: 'confirmWish', configured: 'savedWishesConfig', saved: 'savedWishes', removed: 'removedWishes' },
+  settings: { enable: 'enableSettings', count: 'countSettings', empty: 'emptySettings', add: 'addSettings', edit: 'editSettings', remove: 'removeSettings', removeAction: 'removeSettingAction', confirm: 'confirmSetting', configured: 'savedSettingsConfig', saved: 'savedSettings', removed: 'removedSettings' },
 };
 
-const card = {
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 'var(--dsw-radius-lg)',
-  background: COLORS.bg,
-  padding: 16,
-};
-
-const scopeCard = {
-  border: `1px solid ${COLORS.border}`,
-  borderRadius: 'var(--dsw-radius-lg)',
-  background: COLORS.bg,
-  padding: '9px 12px 8px',
-  marginBottom: 10,
-};
-
-const scopeTitle = {
-  fontSize: 10.5,
-  fontWeight: 650,
-  color: COLORS.muted,
-  lineHeight: 1.5,
-};
-
-const scopeHint = {
-  marginTop: 2,
-  fontSize: 10,
-  lineHeight: 1.55,
-  color: COLORS.faint,
-};
-
-function switchStyle(on, disabled) {
-  return {
-    position: 'relative',
-    width: 36,
-    height: 20,
-    padding: 0,
-    borderRadius: 999,
-    border: `1px solid ${on ? COLORS.accent : COLORS.borderStrong}`,
-    background: on ? COLORS.accent : COLORS.borderStrong,
-    cursor: disabled ? 'default' : 'pointer',
-    opacity: disabled ? 0.65 : 1,
-    flex: 'none',
-    transition: 'background .15s, border-color .15s, opacity .15s',
-  };
+const STYLES = `
+.lpipe-memory, .lpipe-memory-dialog {
+  --memory-text: var(--dsw-alias-label-primary);
+  --memory-muted: var(--dsw-alias-label-secondary);
+  --memory-border: var(--dsw-alias-border-l1);
+  --memory-strong: var(--dsw-alias-border-l2);
+  --memory-surface: var(--dsw-alias-bg-layer-1);
+  --memory-soft: var(--dsw-alias-bg-layer-2);
+  --memory-accent: var(--dsw-alias-state-business-primary);
+  --memory-on-accent: #fff;
+  --memory-wash: color-mix(in srgb, var(--memory-accent) 12%, transparent);
+  --memory-line: color-mix(in srgb, var(--memory-accent) 32%, transparent);
+  --memory-danger: var(--dsw-alias-state-error-primary);
+  color: var(--memory-text);
+  font-size: 12px;
+  line-height: 1.5;
 }
+.lpipe-memory, .lpipe-memory :where(*) { box-sizing: border-box; }
+.lpipe-memory { width: 100%; }
+.lpipe-memory [hidden] { display: none !important; }
+.lpipe-memory .memory-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 10px; }
+.lpipe-memory .memory-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 13px; margin: 0; font-weight: 650; }
+.lpipe-memory .memory-badge { display: inline-flex; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--memory-line); background: var(--memory-wash); color: var(--memory-accent); font-size: 10.5px; font-weight: 600; }
+.lpipe-memory :is(.memory-card, .lpipe-memory-dialog) { border: 1px solid var(--memory-border); border-radius: var(--dsw-radius-lg); background: var(--memory-surface); padding: 12px 14px 10px; }
+.lpipe-memory .memory-tabs { display: flex; width: fit-content; max-width: 100%; flex-wrap: wrap; gap: 2px; padding: 2px; margin-bottom: 8px; background: var(--memory-soft); border: 1px solid var(--memory-border); border-radius: var(--dsw-radius-sm); }
+.lpipe-memory :is(button,input,textarea) { font: inherit; color: inherit; }
+.lpipe-memory button { appearance: none; cursor: pointer; background: transparent; border: 1px solid transparent; border-radius: var(--dsw-radius-sm); padding: 4px 8px; }
+.lpipe-memory button:hover:not(:disabled) { background: var(--memory-wash); color: var(--memory-accent); }
+.lpipe-memory button:disabled { cursor: not-allowed; color: var(--memory-muted); opacity: .65; }
+.lpipe-memory :is(button,input,textarea):focus-visible { outline: 2px solid var(--memory-accent); outline-offset: 2px; }
+.lpipe-memory [role=tab] { color: var(--memory-muted); padding: 3px 10px; }
+.lpipe-memory [role=tab][aria-selected=true] { border-color: var(--memory-line); background: var(--memory-wash); color: var(--memory-accent); font-weight: 650; }
+.lpipe-memory .memory-options { display: grid; gap: 9px; }
+.lpipe-memory .memory-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--memory-soft); border: 1px solid var(--memory-border); border-radius: var(--dsw-radius-sm); }
+.lpipe-memory .memory-switch-label { font-weight: 650; }
+.lpipe-memory .memory-scope { margin-bottom: 8px; }
+.lpipe-memory .memory-scope .memory-switch-label { color: var(--memory-text); font-size: 11px; line-height: 1.4; }
+.lpipe-memory .memory-scope .memory-switch-hint { color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; }
+.lpipe-memory .memory-scope .memory-switch::before { background: var(--dsw-alias-label-on-color); }
+.lpipe-memory .memory-scope :is([role=status], [role=alert]):not(:empty) { margin-top: 4px; }
+.lpipe-memory .memory-switch-hint { display: block; margin-top: 2px; }
+.lpipe-memory .memory-switch { appearance: none; position: relative; width: 36px; height: 20px; margin: 0; border-radius: 999px; border: 1px solid var(--memory-strong); background: var(--memory-strong); cursor: pointer; flex: none; }
+.lpipe-memory .memory-switch::before { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--memory-on-accent); }
+.lpipe-memory .memory-switch:checked { background: var(--memory-accent); border-color: var(--memory-accent); }
+.lpipe-memory .memory-switch:checked::before { transform: translateX(16px); }
+.lpipe-memory .memory-switch:disabled { opacity: .55; cursor: not-allowed; }
+.lpipe-memory .memory-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 10px; }
+.lpipe-memory .memory-number-label { display: grid; align-content: start; gap: 4px; font-size: 11px; font-weight: 600; color: var(--memory-muted); }
+.lpipe-memory :is(input[type=number],textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
+.lpipe-memory textarea { display: block; min-height: 72px; resize: vertical; }
+.lpipe-memory .memory-options-foot, .lpipe-memory .memory-list-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
+.lpipe-memory .memory-options-foot button { margin-inline-start: auto; }
+.lpipe-memory .memory-list-head { margin-top: 10px; padding: 8px 0 5px; border-top: 1px solid var(--memory-border); }
+.lpipe-memory button.memory-secondary, .lpipe-memory button.memory-primary:disabled { border-color: var(--memory-border); background: var(--memory-soft); }
+.lpipe-memory button.memory-primary:not(:disabled) { background: var(--memory-accent); color: var(--memory-on-accent); font-weight: 650; }
+.lpipe-memory button.memory-primary:hover:not(:disabled) { filter: brightness(.92); }
+.lpipe-memory button.memory-danger { color: var(--memory-danger); border-color: color-mix(in srgb, var(--memory-danger) 32%, transparent); }
+.lpipe-memory button.memory-danger:hover:not(:disabled) { color: var(--memory-danger); background: color-mix(in srgb, var(--memory-danger) 12%, transparent); }
+.lpipe-memory :is(input,textarea)[aria-invalid=true] { border-color: var(--memory-danger); }
+.lpipe-memory ul { list-style: none; margin: 0; padding: 0; }
+.lpipe-memory li { display: flex; align-items: start; justify-content: space-between; gap: 6px 10px; padding: 4px 0; border-bottom: 1px solid var(--memory-border); }
+.lpipe-memory li:last-child { border-bottom: 0; }
+.lpipe-memory .memory-entry { min-width: 0; padding: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.lpipe-memory .memory-actions { flex: none; display: flex; gap: 2px; }
+.lpipe-memory .memory-note, .lpipe-memory .memory-error { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.lpipe-memory .memory-note { color: var(--memory-muted); font-variant-numeric: tabular-nums; }
+.lpipe-memory .memory-error { color: var(--memory-danger); }
+.lpipe-memory .memory-empty, .lpipe-memory .memory-list-status:not(:empty) { padding: 4px 0; }
+.lpipe-memory .lpipe-memory-dialog { width: min(390px, calc(100% - 28px)); }
+.lpipe-memory-dialog::backdrop { background: #0007; }
+.lpipe-memory-dialog h4 { font-size: 14px; margin: 0 0 8px; }
+.lpipe-memory-dialog p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.lpipe-memory-dialog textarea + .memory-note { margin-top: 4px; }
+.lpipe-memory-dialog .memory-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+`;
 
-function knobStyle(on) {
-  return {
-    position: 'absolute',
-    top: 2,
-    left: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 999,
-    background: '#ffffff',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, .28)',
-    transform: on ? 'translateX(18px)' : 'none',
-    transition: 'transform .15s',
-  };
-}
-
-const smallButton = {
-  appearance: 'none',
-  fontFamily: 'inherit',
-  fontSize: 10.5,
-  lineHeight: 1.45,
-  padding: '3px 8px',
-  borderRadius: 6,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-  border: `1px solid ${COLORS.borderStrong}`,
-  background: 'transparent',
-  color: COLORS.text,
-};
-
-/** 作用域开关。读取完成前只显示「读取中」，不把默认值 false 当成真实配置。 */
-function ScopeBar({ scope, loading, saving, saved, error, onToggle, onRetry }) {
-  const readError = scope === null && Boolean(error);
-  const saveError = scope !== null && Boolean(error);
-  const status = saving ? '保存中…' : (saved ? '已保存' : '');
-  return h('div', { style: scopeCard, 'data-testid': 'memory-scope' },
-    h('div', {
-      style: {
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14,
-      },
-    },
-      h('div', { style: { minWidth: 0 } },
-        h('div', { style: scopeTitle }, SCOPE_LABEL),
-        h('div', { style: scopeHint }, SCOPE_HINT)),
-      h('div', { style: { flex: 'none', display: 'flex', alignItems: 'center', gap: 8, paddingTop: 1 } },
-        status
-          ? h('span', {
-            style: {
-              fontSize: 10, whiteSpace: 'nowrap',
-              color: saving ? COLORS.faint : COLORS.accent,
-            },
-          }, status)
-          : null,
-        loading
-          ? h('span', { style: { fontSize: 10, color: COLORS.faint, whiteSpace: 'nowrap' } }, '读取中…')
-          : readError
-            ? h('button', { type: 'button', style: smallButton, onClick: onRetry }, '重试')
-            : scope === null
-              ? null
-              : h('button', {
-                type: 'button',
-                role: 'switch',
-                'aria-checked': scope,
-                'aria-label': SCOPE_LABEL,
-                disabled: saving,
-                onClick: onToggle,
-                style: switchStyle(scope, saving),
-              }, h('span', { style: knobStyle(scope) })))),
-    readError || saveError
-      ? h('div', {
-        style: {
-          marginTop: 6, fontSize: 10.5, lineHeight: 1.55,
-          color: 'var(--dsw-alias-state-error-primary)',
-        },
-      }, readError ? `读取设置失败：${error}` : `保存失败：${error}`)
-      : null);
-}
-
-/** 15.0 MB / 812 KB：只保留两位有效位，别让小波动看起来像大变化。 */
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0;
-  if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
-  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
-  return `${Math.round(value)} B`;
-}
-
-function formatClock(at) {
-  if (!Number.isFinite(at)) return '—';
-  const date = new Date(at);
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-/** 把每条轮的值折成 0–100 的折线；原文与落盘共用一条纵轴，纵横都自适应。 */
-function plotOf(turns) {
-  const up = turns.map((turn) => Number(turn.total) || 0);
-  if (up.length === 0) return null;
-  const rawDisk = turns.map((turn) => Number(turn.diskTotal));
-  const disk = rawDisk.every((value) => Number.isFinite(value) && value > 0) ? rawDisk : null;
-  const all = disk ? [...up, ...disk] : up;
-  const min = Math.min(...all);
-  const max = Math.max(...all);
-  const pad = Math.max((max - min) * 0.18, Math.max(max, 1) * 0.004);
-  const low = min - pad;
-  const high = max + pad;
-  const span = high - low || 1;
-  const line = (values) => values.map((value, index) => {
-    const x = values.length === 1 ? 100 : (index / (values.length - 1)) * 100;
-    const y = 100 - ((value - low) / span) * 100;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
-  const upLine = line(up);
-  const diskLine = disk ? line(disk) : null;
-  return {
-    line: upLine,
-    disk: diskLine,
-    // 面积只铺在原文这条线下面，从上到下淡出；落盘线落在它里面，两者的距离就是省下的。
-    area: `0,100 ${upLine} 100,100`,
-    high,
-    low,
-    mid: (high + low) / 2,
-  };
-}
-
-function MemoryPanel({ rpcCall }) {
-  const [stats, setStats] = React.useState(null);
-  const [error, setError] = React.useState('');
-  const [scope, setScope] = React.useState(null);
-  const [scopeLoading, setScopeLoading] = React.useState(true);
-  const [scopeSaving, setScopeSaving] = React.useState(false);
-  const [scopeSaved, setScopeSaved] = React.useState(false);
-  const [scopeError, setScopeError] = React.useState('');
-
-  const call = React.useCallback(async (method, payload) => {
-    const result = await rpcCall(method, payload ?? {});
-    if (!result || result.ok === false) {
-      const failure = new Error(result?.error?.message ?? '请求失败');
-      failure.code = result?.error?.code;
-      throw failure;
+const normalize = text => text.replace(/\r\n?/g, '\n').trim();
+const lengthOf = text => Array.from(normalize(text)).length;
+const inRange = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
+const configOf = ({ enabled, maxEntries, maxTextLength }) => ({ enabled, maxEntries, maxTextLength });
+const draftsOf = state => Object.fromEntries(KINDS.map(kind => [kind, configOf(state[kind])]));
+function rebaseDrafts(drafts, previous, next) {
+  const rebased = draftsOf(next);
+  for (const kind of KINDS) {
+    for (const field of Object.keys(rebased[kind])) {
+      if (drafts[kind][field] !== previous[kind][field]) rebased[kind][field] = drafts[kind][field];
     }
+  }
+  return rebased;
+}
+const equalConfig = (a, b) => a.enabled === b.enabled && a.maxEntries === b.maxEntries && a.maxTextLength === b.maxTextLength;
+const problem = (key, params, field) => ({ key, params, field });
+
+function checkOptions(entries, draft) {
+  if (!inRange(draft.maxEntries, LIMITS.maxEntries)) return problem('entriesRange', { limit: LIMITS.maxEntries }, 'maxEntries');
+  if (!inRange(draft.maxTextLength, LIMITS.maxTextLength)) return problem('textRange', { limit: LIMITS.maxTextLength }, 'maxTextLength');
+  if (entries.length > draft.maxEntries) return problem('existingEntries', undefined, 'maxEntries');
+  if (entries.some(entry => lengthOf(entry.text) > draft.maxTextLength)) return problem('existingText', undefined, 'maxTextLength');
+  return null;
+}
+
+function entryRequest(kind, action, section, id, raw) {
+  if (action === 'remove') return { kind, action, id };
+  const text = normalize(raw);
+  if (!text) return problem('requiredText', undefined, 'text');
+  if (lengthOf(text) > section.maxTextLength) return problem('textLimit', { limit: section.maxTextLength }, 'text');
+  if (action === 'add' && section.entries.length >= section.maxEntries) return problem('addLimit');
+  return action === 'add' ? { kind, action, text } : { kind, action, id, text };
+}
+
+function configureRequest(kind, section, draft) {
+  return checkOptions(section.entries, draft) ?? { kind, action: 'configure', config: configOf(draft) };
+}
+
+function stateOf(reply) {
+  if (reply?.ok !== true) return null;
+  const state = reply.state;
+  if (typeof state?.allSessions !== 'boolean') return null;
+  for (const kind of KINDS) {
+    const group = state?.[kind];
+    if (typeof group?.enabled !== 'boolean' || !inRange(group.maxEntries, LIMITS.maxEntries)
+      || !inRange(group.maxTextLength, LIMITS.maxTextLength) || !Array.isArray(group.entries)
+      || group.entries.length > group.maxEntries) return null;
+    const seen = new Set();
+    for (const entry of group.entries) {
+      if (typeof entry?.id !== 'string' || !entry.id || seen.has(entry.id) || typeof entry?.text !== 'string'
+        || !normalize(entry.text) || lengthOf(entry.text) > group.maxTextLength) return null;
+      seen.add(entry.id);
+    }
+  }
+  return state;
+}
+
+function replyProblem(reply) {
+  return typeof reply?.message === 'string' && reply.message ? { message: reply.message, field: reply.field } : null;
+}
+
+function mutationProblem(reply) {
+  if (reply?.ok !== false) return null;
+  if (reply.code === 'commit_uncertain') return { uncertain: true, issue: problem('saveFailed') };
+  const issue = replyProblem(reply);
+  return issue ? { uncertain: false, issue } : null;
+}
+
+function textOf(t, error) {
+  return error?.message || (error && t(error.key, error.params));
+}
+
+function createRpc(connection) {
+  return async (method, payload, signal) => {
+    const result = await connection.rpc.call('/api', RPC_ENDPOINT, { method, payload }, signal);
+    if (result?.ok !== true) throw new Error('Memory transport rejected the request');
     return result.value;
-  }, [rpcCall]);
-
-  const loadScope = React.useCallback(async () => {
-    setScopeLoading(true);
-    setScopeSaved(false);
-    setScopeError('');
-    try {
-      const value = await call('memory.config', {});
-      if (typeof value?.allSessions !== 'boolean') throw new Error('响应缺少 allSessions');
-      setScope(value.allSessions);
-    } catch (failure) {
-      setScope(null);
-      setScopeError(String(failure?.message ?? failure));
-    } finally {
-      setScopeLoading(false);
-    }
-  }, [call]);
-
-  const toggleScope = React.useCallback(async () => {
-    if (scope === null || scopeSaving) return;
-    const previous = scope;
-    const next = !previous;
-    setScope(next);
-    setScopeSaving(true);
-    setScopeSaved(false);
-    setScopeError('');
-    try {
-      const value = await call('memory.config.save', { allSessions: next });
-      if (typeof value?.allSessions !== 'boolean') throw new Error('响应缺少 allSessions');
-      setScope(value.allSessions);
-      setScopeSaved(true);
-    } catch (failure) {
-      setScope(previous);
-      setScopeError(String(failure?.message ?? failure));
-    } finally {
-      setScopeSaving(false);
-    }
-  }, [call, scope, scopeSaving]);
-
-  React.useEffect(() => {
-    void loadScope();
-  }, [loadScope]);
-
-  React.useEffect(() => {
-    if (!scopeSaved) return undefined;
-    const timer = setTimeout(() => setScopeSaved(false), 1800);
-    return () => clearTimeout(timer);
-  }, [scopeSaved]);
-
-  const reload = React.useCallback(async () => {
-    try {
-      setStats(await call('memory.stats', { turns: TURNS }));
-      setError('');
-    } catch (failure) {
-      setError(String(failure?.message ?? failure));
-    }
-  }, [call]);
-
-  React.useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  React.useEffect(() => {
-    const timer = setInterval(() => void reload(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [reload]);
-
-  const turns = stats?.turns ?? [];
-  const plot = plotOf(turns);
-  const xLabels = turns.length > 1
-    ? h('div', {
-      style: {
-        display: 'flex', justifyContent: 'space-between', marginTop: 5,
-        fontSize: 10, color: COLORS.faint,
-      },
-    },
-      h('span', null, formatClock(turns[0].at)),
-      h('span', null, formatClock(turns[turns.length - 1].at)))
-    : null;
-  const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
-
-  return h('section', null,
-    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
-      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Memory'),
-      h('span', {
-        style: {
-          fontSize: 11, padding: '2px 8px', borderRadius: 999,
-          background: 'rgba(94, 201, 180, 0.14)', color: COLORS.accent,
-          border: '1px solid rgba(94, 201, 180, 0.28)',
-        },
-      }, '记忆管线'),
-      h('span', { style: { marginLeft: 'auto', display: 'flex', gap: 12, fontSize: 10, color: COLORS.faint } },
-        h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
-          h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.accent } }), '原文'),
-        h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
-          h('i', { style: { width: 7, height: 2, borderRadius: 1, background: COLORS.disk } }), '落盘'))),
-
-    h(ScopeBar, {
-      scope,
-      loading: scopeLoading,
-      saving: scopeSaving,
-      saved: scopeSaved,
-      error: scopeError,
-      onToggle: toggleScope,
-      onRetry: loadScope,
-    }),
-
-    error
-      ? h('div', { style: { marginBottom: 12, fontSize: 12, color: 'var(--dsw-alias-state-error-primary)' } },
-        `读取记忆大小失败：${error}`)
-      : null,
-
-    h('div', { style: card },
-      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 36, flexWrap: 'wrap' } },
-        h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 6 } },
-          h('span', { style: { fontSize: 21, fontWeight: 600, color: COLORS.text, position: 'relative', top: -3 } }, '原文'),
-          h('span', { style: { fontSize: 21, fontWeight: 600, color: COLORS.text } },
-            formatBytes(stats?.total ?? 0)),
-          lastTurn
-            ? h('span', {
-              style: { fontSize: 11, color: COLORS.accent, display: 'inline-flex', alignItems: 'baseline', gap: 4 },
-            },
-              h('span', { style: { position: 'relative', top: -1.5 } }, '最近'),
-              h('span', null, `+${formatBytes(lastTurn.added)}`))
-            : null),
-
-        h('span', { style: { display: 'inline-flex', alignItems: 'baseline', gap: 6 } },
-          h('span', { style: { fontSize: 15, fontWeight: 600, color: COLORS.text, position: 'relative', top: -2 } }, '落盘'),
-          h('span', { style: { fontSize: 15, fontWeight: 600, color: COLORS.text } },
-            formatBytes(stats?.disk ?? 0)),
-          lastTurn
-            ? h('span', {
-              style: { fontSize: 11, color: COLORS.disk, display: 'inline-flex', alignItems: 'baseline', gap: 4 },
-            },
-              h('span', { style: { position: 'relative', top: -1.5 } }, '最近'),
-              h('span', null, `+${formatBytes(lastTurn.diskAdded)}`))
-            : null)),
-
-      plot
-        ? h('div', {
-          style: {
-            display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, marginTop: 12,
-          },
-        },
-          h('div', {
-            style: {
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              gridColumn: 1, padding: '2px 0 1px', fontSize: 9.5,
-              color: COLORS.faint, textAlign: 'left', whiteSpace: 'nowrap',
-            },
-          },
-            h('span', null, formatBytes(plot.high)),
-            h('span', null, formatBytes(plot.mid)),
-            h('span', null, formatBytes(plot.low))),
-          h('svg', {
-            viewBox: '0 0 100 100',
-            preserveAspectRatio: 'none',
-            style: { width: '100%', minWidth: 0, height: 86, display: 'block' },
-            'aria-label': '记忆大小曲线',
-          },
-            h('line', {
-              x1: 0, y1: 0, x2: 0, y2: 100,
-              stroke: 'currentColor', strokeOpacity: 0.18,
-              vectorEffect: 'non-scaling-stroke',
-            }),
-            h('line', {
-              x1: 0, y1: 33, x2: 100, y2: 33,
-              stroke: 'currentColor', strokeOpacity: 0.12, strokeDasharray: '3 4',
-              vectorEffect: 'non-scaling-stroke',
-            }),
-            h('line', {
-              x1: 0, y1: 66, x2: 100, y2: 66,
-              stroke: 'currentColor', strokeOpacity: 0.12, strokeDasharray: '3 4',
-              vectorEffect: 'non-scaling-stroke',
-            }),
-            h('defs', null,
-              h('linearGradient', { id: 'memUp', x1: 0, y1: 0, x2: 0, y2: 1 },
-                h('stop', { offset: '0%', stopColor: COLORS.accent, stopOpacity: 0.22 }),
-                h('stop', { offset: '100%', stopColor: COLORS.accent, stopOpacity: 0 }))),
-            h('polygon', { points: plot.area, fill: 'url(#memUp)' }),
-            h('polyline', {
-              points: plot.line, fill: 'none', stroke: COLORS.accent, strokeWidth: 1.6,
-              strokeLinecap: 'round', strokeLinejoin: 'round', vectorEffect: 'non-scaling-stroke',
-            }),
-            plot.disk
-              ? h('polyline', {
-                points: plot.disk, fill: 'none', stroke: COLORS.disk, strokeWidth: 1.4,
-                strokeLinecap: 'round', strokeLinejoin: 'round', vectorEffect: 'non-scaling-stroke',
-              })
-              : null),
-          h('div', null),
-          xLabels)
-        : h('div', { style: { marginTop: 12, fontSize: 12, color: COLORS.muted } }, '还没有落盘的轮次。'),
-
-      h('div', { style: { marginTop: 8, fontSize: 11, color: COLORS.faint } },
-        '两条线共用一条纵轴：青色是原文（未压缩），蓝紫色是真实落盘，中间那段距离就是 zstd 省下的。')));
+  };
 }
 
-const name = 'dsh-lpipe-memory-settings';
-const inject = ['slots', 'connection'];
+function MemoryPanel({ rpcCall, locale, t }) {
+  // The binding keeps its identity across language changes; this subscription rerenders the panel.
+  React.useSyncExternalStore(locale.subscribe, locale.getSnapshot);
+  const uid = React.useId();
+  const [kind, setKind] = React.useState('wishes');
+  const [state, setState] = React.useState(null);
+  const [drafts, setDrafts] = React.useState(null);
+  const [loadIssue, setLoadIssue] = React.useState(null);
+  const [reload, setReload] = React.useState(0);
+  const [pending, setPending] = React.useState(null);
+  const [notice, setNotice] = React.useState(null);
+  const [scopeFeedback, setScopeFeedback] = React.useState(null);
+  const [optionIssues, setOptionIssues] = React.useState({});
+  const [editing, setEditing] = React.useState(null);
+  const [body, setBody] = React.useState('');
+  const [entryIssue, setEntryIssue] = React.useState(null);
+  const [uncertain, setUncertain] = React.useState(false);
+  const scopeRecovery = React.useRef(null);
+  const mounted = React.useRef(false);
+  const write = React.useRef(null);
+  const tabs = React.useRef({});
+  const addButtons = React.useRef({});
+  const inputs = React.useRef({});
+  const dialog = React.useRef(null);
+  const field = React.useRef(null);
+  const cancelButton = React.useRef(null);
+  const returnFocus = React.useRef(null);
+  const pendingOptionFocus = React.useRef(null);
+
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      write.current?.abort();
+      write.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const request = new AbortController();
+    setLoadIssue(null);
+    void (async () => {
+      try {
+        const reply = await rpcCall('memory.state', null, request.signal);
+        if (request.signal.aborted) return;
+        const data = stateOf(reply);
+        if (!data) { setLoadIssue(replyProblem(reply) ?? problem('loadFailed')); return; }
+        const recovery = scopeRecovery.current;
+        setState(data);
+        setDrafts(recovery ? rebaseDrafts(recovery.drafts, recovery.state, data) : draftsOf(data));
+        scopeRecovery.current = null;
+        setUncertain(false);
+      } catch {
+        if (!request.signal.aborted) setLoadIssue(problem('loadFailed'));
+      }
+    })();
+    return () => request.abort();
+  }, [rpcCall, reload]);
+
+  const busy = pending !== null;
+  React.useLayoutEffect(() => {
+    if (editing && !dialog.current.open) {
+      dialog.current.showModal();
+      (editing.action === 'remove' ? cancelButton.current : field.current)?.focus();
+    }
+    if (!editing && dialog.current?.open) {
+      dialog.current.close();
+      returnFocus.current?.()?.focus();
+      returnFocus.current = null;
+    }
+    if (!busy && pendingOptionFocus.current) {
+      inputs.current[`${pendingOptionFocus.current}-enabled`]?.focus();
+      pendingOptionFocus.current = null;
+    }
+  }, [editing, busy]);
+
+  const locked = busy || Boolean(uncertain);
+  const select = (key, focus = false) => {
+    setKind(key);
+    setNotice(null);
+    if (focus) tabs.current[key]?.focus();
+  };
+  const open = (key, action, row, opener) => {
+    if (locked) return;
+    returnFocus.current = () => opener.isConnected ? opener : tabs.current[key];
+    setBody(row?.text ?? '');
+    setEntryIssue(null);
+    setEditing({ kind: key, action, row });
+  };
+  const close = () => { if (!write.current) setEditing(null); };
+  const retryLoad = () => {
+    setEditing(null);
+    if (uncertain === 'scope') scopeRecovery.current ??= { state, drafts };
+    else setUncertain(false);
+    setState(null);
+    setDrafts(null);
+    setNotice(null);
+    setLoadIssue(null);
+    setOptionIssues({});
+    setScopeFeedback(null);
+    setReload(n => n + 1);
+  };
+
+  async function setScope(allSessions) {
+    if (write.current || uncertain || allSessions === state.allSessions) return;
+    const request = new AbortController();
+    write.current = request;
+    setPending({ scope: true });
+    setScopeFeedback(null);
+    try {
+      const reply = await rpcCall('memory.setScope', allSessions, request.signal);
+      if (!mounted.current || request.signal.aborted) return;
+      const failure = mutationProblem(reply);
+      if (failure) {
+        if (failure.uncertain) setUncertain('scope');
+        else setScopeFeedback({ issue: failure.issue });
+        return;
+      }
+      const next = stateOf(reply);
+      if (!next || next.allSessions !== allSessions) throw new Error('Invalid memory scope');
+      setState(next);
+      setDrafts(previous => rebaseDrafts(previous, state, next));
+    } catch {
+      if (mounted.current && !request.signal.aborted) setUncertain('scope');
+    } finally {
+      if (write.current === request) write.current = null;
+      if (mounted.current && !request.signal.aborted) setPending(null);
+    }
+  }
+
+  async function mutate(payload) {
+    if (write.current || uncertain) return;
+    const { kind: key, action } = payload;
+    const configure = action === 'configure';
+    const showIssue = issue => configure ? setOptionIssues(previous => ({ ...previous, [key]: issue })) : setEntryIssue(issue);
+    const request = new AbortController();
+    write.current = request;
+    setPending({ key, configure });
+    setNotice(null);
+    showIssue(null);
+    try {
+      const reply = await rpcCall('memory.mutate', payload, request.signal);
+      if (!mounted.current || request.signal.aborted) return;
+      const failure = mutationProblem(reply);
+      if (failure) {
+        if (failure.uncertain) setUncertain(true);
+        else showIssue(failure.issue);
+        return;
+      }
+      const next = stateOf(reply);
+      if (!next) throw new Error('Invalid memory state');
+      setState(next);
+      setDrafts(previous => {
+        const saved = draftsOf(next);
+        return Object.fromEntries(KINDS.map(name => [name,
+          (configure && name === key) || equalConfig(previous[name], configOf(state[name])) ? saved[name] : previous[name],
+        ]));
+      });
+      if (configure) pendingOptionFocus.current = key;
+      else {
+        returnFocus.current = () => addButtons.current[key]?.disabled ? tabs.current[key] : addButtons.current[key];
+        setEditing(null);
+      }
+      setNotice({ key, configure, ...problem(configure ? LABELS[key].configured : action === 'remove' ? LABELS[key].removed : LABELS[key].saved) });
+    } catch {
+      // The request may have committed. Reload before allowing a second add or write.
+      if (!mounted.current || request.signal.aborted) return;
+      setUncertain(true);
+
+    } finally {
+      if (write.current === request) write.current = null;
+      if (mounted.current && !request.signal.aborted) setPending(null);
+    }
+  }
+
+  const saveOptions = (event, key) => {
+    event.preventDefault();
+    if (locked || equalConfig(drafts[key], configOf(state[key]))) return;
+    const payload = configureRequest(key, state[key], drafts[key]);
+    if (payload.key) {
+      setOptionIssues(previous => ({ ...previous, [key]: payload }));
+      inputs.current[`${key}-${payload.field}`]?.focus();
+    } else void mutate(payload);
+  };
+  const saveEntry = event => {
+    event.preventDefault();
+    if (locked || !editing) return;
+    const payload = entryRequest(editing.kind, editing.action, state[editing.kind], editing.row?.id, body);
+    if (payload.key) { setEntryIssue(payload); field.current?.focus(); }
+    else void mutate(payload);
+  };
+  const updateDraft = (key, fieldName, value) => {
+    setOptionIssues(previous => ({ ...previous, [key]: null }));
+    setDrafts(previous => ({ ...previous, [key]: { ...previous[key], [fieldName]: value } }));
+  };
+  const tabId = key => `${uid}-${key}-tab`;
+  const paneId = key => `${uid}-${key}-pane`;
+  const button = (label, props) => h('button', { type: 'button', ...props }, label);
+  const errorView = (error, id) => error ? h('p', { id, role: 'alert', className: 'memory-error' }, textOf(t, error)) : null;
+  const tab = (key, i) => button(t(key), {
+    key, id: tabId(key), ref: node => { tabs.current[key] = node; }, role: 'tab',
+    'aria-controls': paneId(key), 'aria-selected': kind === key, tabIndex: kind === key ? 0 : -1,
+    onClick: () => select(key), onKeyDown: event => {
+      const next = { ArrowLeft: (i + KINDS.length - 1) % KINDS.length, ArrowRight: (i + 1) % KINDS.length, Home: 0, End: KINDS.length - 1 }[event.key];
+      if (next === undefined) return;
+      event.preventDefault(); select(KINDS[next], true);
+    },
+  });
+  const showPanel = key => {
+    const section = state[key], draft = drafts[key], labels = LABELS[key], issue = optionIssues[key];
+    const issueId = `${uid}-${key}-error`;
+    const dirty = !equalConfig(draft, configOf(section));
+    const draftIssue = dirty ? checkOptions(section.entries, draft) : null;
+    const optionIssue = issue ?? draftIssue;
+    const feedback = notice?.key === key ? notice : null;
+    const full = section.entries.length >= section.maxEntries;
+    const inputError = name => optionIssue?.field === name ? { 'aria-invalid': true, 'aria-describedby': issueId } : {};
+    const number = name => h('label', { key: name, className: 'memory-number-label' }, t(name), h('input', {
+      ref: node => { inputs.current[`${key}-${name}`] = node; }, type: 'number', name, min: 1, max: LIMITS[name], step: 1, required: true,
+      disabled: locked, value: Number.isNaN(draft[name]) ? '' : draft[name],
+      onChange: event => updateDraft(key, name, event.currentTarget.valueAsNumber), ...inputError(name),
+    }));
+    return h('section', { key, id: paneId(key), role: 'tabpanel', 'aria-labelledby': tabId(key), hidden: kind !== key },
+      h('form', { className: 'memory-options', 'aria-label': t(labels.enable), onSubmit: event => saveOptions(event, key), noValidate: true },
+        h('label', { className: 'memory-switch-row' },
+          h('span', null,
+            h('span', { className: 'memory-switch-label' }, t(labels.enable)),
+            h('span', { className: 'memory-note memory-switch-hint' }, t(`${key}Hint`))),
+          h('input', {
+            ref: node => { inputs.current[`${key}-enabled`] = node; }, type: 'checkbox', role: 'switch', className: 'memory-switch',
+            'aria-label': t(labels.enable), name: 'enabled', checked: draft.enabled,
+            disabled: locked, onChange: event => updateDraft(key, 'enabled', event.currentTarget.checked), ...inputError('enabled'),
+          })),
+        h('div', { className: 'memory-fields' }, Object.keys(LIMITS).map(number)),
+        errorView(optionIssue, issueId),
+        h('div', { className: 'memory-options-foot' },
+          h('div', null,
+            !section.enabled && h('p', { className: 'memory-note' }, t('disabled')),
+            h('p', { className: 'memory-note', role: 'status' }, dirty ? t('unsaved') : feedback?.configure ? textOf(t, feedback) : null)),
+          button(t(pending?.configure && pending.key === key ? 'saving' : 'saveOptions'), { type: 'submit', className: 'memory-primary', disabled: locked || !dirty || Boolean(draftIssue) }))),
+      h('div', { className: 'memory-list-head' },
+        h('span', { className: 'memory-note' }, t(labels.count, { count: section.entries.length, limit: section.maxEntries }), full && t('full')),
+        button(t(labels.add), { ref: node => { addButtons.current[key] = node; }, className: 'memory-secondary', disabled: full || locked, onClick: event => open(key, 'add', null, event.currentTarget) })),
+      h('p', { className: 'memory-note memory-list-status', role: 'status' }, feedback && !feedback.configure ? textOf(t, feedback) : null),
+      h('ul', { 'aria-label': t(key) }, section.entries.map(row => h('li', { key: row.id },
+        h('span', { className: 'memory-entry' }, row.text),
+        h('span', { className: 'memory-actions' }, ['update', 'remove'].map(action => {
+          const remove = action === 'remove', caption = t(remove ? labels.removeAction : 'edit');
+          return button(caption, { key: action, disabled: locked,
+            'aria-label': t('entryAction', { action: caption, text: row.text }), onClick: event => open(key, action, row, event.currentTarget) });
+        }))))),
+      !section.entries.length && h('p', { className: 'memory-note memory-empty' }, t(labels.empty)));
+  };
+  const renderDialog = () => {
+    const labels = editing && LABELS[editing.kind];
+    const removing = editing?.action === 'remove';
+    const title = labels?.[editing.action === 'update' ? 'edit' : editing.action];
+    const issueId = `${uid}-entry-error`, countId = `${uid}-entry-count`;
+    return h('dialog', { ref: dialog, className: 'lpipe-memory-dialog', 'aria-labelledby': `${uid}-editor-title`,
+      onCancel: event => { event.preventDefault(); close(); } },
+    editing && h('form', { onSubmit: saveEntry, noValidate: true },
+      h('h4', { id: `${uid}-editor-title` }, t(title)),
+      removing ? h('p', null, t(labels.confirm, { text: editing.row.text })) : h(React.Fragment, null,
+        h('label', { htmlFor: `${uid}-entry-text` }, t('body')),
+        h('textarea', { id: `${uid}-entry-text`, ref: field, value: body, required: true, disabled: locked,
+          'aria-invalid': entryIssue?.field === 'text' || undefined, 'aria-describedby': entryIssue ? `${countId} ${issueId}` : countId,
+          onChange: event => { setBody(event.currentTarget.value); setEntryIssue(null); } }),
+        h('p', { id: countId, className: 'memory-note' }, t('charCount', { count: lengthOf(body), limit: state[editing.kind].maxTextLength }))),
+      errorView(uncertain ? problem('saveFailed') : entryIssue, issueId),
+      h('div', { className: 'memory-dialog-actions' },
+        button(t('cancel'), { ref: cancelButton, disabled: busy, onClick: close }),
+        uncertain && button(t('reloadMemory'), { onClick: retryLoad }),
+        button(t(busy ? 'saving' : removing ? labels.removeAction : 'save'), { type: 'submit', disabled: locked, className: removing ? 'memory-danger' : 'memory-primary' }))));
+  };
+
+  return h('section', { className: 'lpipe-memory', 'aria-labelledby': `${uid}-title` },
+    h('style', null, STYLES),
+    h('header', { className: 'memory-head' },
+      h('h3', { id: `${uid}-title`, className: 'memory-title' }, 'Lpipe Memory', h('span', { className: 'memory-badge' }, '记忆管线')),
+      h('p', { className: 'memory-note' }, t(state?.allSessions ? 'allSessions' : 'mainOnly'))),
+    h('div', { className: 'memory-card' }, state && drafts ? h(React.Fragment, null,
+      h('div', { className: 'memory-scope', 'aria-busy': Boolean(pending?.scope) },
+        h('label', { className: 'memory-switch-row' },
+          h('span', null,
+            h('span', { id: `${uid}-scope-label`, className: 'memory-switch-label' }, t('allSessions')),
+            h('span', { id: `${uid}-scope-hint`, className: 'memory-note memory-switch-hint' }, t('scopeHint'))),
+          h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
+            'aria-labelledby': `${uid}-scope-label`, 'aria-describedby': `${uid}-scope-hint`,
+            checked: state.allSessions, disabled: locked,
+            onChange: event => void setScope(event.currentTarget.checked),
+          })),
+        h('p', { role: 'status', className: 'memory-note' }, pending?.scope ? t('saving') : null),
+        errorView(scopeFeedback?.issue)),
+      h('div', { role: 'tablist', className: 'memory-tabs', 'aria-label': t('types') }, KINDS.map(tab)),
+      KINDS.map(showPanel),
+      uncertain && !editing && h('div', null, h('p', { role: 'alert', className: 'memory-error' }, t('saveFailed')), button(t('reloadMemory'), { onClick: retryLoad })),
+      renderDialog()) : loadIssue ? h('div', null, errorView(loadIssue), button(t('retry'), { onClick: retryLoad }))
+      : h('p', { className: 'memory-note', role: 'status' }, t('loading'))));
+}
 
 function apply(ctx) {
-  const rpcCall = (method, payload, signal) =>
-    ctx.connection.rpc.call('/api', RPC_ENDPOINT, { method, payload: payload ?? {} }, signal);
-
+  ctx.effect(() => ctx.locale.register(LOCALE_NS, MEMORY_LOCALES), 'dsh-lpipe-memory: panel locale');
+  const t = ctx.locale.bind(LOCALE_NS);
+  const locale = { subscribe: ctx.locale.subscribe.bind(ctx.locale), getSnapshot: ctx.locale.getSnapshot.bind(ctx.locale) };
+  const rpcCall = createRpc(ctx.connection);
   ctx.slots.inject(PANEL_SLOT, () => ctx.slots.register({
-    name: PANEL_SLOT,
-    id: 'memory',
-    order: 30,
-    label: () => '记忆管线',
-    inject: () => ({ rpcCall }),
+    name: PANEL_SLOT, id: 'memory', order: 100, label: () => t('title'), inject: () => ({ rpcCall, locale, t }),
   }, MemoryPanel));
 }
 
 module.exports = {
-  name,
-  inject,
-  apply,
-  __test__: { MemoryPanel, ScopeBar, PANEL_SLOT, SCOPE_LABEL, formatBytes, formatClock, plotOf, TURNS },
+  name: 'dsh-lpipe-memory-settings', inject: ['slots', 'connection', 'locale'], apply,
+  __test__: { normalize, lengthOf, configureRequest, entryRequest, stateOf, mutationProblem },
 };
-
     return module.exports;
   }
 });

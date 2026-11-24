@@ -114,6 +114,13 @@ function walk(node, out = []) {
   return out;
 }
 
+test('the client build produces identical LF output for LF and CRLF sources', () => {
+  const lf = wrapClient("'use strict';\n\nmodule.exports = {};\n");
+  const crlf = wrapClient("'use strict';\r\n\r\nmodule.exports = {};\r\n");
+  assert.equal(crlf, lf);
+  assert.equal(lf.includes('\r'), false);
+});
+
 test('lib/client.js matches build output and registers exclusively into lpipe.settings.panel', () => {
   assert.equal(bundleCode, wrapClient(panelSource), 'lib/client.js must stay in sync with client/panel.js');
   const { id, exported } = loadBundle();

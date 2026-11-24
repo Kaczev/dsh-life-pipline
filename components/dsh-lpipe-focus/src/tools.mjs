@@ -41,7 +41,7 @@ function latestAssistantToolCalls(events) {
 const KEY_PATTERN = '^[a-z0-9]+(?:-[a-z0-9]+)*$';
 const KEBAB_KEY = new RegExp(KEY_PATTERN, 'u');
 const CONTENT_FIELDS = ['definitions', 'experience', 'conclusions', 'guidance'];
-const LAYER_FIELDS = new Set(['key', 'supersedes', ...CONTENT_FIELDS, 'work_done', 'next']);
+const LAYER_FIELDS = new Set(['key', 'supersedes', ...CONTENT_FIELDS, 'work_done', 'todos', 'next']);
 
 function checkKey(key, field) {
   if (typeof key !== 'string' || key.length > MAX_KEY_LENGTH || !KEBAB_KEY.test(key)) {
@@ -57,7 +57,7 @@ function checkText(text, field, limit) {
   return text.trim();
 }
 
-export function validateFocusEquateArgs(args, knownKeys) {
+export function validateFocusEquateArgs(args, knownKeys, currentTodos = '') {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new FocusToolArgsError('arguments must be an object');
   for (const field of Object.keys(args)) {
     if (!LAYER_FIELDS.has(field)) throw new FocusToolArgsError(`unexpected property "${field}"`);
@@ -90,13 +90,18 @@ export function validateFocusEquateArgs(args, knownKeys) {
       if (text) layer[field] = text;
     }
   }
+  if (Object.hasOwn(args, 'todos')) layer.todos = checkText(args.todos, 'todos');
+  const resultingTodos = layer.todos ?? currentTodos;
+  if (resultingTodos && !layer.next) {
+    throw new FocusToolArgsError('next must be nonblank while unfinished user work remains');
+  }
   return layer;
 }
 
 export function readFocusLayerSource(source, knownKeys) {
   if (source?.kind !== FOCUS_SOURCE_KIND || source.layer !== 'equivalence') return null;
   const { kind, layer, createdAt, ...args } = source;
-  if (Object.hasOwn(args, 'next')) return null; // The hint has its own message, never a layer source.
+  if (Object.hasOwn(args, 'todos') || Object.hasOwn(args, 'next')) return null;
   try {
     return validateFocusEquateArgs(args, knownKeys);
   } catch (error) {
@@ -111,6 +116,7 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
   const layersByKey = new Map();
   const checkpoints = new Map();
   const sources = new Map();
+  let currentTodos = '';
   let pending = null;
   for (const ev of events) {
     if (ev.seq >= beforeSeq) break;
@@ -140,10 +146,11 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
         try {
           const decode = raw => typeof raw === 'string' ? JSON.parse(raw) : raw;
           const args = decode(match.raw ?? match.trace);
-          const layer = validateFocusEquateArgs(args, layersByKey);
+          const layer = validateFocusEquateArgs(args, layersByKey, currentTodos);
           if (match.traced && match.raw != null && match.trace !== match.raw
-            && !isDeepStrictEqual(layer, validateFocusEquateArgs(decode(match.trace), layersByKey))) break;
-          checkpoints.set(match.seq, { layer, args });
+            && !isDeepStrictEqual(layer, validateFocusEquateArgs(decode(match.trace), layersByKey, currentTodos))) break;
+          currentTodos = layer.todos ?? currentTodos;
+          checkpoints.set(match.seq, { layer, args, currentTodos });
           layersByKey.set(layer.key, layer);
         } catch (error) {
           if (!(error instanceof FocusToolArgsError || error instanceof SyntaxError)) throw error;
@@ -152,11 +159,18 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
       }
       case 'user/message': {
         pending = null;
-        const layer = readFocusLayerSource(data?.source);
+        const source = data?.source;
+        // A seed may contain only materialized messages. After the first receipt,
+        // checkpoints are authoritative; an older fold can be written to the log later.
+        if (!checkpoints.size && source?.kind === FOCUS_SOURCE_KIND && source.layer === 'todos'
+          && typeof source.rawText === 'string' && !TEXT_FORBIDDEN_CONTROLS.test(source.rawText)) {
+          currentTodos = source.rawText.trim();
+        }
+        const layer = readFocusLayerSource(source);
         if (!layer || layer.supersedes.some(key => !layersByKey.has(key))) break;
         const prior = layersByKey.get(layer.key);
         if (prior) {
-          const { next, ...materialized } = prior;
+          const { todos, next, ...materialized } = prior;
           if (!isDeepStrictEqual(materialized, layer)) break;
         }
         layersByKey.set(layer.key, layer);
@@ -168,14 +182,18 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
         break;
     }
   }
-  return { keys: new Set(layersByKey.keys()), checkpoints, sources };
+  return { keys: new Set(layersByKey.keys()), checkpoints, sources, currentTodos };
 }
 
 export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
-    description:
-      'Replace the entire span since the last equivalence layer in one call. Call this tool alone after all outstanding tool calls have returned. Use each field that applies. When a passage contains several kinds of information, split it by purpose and record each detail once. Include nonblank text in at least one of `definitions`, `experience`, `conclusions`, or `guidance`.',
+    description: [
+      'Create a new equivalence layer and replace the current todo and next layers. The new equivalence layer replaces the entire surface span after the previous equivalence layer. That span will no longer be available, so preserve in the appropriate layer anything from it that can still affect how you understand the user, what you should say, or what you should do.',
+      'The layers appear in this order: the latest equivalence layer, the current todo layer, then the current next layer. Existing equivalence layers remain available and are not removed merely because they are old. Use `supersedes` only for earlier equivalence-layer keys whose still-needed content is fully preserved by the new equivalence layer; a superseded layer may be removed during later compaction.',
+      'Use equivalence-layer fields for durable context. Set `todos` only when the unfinished user work changes: omitting it keeps the current todo layer, a nonblank value replaces it with the complete current set of unfinished requests and questions, and an empty value clears it. The next layer is an immediate-action hint, not a record of unfinished work. Whenever the resulting todo layer is nonempty, provide a nonblank `next` that advances that work.',
+      'Call this tool alone after all outstanding tool calls have returned. Use each field that applies. When a passage contains several kinds of information, split it by purpose and record each detail once.',
+    ].join('\n\n'),
     parameters: {
       type: 'object', additionalProperties: false, required: ['key', 'supersedes'],
       anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })),
@@ -195,8 +213,10 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
           description: 'Preserve preferences, agreements, and constraints that still guide choices or actions. State whose guidance it is, where it applies, and whether it expresses a preference, a shared commitment, or a requirement.' },
         work_done: { type: 'string',
           description: 'Record actions taken or attempted, their scope, and the observed result. When an action also yields guidance for future work, put that guidance in `experience`.' },
+        todos: { type: 'string',
+          description: 'The complete current set of unfinished user requests and questions. Set only when it changes; omit to keep the current todo layer, or use an empty value to clear it.' },
         next: { type: 'string', maxLength: MAX_OBJECTIVE_LENGTH,
-          description: 'An optional reminder for the immediate continuation. State the next action and anything it must wait for. The latest user instruction takes precedence.' },
+          description: 'The immediate next action, not the unfinished-work record. Required and nonblank whenever the resulting todo layer is nonempty; otherwise optional. The latest user instruction takes precedence.' },
       },
     },
     output: {
@@ -223,8 +243,8 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
           `${FOCUS_TOOL_NAME} must be called alone; wait for all sibling tool results to finish first`,
         );
       }
-      const { keys } = collectFocusHistory(events);
-      const { key } = validateFocusEquateArgs(args, keys);
+      const { keys, currentTodos } = collectFocusHistory(events);
+      const { key } = validateFocusEquateArgs(args, keys, currentTodos);
       return { key, summary: `Recorded equivalence layer [${key}].` };
     },
   };

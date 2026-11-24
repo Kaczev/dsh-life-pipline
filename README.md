@@ -4,7 +4,7 @@
 
 ## 中文
 
-生命管线为 DeepSeek Harness（DSH）提供微信 / QQ 聊天、主动唤醒、对话归档和 B 站浏览等功能。整合包包含生命核心和七条可以单独开关的管线。
+生命管线为 DeepSeek Harness（DSH）提供微信 / QQ 聊天、主动唤醒和 B 站浏览等功能。整合包包含生命核心和七条可以单独开关的管线。
 
 ### 包含哪些功能
 
@@ -13,13 +13,13 @@
 | 生命核心 | 公共设置、LP 主对话、工作区选择与组件依赖管理 |
 | 聊天 | 接入微信和 QQ，收发消息、查看历史与附件 |
 | 唤醒 | 闲置后自然醒来，或由模型按本机时间安排稍后继续；醒来时附上剩余安排 |
-| 记忆 | 在本地保存对话原文及媒体，不把旧事自动带回当前对话 |
+| [记忆](components/dsh-lpipe-memory/README.md) | 在主会话管理欲望与默认设定，不归档对话 |
 | B 站 | 浏览推荐、搜索、评论、字幕与视频分镜 |
 | 栖所 | 为模型指定个人文件夹 |
 | 语气 | 分别设置措辞、句式、节奏和表达的显隐，只改变主对话的表达方式 |
 | 聚焦 | 在开始下一段实质工作前，用等效层替代已经得出结果的工作区间，并保留后续需要的定义、经验、决策依据和结论 |
 
-星图和回忆已移出整合包。旧组件的源码仍保留在仓库中，已有记忆不需要为此迁移。
+星图和回忆只保留历史源码，不能与当前的记忆管线一起使用。已有归档无需迁移，当前版本不会动它们。
 
 ### 安装与开始使用
 
@@ -34,11 +34,12 @@
 
 ### 使用前了解
 
-- 聊天、唤醒、B 站、栖所和语气默认服务于 LP 主对话；聚焦默认服务于 LP 主对话及其子智能体。聚焦可扩展到所有顶层对话，也可单独关闭子智能体继承。记忆默认只记录主对话；打开记忆中的「所有对话生效」后，也会记录其他会话。
+- 聊天、唤醒、B 站和栖所只服务于 LP 主对话。记忆和语气默认也只在 LP 主对话生效；如需扩展，在 **设置 → Lpipe 设置** 的对应管线中打开「所有顶层对话生效」。两个开关独立、即时保存，不会保存尚未提交的编辑，也不会扩展到子智能体。记忆开启后，符合条件的对话共用同一份欲望和设定。
+- 聚焦默认服务于 LP 主对话及其子智能体。聚焦可扩展到所有顶层对话，也可单独关闭子智能体继承。
 - 语气提供四项可编辑的英文默认值，支持任意语言填写；四项全空时不注入。它只改变表达，不改变内容、态度和行为。旧版非空描述／示例需先备份并手动迁移，详见[语气管线说明](components/dsh-lpipe-tone/README.md)。
 - 唤醒可能产生新的模型用量。启用前请检查模型和预算。
 - 关闭前置组件会连带关闭依赖它的组件；重新打开前置后，下游需要自行开启。关闭整合包入口不会移除已经启用的独立管线。
-- 记忆原文、媒体和聊天记录保存在本地，可能含有私人信息。备份时请保存完整的数据目录。
+- 旧版记忆归档和聊天记录保存在本地，可能含有私人信息。备份时请保存完整的数据目录。
 - 聊天和栖所的自主操作仍受宿主权限约束，提示词中的授权不能代替文件系统沙箱。
 
 看不到 Lpipe 设置时，请检查生命核心是否启用。
@@ -49,20 +50,20 @@
 
 ## English
 
-Life Pipline adds WeChat / QQ messaging, wake-ups, conversation archiving and Bilibili browsing to DeepSeek Harness. The aggregate package installs Life Core and seven pipelines, each with its own switch.
+Life Pipline adds WeChat / QQ messaging, wake-ups and Bilibili browsing to DeepSeek Harness. The aggregate package installs Life Core and seven pipelines, each with its own switch.
 
 ### Included features
 
 - **Life Core:** shared settings, the LP main conversation, workspace selection and dependency management.
 - **Chat:** WeChat / QQ messaging, history and attachments.
 - **Wake:** resume after inactivity or at a time chosen by the model using the computer's local clock; wake notices include remaining plans.
-- **Memory:** save original conversations and media locally. Archiving does not bring old conversations back into context.
+- **[Memory](components/dsh-lpipe-memory/README.md):** wishes and default facts for the main session; does not archive conversations.
 - **Bilibili:** recommendations, search, comments, subtitles and video storyboards.
 - **Home:** a personal folder for the model.
 - **Tone:** configure diction, syntax, rhythm and expression visibility without changing content, attitude or behavior.
 - **Focus:** before the next substantive piece of work, replace a span that already established a result, keeping the definitions, experience, guidance and conclusions still needed.
 
-Starmap and Recall are no longer part of the aggregate. Their source remains in the repository. Existing memory archives need no migration.
+Starmap and Recall remain as historical source only and do not work with the current Memory plugin. Existing archives require no migration and are left untouched.
 
 ### Install and start
 
@@ -77,7 +78,9 @@ You can install individual `dsh-lpipe-*` plugins instead. All seven pipelines re
 
 ### Before using it
 
-Chat, Wake, Bilibili, Home and Tone serve the LP main conversation; Focus defaults to the LP main conversation and its subagents. You can extend Focus to all top-level conversations or turn off subagent inheritance separately. Memory records the main conversation by default; turn on **all sessions** in Memory to record other conversations. Wake-up turns can incur model usage.
+Chat, Wake, Bilibili and Home serve only the LP main conversation. Memory and Tone also default to the LP main conversation. To extend either one, turn on **Apply to all top-level conversations** in its panel under **Settings → Lpipe settings**. The switches save immediately and independently of unsaved edits, and do not extend to subagents. When Memory is enabled for all top-level conversations, they share the same wishes and settings.
+
+Focus defaults to the LP main conversation and its subagents. You can extend Focus to all top-level conversations or turn off subagent inheritance separately. Wake-up turns can incur model usage.
 
 Tone provides editable English defaults for four fields; rules may be written in any language. With all four fields blank, nothing is injected. Only expression changes, not content, attitude or behavior. Back up and manually migrate nonempty legacy descriptions or examples; see the [Tone guide](components/dsh-lpipe-tone/README.md).
 

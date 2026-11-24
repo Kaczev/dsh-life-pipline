@@ -22,6 +22,15 @@ function renderObjectiveText(rawText) {
   ].join('\n');
 }
 
+export function buildTodoMessage(rawText, now = Date.now()) {
+  const text = String(rawText ?? '').trim();
+  if (!text) return null;
+  return createFocusUserMessage({
+    text: `<current-todos>\n${escapeClosingTag(text, 'current-todos')}\n</current-todos>`,
+    source: { kind: FOCUS_SOURCE_KIND, layer: 'todos', rawText: text, createdAt: now },
+  });
+}
+
 export function createFocusUserMessage({ text, source }) {
   return Object.freeze({
     id: randomUUID(),

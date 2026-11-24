@@ -2,47 +2,45 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The whole build: wrap the panel body in the Host's client envelope. */
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const LOADER_ID = 'dsh-lpipe-memory';
 
-export function wrapClient(body, id = LOADER_ID) {
+export function wrapClient(body, locales) {
   return `window.__ModuleLoader__.load({
-  id: ${JSON.stringify(id)},
+  id: ${JSON.stringify(LOADER_ID)},
   factory: (require) => {
-    var module = { exports: {} };
-    var exports = module.exports;
-${body}
+    const module = { exports: {} };
+    const MEMORY_LOCALES = ${JSON.stringify(locales)};
+${body.replace(/\r\n/g, '\n').trimEnd()}
     return module.exports;
   }
 });
 `;
 }
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export async function readClientInputs() {
+  const [body, en, zh] = await Promise.all(['client/panel.js', 'locale/en.json', 'locale/zh.json']
+    .map(path => readFile(resolve(root, path), 'utf8')));
+  return [body, { en: JSON.parse(en).panel, zh: JSON.parse(zh).panel }];
+}
 
 export async function buildClient() {
-  const body = await readFile(resolve(root, 'client/panel.js'), 'utf8');
   const output = resolve(root, 'lib/client.js');
-  await mkdir(dirname(output), { recursive: true });
-  // Several test files build the same bundle in parallel; a partial read would
-  // make an unrelated test fail once in a while, so write then rename.
   const staging = `${output}.${process.pid}.tmp`;
-  await writeFile(staging, wrapClient(body), 'utf8');
-  // Windows occasionally reports EPERM for a moment (a scanner holding the
-  // file); a short retry is cheaper than a flaky test run.
-  for (let attempt = 1; ; attempt += 1) {
+  const source = wrapClient(...await readClientInputs());
+  await mkdir(dirname(output), { recursive: true });
+  await writeFile(staging, source, 'utf8');
+  for (let attempt = 1; ; attempt++) {
     try {
       await rename(staging, output);
-      break;
+      return output;
     } catch (error) {
       if (attempt >= 8 || error?.code !== 'EPERM') throw error;
-      await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+      await new Promise(done => setTimeout(done, 25 * attempt));
     }
   }
-  return output;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const written = await buildClient();
-  console.log(`Wrote ${written}`);
+  console.log(`Wrote ${await buildClient()}`);
 }

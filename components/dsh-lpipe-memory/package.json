@@ -1,15 +1,12 @@
 {
   "name": "dsh-lpipe-memory",
-  "version": "0.1.5",
+  "version": "1.1.0",
   "type": "module",
-  "description": "把会话原文逐字投影到长期文件：按会话分文件夹，按天分卷，哈希链可校验。",
+  "description": "Manage wishes and settings for the Lpipe main session or all top-level conversations.",
   "license": "AGPL-3.0-or-later",
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
-    "./reader": "./src/reader.mjs",
-    "./paths": "./src/paths.mjs",
-    "./scope": "./src/scope.mjs",
     "./client": "./lib/client.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
@@ -17,7 +14,7 @@
     "./icon": "./assets/icon.png"
   },
   "dependencies": {
-    "dsh-life-core": "^0.1.0"
+    "dsh-life-core": "^0.1.2"
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
@@ -25,8 +22,9 @@
   },
   "files": [
     "src",
-    "lib",
+    "lib/client.js",
     "client",
+    "scripts/build-client.mjs",
     "assets",
     "locale",
     "cordis.patch.yml",
@@ -51,7 +49,8 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-slots"
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
     }

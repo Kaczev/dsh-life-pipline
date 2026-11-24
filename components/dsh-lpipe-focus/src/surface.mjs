@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { FOCUS_SOURCE_KIND, buildFocusLayerMessage, buildNudgeMessage, buildObjectiveMessage, buildPressureMessage } from './render.mjs';
+import { FOCUS_SOURCE_KIND, buildFocusLayerMessage, buildNudgeMessage, buildObjectiveMessage, buildPressureMessage, buildTodoMessage } from './render.mjs';
 import { FOCUS_TOOL_NAME, collectFocusHistory, readSessionEvents } from './tools.mjs';
 
 function sourceOf(ev) { return ev?.type === 'user/message' ? ev.data?.source : undefined; }
@@ -125,11 +125,27 @@ export function foldPendingEquivalences(session, { now = Date.now(), turn = 0, s
   if (!matches.length) return null;
   const inputs = [];
   for (const match of matches) {
-    const { i, layer } = match;
-    const last = match === matches.at(-1), end = i + 1;
-    const next = last && layer.next;
-    inputs.push(replacement(nodes, start, next ? i : end, buildFocusLayerMessage(layer, now)));
-    if (next) inputs.push(replacement(nodes, end, end, buildObjectiveMessage({ rawText: next, origin: 'model', now })));
+    const { i, layer, currentTodos } = match;
+    const end = i + 1;
+    const messages = [buildFocusLayerMessage(layer, now)];
+    if (match === matches.at(-1)) {
+      if (currentTodos) messages.push(buildTodoMessage(currentTodos, now));
+      if (layer.next) messages.push(buildObjectiveMessage({ rawText: layer.next, origin: 'model', now }));
+    }
+    const slots = end - start + 1;
+    // Append only at the true tail. Otherwise a hint could override newer instructions.
+    if (messages.length > slots && end !== nodes.length - 1) return null;
+    const replacements = Math.min(slots, messages.length);
+    let cursor = start;
+    for (const [index, message] of messages.entries()) {
+      if (index < replacements) {
+        const through = end - (replacements - 1 - index);
+        inputs.push(replacement(nodes, cursor, through, message));
+        cursor = through + 1;
+      } else {
+        inputs.push(['user/message', message, { surfaceOp: 'append' }]);
+      }
+    }
     start = end + 1;
   }
   session.append(inputs);

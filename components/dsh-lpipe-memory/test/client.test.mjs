@@ -1,171 +1,289 @@
-// 客户端半边：只往「Lpipe 设置」的子槽里注册一块记忆显示。
-import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import test from 'node:test'
-import { fileURLToPath } from 'node:url'
-import vm from 'node:vm'
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+import vm from 'node:vm';
+import { readClientInputs, wrapClient } from '../scripts/build-client.mjs';
+import { registerMemoryRpc } from '../src/service.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url))
-const bundlePath = resolve(here, '../lib/client.js')
-const code = readFileSync(bundlePath, 'utf8')
+const read = path => readFile(new URL(path, import.meta.url), 'utf8');
+const code = await read('../lib/client.js');
+const manifest = JSON.parse(await read('../package.json'));
+const section = (overrides = {}) => ({ enabled: true, maxEntries: 2, maxTextLength: 10, entries: [], ...overrides });
 
-function loadBundle() {
-  let captured = null
-  const sandbox = {
-    window: { __ModuleLoader__: { load: (entry) => { captured = entry } } },
-    module: { exports: {} },
-    exports: {},
-    console,
-    setInterval: () => ({ unref() {} }),
-    clearInterval: () => {},
-    Date,
-    JSON,
-    Math,
-    Number,
-    String,
-    Object,
-    Array,
-    Error,
+function loadClient(react = { createElement: () => assert.fail('Registration must not render the panel') }) {
+  const records = [];
+  vm.runInNewContext(code, { AbortController, window: { __ModuleLoader__: { load: entry => records.push(entry) } } }, { filename: 'lib/client.js' });
+  assert.equal(records.length, 1);
+  const [entry] = records;
+  const exported = entry.factory(name => {
+    assert.equal(name, 'react');
+    return react;
+  });
+  return { id: entry.id, exported };
+}
+
+function registerClient(connection, react) {
+  const { exported } = loadClient(react);
+  let registration, dictionary, panel;
+  assert.deepEqual(Array.from(exported.inject), ['slots', 'connection', 'locale']);
+  exported.apply({
+    connection,
+    effect: callback => callback(),
+    locale: {
+      register(namespace, messages) {
+        assert.equal(namespace, 'lpipe.memory.settings');
+        dictionary = messages;
+        return () => {};
+      },
+      bind(namespace) {
+        assert.equal(namespace, 'lpipe.memory.settings');
+        return key => dictionary.en[key];
+      },
+      getSnapshot() { return 'en'; },
+      subscribe() { return () => {}; },
+    },
+    slots: {
+      inject(slotName, callback) { assert.equal(slotName, 'lpipe.settings.panel'); return callback(); },
+      register(options, component) {
+        assert.equal(registration, undefined);
+        assert.equal(component.name, 'MemoryPanel');
+        registration = options;
+        panel = component;
+      },
+    },
+  });
+  return { registration, dictionary, panel };
+}
+
+const clone = value => structuredClone(value);
+const api = loadClient().exported.__test__;
+
+// Drive the real bundled component and RPC transport without a browser or a DOM dependency.
+function mountMemoryPanel() {
+  let cursor, effects, tree;
+  const hooks = [], requests = [];
+  function effect(run, deps) {
+    const slot = cursor++;
+    const previous = hooks[slot];
+    if (previous && deps.every((dep, i) => Object.is(dep, previous.deps[i]))) return;
+    effects.push(() => {
+      previous?.cleanup?.();
+      hooks[slot] = { deps, cleanup: run() };
+    });
   }
-  sandbox.globalThis = sandbox
-  vm.runInNewContext(code, sandbox, { filename: 'lib/client.js' })
-  assert.ok(captured, 'the bundle registers itself with the host loader')
-  const factory = captured.factory
   const react = {
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
-    useState: (initial) => [initial, () => {}],
-    useEffect: () => {},
-    useCallback: (fn) => fn,
-    useMemo: (fn) => fn(),
-  }
-  const exported = factory((name) => {
-    if (name === 'react') return react
-    throw new Error(`unexpected require: ${name}`)
-  })
-  return { id: captured.id, exported }
-}
-
-test('the bundle registers one block in the panel slot', () => {
-  const { id, exported } = loadBundle()
-  assert.equal(id, 'dsh-lpipe-memory')
-  assert.equal(exported.name, 'dsh-lpipe-memory-settings')
-  assert.deepEqual([...exported.inject], ['slots', 'connection'])
-  assert.equal(exported.__test__.PANEL_SLOT, 'lpipe.settings.panel')
-  assert.equal(exported.__test__.TURNS, 30)
-})
-
-test('apply only claims the memory block, never the page itself', () => {
-  const { exported } = loadBundle()
-  const registered = []
-  const ctx = {
-    connection: { rpc: { call: () => ({ ok: true, value: {} }) } },
-    slots: {
-      inject: (key, callback) => { registered.push({ key, entry: callback() }) },
-      register: (options, component) => ({ options, component }),
+    Fragment: Symbol('Fragment'),
+    useEffect: effect,
+    useLayoutEffect: effect,
+    useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+    useId: () => 'memory-test',
+    useState(initial) {
+      const slot = cursor++;
+      hooks[slot] ??= { current: initial };
+      const cell = hooks[slot];
+      return [cell.current, next => { cell.current = typeof next === 'function' ? next(cell.current) : next; }];
     },
+    useRef(initial) { return hooks[cursor++] ??= { current: initial }; },
+  };
+  const { panel, registration, dictionary } = registerClient({ rpc: { call(_base, _method, payload) {
+    return new Promise((resolve, reject) => requests.push({ payload: clone(payload), resolve, reject }));
+  } } }, react);
+  const props = registration.inject();
+  function render() {
+    cursor = 0;
+    effects = [];
+    tree = panel(props);
+    effects.forEach(run => run());
   }
-  exported.apply(ctx)
-  assert.deepEqual(registered.map((item) => item.key), ['lpipe.settings.panel'])
-  const entry = registered[0].entry
-  assert.equal(entry.options.name, 'lpipe.settings.panel')
-  assert.equal(entry.options.id, 'memory')
-  assert.equal(entry.options.order, 30)
-  assert.equal(entry.options.label(), '记忆管线')
-  assert.equal(typeof entry.options.inject, 'function')
-})
-
-function textOf(node) {
-  if (node == null) return ''
-  if (typeof node === 'string') return node
-  const children = Array.isArray(node.children) ? node.children : []
-  return children.map(textOf).join('')
+  function find(predicate, root = tree) {
+    const matches = [];
+    function visit(node) {
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (!node?.children) return;
+      if (predicate(node)) matches.push(node);
+      node.children.forEach(visit);
+    }
+    visit(root);
+    assert.equal(matches.length, 1);
+    return matches[0];
+  }
+  const scope = () => find(node => node.props.className === 'memory-scope');
+  const scopeSwitch = () => find(node => node.props.role === 'switch', scope());
+  const option = (kind, name) => find(node => node.type === 'input' && node.props.name === name,
+    find(node => node.props.id === `memory-test-${kind}-pane`));
+  const button = key => find(node => node.type === 'button' && node.children[0] === dictionary.en[key]);
+  const change = (node, currentTarget) => { node.props.onChange({ currentTarget }); render(); };
+  const click = node => { node.props.onClick(); render(); };
+  async function respond(method, payload, reply) {
+    const request = requests.shift();
+    assert.ok(request, `expected ${method} request`);
+    assert.deepEqual(request.payload, { method, payload });
+    if (reply instanceof Error) request.reject(reply);
+    else request.resolve({ ok: true, value: reply });
+    await new Promise(resolve => setImmediate(resolve));
+    render();
+  }
+  render();
+  return { requests, dictionary: dictionary.en, scope, scopeSwitch, option, button, change, click, find, respond };
 }
 
-function findNode(node, predicate) {
-  if (node == null || typeof node !== 'object') return null
-  if (predicate(node)) return node
-  const children = Array.isArray(node.children) ? node.children : []
-  for (const child of children) {
-    const found = findNode(child, predicate)
-    if (found) return found
-  }
-  return null
-}
+const snapshot = (allSessions, wishes = {}, settings = {}) => ({
+  ok: true, state: { allSessions, wishes: section(wishes), settings: section(settings) },
+});
 
-test('scope switch exposes a loading state before it claims a value', () => {
-  const { ScopeBar } = loadBundle().exported.__test__
-  const loading = ScopeBar({
-    scope: null, loading: true, saving: false, saved: false, error: '',
-    onToggle() {}, onRetry() {},
-  })
-  assert.match(textOf(loading), /所有对话生效/)
-  assert.match(textOf(loading), /读取中/)
-  assert.equal(findNode(loading, (node) => node.props?.role === 'switch'), null)
+test('Memory scope switch waits for the Host and rebases drafts in both tabs on success', async () => {
+  const ui = mountMemoryPanel();
+  await ui.respond('memory.state', null, snapshot(false));
+  const initial = ui.scopeSwitch();
+  assert.equal(initial.props.checked, false);
+  assert.equal(ui.find(node => node.props.id === initial.props['aria-labelledby']).children[0], ui.dictionary.allSessions);
+  assert.equal(ui.find(node => node.props.id === initial.props['aria-describedby']).children[0], ui.dictionary.scopeHint);
 
-  const failed = ScopeBar({
-    scope: null, loading: false, saving: false, saved: false, error: '连接超时',
-    onToggle() {}, onRetry() {},
-  })
-  assert.match(textOf(failed), /读取设置失败：连接超时/)
-  assert.equal(findNode(failed, (node) => node.props?.role === 'switch'), null)
-  assert.ok(findNode(failed, (node) => node.children?.includes('重试')))
-})
+  ui.change(ui.option('wishes', 'maxEntries'), { valueAsNumber: 4 });
+  ui.click(ui.button('settings'));
+  ui.change(ui.option('settings', 'maxTextLength'), { valueAsNumber: 12 });
+  assert.equal(ui.requests.length, 0, 'option drafts have not been sent to the Host');
+  ui.change(ui.scopeSwitch(), { checked: true });
+  assert.equal(ui.scopeSwitch().props.checked, false, 'the checked state remains authoritative');
+  assert.equal(ui.scopeSwitch().props.disabled, true);
+  assert.equal(ui.scope().props['aria-busy'], true);
+  assert.equal(ui.option('settings', 'maxTextLength').props.disabled, true);
+  assert.equal(ui.find(node => node.props.role === 'status', ui.scope()).children[0], ui.dictionary.saving);
+  ui.change(initial, { checked: true });
+  assert.equal(ui.requests.length, 1, 'a stale handler cannot send a second write');
 
-test('scope switch reflects the saved boolean and keeps failure visible', () => {
-  const { ScopeBar } = loadBundle().exported.__test__
-  const off = ScopeBar({
-    scope: false, loading: false, saving: false, saved: false, error: '',
-    onToggle() {}, onRetry() {},
-  })
-  const offSwitch = findNode(off, (node) => node.props?.role === 'switch')
-  assert.equal(offSwitch.props['aria-checked'], false)
-  assert.match(textOf(off), /记忆/)
-  assert.doesNotMatch(textOf(off), /星图|回忆/)
+  await ui.respond('memory.setScope', true, snapshot(true, { maxTextLength: 15 }, { maxEntries: 3 }));
+  assert.equal(ui.scopeSwitch().props.checked, true);
+  assert.equal(ui.scopeSwitch().props.disabled, false);
+  assert.equal(ui.scope().props['aria-busy'], false);
+  assert.equal(ui.find(node => node.props.role === 'status', ui.scope()).children[0], null, 'a successful toggle leaves no status message');
+  assert.equal(ui.option('wishes', 'maxEntries').props.value, 4);
+  assert.equal(ui.option('wishes', 'maxTextLength').props.value, 15);
+  assert.equal(ui.option('settings', 'maxTextLength').props.value, 12);
+  assert.equal(ui.option('settings', 'maxEntries').props.value, 3);
+  assert.equal(ui.requests.length, 0);
+});
 
-  const on = ScopeBar({
-    scope: true, loading: false, saving: false, saved: false, error: '',
-    onToggle() {}, onRetry() {},
-  })
-  assert.equal(findNode(on, (node) => node.props?.role === 'switch').props['aria-checked'], true)
+test('Memory scope recovery keeps both drafts through a failed reread and refreshes the baseline', async () => {
+  const ui = mountMemoryPanel();
+  await ui.respond('memory.state', null, snapshot(false));
+  ui.change(ui.option('wishes', 'maxEntries'), { valueAsNumber: 4 });
+  ui.click(ui.button('settings'));
+  ui.change(ui.option('settings', 'enabled'), { checked: false });
+  ui.change(ui.scopeSwitch(), { checked: true });
+  await ui.respond('memory.setScope', true, new Error('response lost'));
+  assert.equal(ui.scopeSwitch().props.checked, false);
+  assert.equal(ui.scopeSwitch().props.disabled, true);
+  assert.equal(ui.find(node => node.props.role === 'alert').children[0], ui.dictionary.saveFailed);
+  ui.click(ui.button('reloadMemory'));
+  await ui.respond('memory.state', null, new Error('still disconnected'));
+  assert.equal(ui.find(node => node.props.role === 'alert').children[0], ui.dictionary.loadFailed);
+  ui.click(ui.button('retry'));
+  await ui.respond('memory.state', null, snapshot(true, { maxEntries: 4, maxTextLength: 20 }, { maxEntries: 3 }));
+  assert.equal(ui.scopeSwitch().props.checked, true);
+  assert.equal(ui.scopeSwitch().props.disabled, false);
+  assert.equal(ui.option('wishes', 'maxEntries').props.value, 4);
+  assert.equal(ui.option('wishes', 'maxTextLength').props.value, 20);
+  assert.equal(ui.option('settings', 'enabled').props.checked, false);
+  assert.equal(ui.option('settings', 'maxEntries').props.value, 3);
+  const submit = kind => ui.find(node => node.props.type === 'submit', ui.find(node => node.props.id === `memory-test-${kind}-pane`));
+  assert.equal(submit('wishes').props.disabled, true, 'an edit matching the refreshed Host baseline is no longer dirty');
+  assert.equal(submit('settings').props.disabled, false, 'the other unsaved edit remains dirty');
+  assert.equal(ui.requests.length, 0, 'the uncertain write was never replayed');
+});
 
-  const failed = ScopeBar({
-    scope: false, loading: false, saving: false, saved: false, error: '请求超时',
-    onToggle() {}, onRetry() {},
-  })
-  assert.match(textOf(failed), /保存失败：请求超时/)
-  assert.equal(findNode(failed, (node) => node.props?.role === 'switch').props['aria-checked'], false)
-})
+test('memory Client bundle and manifest expose the managed settings panel', async () => {
+  assert.equal(code.replace(/\r\n/g, '\n'), wrapClient(...await readClientInputs()));
+  assert.equal(loadClient().id, manifest.name);
+  assert.equal(manifest.exports['./client'], './lib/client.js');
+  assert.equal(manifest.dsh.client.platform, 'web');
+  assert.deepEqual(manifest.dsh.client.inject, [
+    '@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client-locale',
+  ]);
+  const { registration, dictionary } = registerClient({});
+  assert.equal(registration.name, 'lpipe.settings.panel');
+  assert.equal(registration.id, 'memory');
+  assert.equal(registration.label(), 'Memory Pipeline');
+  assert.equal(dictionary.zh.title, '记忆管线');
+  assert.deepEqual(Object.keys(dictionary.en).sort(), Object.keys(dictionary.zh).sort());
+});
 
-test('sizes are printed human-first', () => {
-  const { formatBytes, plotOf, formatClock } = loadBundle().exported.__test__
-  assert.equal(formatBytes(0), '0 B')
-  assert.equal(formatBytes(812 * 1024), '812 KB')
-  assert.equal(formatBytes(15 * 1024 * 1024), '15.00 MB')
-  assert.equal(formatClock(NaN), '—')
+test('registered panel calls the real Host RPC route and preserves domain failures', async () => {
+  let route, transportError;
+  const serverCalls = [], clientCalls = [];
+  const initial = { ok: true, state: { allSessions: false, wishes: section(), settings: section() } };
+  const invalid = { ok: false, code: 'not_found', message: 'No memory entry has that ID.', field: 'id' };
+  registerMemoryRpc({ connection: { fetch: { register: value => { route = value; } } } }, async (method, payload) => {
+    serverCalls.push({ method, payload });
+    return method === 'memory.state' ? initial : method === 'memory.setScope'
+      ? { ok: true, state: { ...initial.state, allSessions: payload } } : invalid;
+  });
+  const { registration } = registerClient({ rpc: { async call(base, rpcMethod, payload, signal) {
+    clientCalls.push({ payload: clone(payload), signal });
+    if (transportError) return { ok: false, error: { message: 'Disconnected' } };
+    const url = new URL(`${base}/${rpcMethod}`, 'http://localhost');
+    assert.equal(url.pathname, route.path);
+    const response = await route.fetch(new Request(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'test', method: rpcMethod, payload }),
+    }));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.rpcId, 'test');
+    assert.equal(body.type, 'server-response');
+    return body.result;
+  } } });
+  const { rpcCall } = registration.inject();
+  const { signal } = new AbortController();
+  assert.deepEqual(await rpcCall('memory.state', null, signal), initial);
+  assert.equal((await rpcCall('memory.setScope', true, signal)).state.allSessions, true);
+  const entry = { kind: 'settings', action: 'remove', id: 'gone' };
+  assert.deepEqual(await rpcCall('memory.mutate', entry, signal), invalid);
+  assert.deepEqual(serverCalls, [{ method: 'memory.state', payload: null }, { method: 'memory.setScope', payload: true }, { method: 'memory.mutate', payload: entry }]);
+  assert.deepEqual(clientCalls.map(call => call.payload), serverCalls);
+  assert.ok(clientCalls.every(call => call.signal === signal));
+  transportError = true;
+  await assert.rejects(rpcCall('memory.mutate', entry, signal), /transport rejected/);
+  assert.equal(serverCalls.length, 3, 'the failed write is not replayed');
+});
 
-  const plot = plotOf([
-    { total: 1000, diskTotal: 400 },
-    { total: 2000, diskTotal: 800 },
-    { total: 4000, diskTotal: 1600 },
-  ])
-  const points = plot.line.split(' ')
-  assert.equal(points.length, 3)
-  assert.deepEqual(points[0].split(',')[0], '0.00')
-  assert.deepEqual(points[2].split(',')[0], '100.00')
-  // 纵轴跟着两条线一起走：最小的点（落盘的起点）落在下缘，最大的点落在上缘。
-  const first = Number(points[0].split(',')[1])
-  const last = Number(points[2].split(',')[1])
-  assert.ok(first > 40 && first < 80, `original starts in the middle band, got ${first}`)
-  assert.ok(last > 4 && last < 20, `max point sits near the ceiling, got ${last}`)
-  // 落盘线在同一张图上，永远在原文档下面（y 更大）。
-  assert.ok(plot.disk, 'a disk line is drawn when every turn has a disk total')
-  const diskPoints = plot.disk.split(' ')
-  assert.equal(diskPoints.length, 3)
-  const diskFirst = Number(diskPoints[0].split(',')[1])
-  assert.ok(diskFirst > 80 && diskFirst < 96, `disk starts near the floor, got ${diskFirst}`)
-  assert.ok(Number(diskPoints[2].split(',')[1]) > last + 20, 'disk sits well below the original line')
-  // 没有落盘数字时只画原文一条线。
-  assert.equal(plotOf([{ total: 1000 }]).disk, null)
-  assert.equal(plotOf([]), null)
-})
+test('Client normalizes text and permits editing and removing while full or disabled', () => {
+  const record = { id: 'ui-1', text: '🦊' };
+  const full = section({ enabled: false, maxEntries: 1, maxTextLength: 4, entries: [record] });
+  assert.equal(api.lengthOf('  🦊\r\n说  '), 3);
+  assert.equal(api.entryRequest('wishes', 'add', full, null, '🦊').key, 'addLimit');
+  assert.equal(api.entryRequest('wishes', 'update', full, record.id, '🥝🌙🐈🍀🦊').key, 'textLimit');
+  assert.equal(api.entryRequest('wishes', 'update', full, record.id, ' \r\n ').key, 'requiredText');
+  assert.deepEqual(clone(api.entryRequest('wishes', 'update', full, record.id, '  🦊\r\n说  ')), {
+    kind: 'wishes', action: 'update', id: record.id, text: '🦊\n说',
+  });
+  assert.deepEqual(clone(api.entryRequest('wishes', 'remove', full, record.id)), { kind: 'wishes', action: 'remove', id: record.id });
+  assert.deepEqual(clone(api.entryRequest('settings', 'add', section(), null, ' 🦊 ')), { kind: 'settings', action: 'add', text: '🦊' });
+});
+
+test('Client limits configuration to the chosen type and refuses invalid or destructive limits', () => {
+  const existing = section({ entries: [{ id: 's-one', text: 'abc' }, { id: 's-two', text: 'abcde' }] });
+  const draft = { enabled: false, maxEntries: 2, maxTextLength: 5 };
+  assert.equal(api.configureRequest('settings', existing, { ...draft, maxEntries: 33 }).key, 'entriesRange');
+  assert.equal(api.configureRequest('settings', existing, { ...draft, maxTextLength: NaN }).key, 'textRange');
+  assert.equal(api.configureRequest('settings', existing, { ...draft, maxEntries: 1 }).key, 'existingEntries');
+  assert.equal(api.configureRequest('settings', existing, { ...draft, maxTextLength: 4 }).key, 'existingText');
+  assert.deepEqual(clone(api.configureRequest('settings', existing, draft)), { kind: 'settings', action: 'configure', config: draft });
+});
+
+test('Client accepts authoritative snapshots only, and marks uncertain commits for reload', () => {
+  const settings = section();
+  const state = { allSessions: false, wishes: section(), settings };
+  assert.equal(api.stateOf({ ok: true, state }), state);
+  assert.equal(api.stateOf({ ok: true, state: { ...state, allSessions: 'true' } }), null);
+  assert.equal(api.stateOf({ ok: false, state }), null);
+  assert.equal(api.stateOf({ ok: true, state: { wishes: settings, settings } }), null);
+  assert.equal(api.stateOf({ ok: true, state: { ...state, wishes: section({ maxEntries: 0 }) } }), null);
+  const entry = { id: 'ui-1', text: ' 🦊 ' };
+  assert.equal(api.stateOf({ ok: true, state: { ...state, wishes: section({ entries: [entry, entry] }) } }), null);
+  assert.equal(api.mutationProblem({ ok: false, code: 'commit_uncertain', message: 'Maybe committed' }).uncertain, true);
+  assert.deepEqual(clone(api.mutationProblem({ ok: false, code: 'text_limit', message: 'Too long', field: 'text' })), {
+    uncertain: false, issue: { message: 'Too long', field: 'text' },
+  });
+});

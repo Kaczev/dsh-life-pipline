@@ -1,2 +1,3 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+/components/dsh-lpipe-focus/lib/client.js text eol=lf

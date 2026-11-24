@@ -10,9 +10,9 @@ window.__ModuleLoader__.load({
  * dsh-life-pipline (「Lpipe 设置」); this file only renders one block inside the
  * child slot it declares there.
  *
- * Four editable expression fields, saved by hand. Initial values come only
- * from the Host; the client does not duplicate its defaults. Blank fields
- * inject nothing into the system prompt.
+ * Four editable expression fields, saved by hand, and one independently saved
+ * scope switch. Initial values come only from the Host. Blank fields inject
+ * nothing into the system prompt.
  */
 const React = require('react');
 
@@ -131,6 +131,22 @@ const FIELDS = Object.freeze([
   { key: 'expression', label: '表达的显隐', placeholder: '填写已有态度如何直接或含蓄地表达。', description: '决定已有的情绪和语气表现得多明显，例如直接说出、通过语气词或括号动作表现，还是保持克制。不凭空增加情绪，也不改变对用户的态度。' },
 ]);
 
+const SCOPE_TITLE = '所有顶层对话生效';
+const SCOPE_HINT_ID = 'tone-allSessions-hint';
+const SCOPE_STATUS_ID = 'tone-allSessions-status';
+const SCOPE_ACCENT = 'var(--dsw-alias-state-business-primary)';
+const SCOPE_CSS = [
+  `.lpipe-tone-scope-switch:focus-visible{outline:2px solid ${SCOPE_ACCENT};outline-offset:2px}`,
+  '@media (prefers-reduced-motion:reduce){.lpipe-tone-scope-switch,.lpipe-tone-scope-switch span{transition:none!important}}',
+].join('');
+const scopeRow = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+  padding: '8px 10px', marginBottom: 10, borderRadius: 'var(--dsw-radius-sm)',
+  border: `1px solid ${COLORS.border}`, background: COLORS.soft,
+};
+const scopeTitle = { fontSize: 11, fontWeight: 650, color: COLORS.text, lineHeight: 1.4 };
+const scopeHint = { marginTop: 2, fontSize: 10, color: 'var(--dsw-alias-label-tertiary)', lineHeight: 1.45 };
+
 const EMPTY_CONFIG = Object.freeze({ diction: '', syntax: '', rhythm: '', expression: '' });
 
 function charCount(text) {
@@ -172,6 +188,12 @@ function configOf(reply) {
   const value = reply.value;
   if (!value || typeof value !== 'object') return null;
   return normalizeConfig(value.config);
+}
+
+/** Only the scope reply is allowed to update this value. */
+function scopeOf(reply) {
+  const value = reply?.value?.config?.allSessions;
+  return reply?.ok === true && typeof value === 'boolean' ? value : null;
 }
 
 function payloadOf(values) {
@@ -250,6 +272,36 @@ function fieldView(item, form, errors, disabled, onChange, defaults, onReset) {
     error
       ? h('div', { id: `${id}-error`, role: 'alert', style: { margin: '4px 0 0', fontSize: 10, lineHeight: 1.5, color: COLORS.danger } }, error)
       : null,
+  );
+}
+
+function ToneScope({ on, pending, error, onToggle }) {
+  const trackColor = on ? SCOPE_ACCENT : COLORS.borderStrong;
+  return h('div', { style: scopeRow },
+    h('style', null, SCOPE_CSS),
+    h('div', { style: { minWidth: 0 } },
+      h('div', { style: scopeTitle }, SCOPE_TITLE),
+      h('div', { id: SCOPE_HINT_ID, style: scopeHint }, '关闭时仅对绑定的 LP 主会话生效；开启时对所有顶层对话生效，不包含子智能体。切换后单独保存。'),
+      h('div', {
+        id: SCOPE_STATUS_ID, role: 'status', 'aria-live': 'polite', 'aria-atomic': true,
+        style: { ...scopeHint, marginTop: pending || error ? 2 : 0, color: error ? COLORS.danger : scopeHint.color },
+      }, pending ? '正在保存作用范围…' : error),
+    ),
+    h('button', {
+      type: 'button', role: 'switch', className: 'lpipe-tone-scope-switch', 'aria-label': SCOPE_TITLE,
+      'aria-describedby': `${SCOPE_HINT_ID} ${SCOPE_STATUS_ID}`, 'aria-checked': on, 'aria-busy': pending,
+      disabled: pending, onClick: onToggle,
+      style: {
+        position: 'relative', width: 36, height: 20, padding: 0, borderRadius: 999,
+        border: `1px solid ${trackColor}`, background: trackColor, flex: 'none',
+        cursor: pending ? 'not-allowed' : 'pointer', opacity: pending ? 0.55 : 1,
+        transition: 'background 150ms, border-color 150ms, opacity 150ms',
+      },
+    }, h('span', { 'aria-hidden': true, style: {
+      position: 'absolute', top: 2, left: 2, width: 14, height: 14, borderRadius: 999,
+      background: 'var(--dsw-alias-label-on-color)', transform: on ? 'translateX(16px)' : 'none',
+      transition: 'transform 150ms',
+    } })),
   );
 }
 
@@ -361,6 +413,10 @@ function TonePanel({ rpcCall }) {
   const [saved, setSaved] = React.useState(null);
   const [reloadKey, setReloadKey] = React.useState(0);
   const [defaults, setDefaults] = React.useState(null);
+  const [scope, setScope] = React.useState(false);
+  const [scopeSaving, setScopeSaving] = React.useState(false);
+  const [scopeError, setScopeError] = React.useState('');
+  const scopePending = React.useRef(false);
   const alive = React.useRef(true);
   // Every edit bumps the generation; a reply from an older one must not write
   // over text the user has typed since.
@@ -383,7 +439,8 @@ function TonePanel({ rpcCall }) {
       .then((reply) => {
         if (!current) return;
         const config = configOf(reply);
-        if (!config) {
+        const nextScope = scopeOf(reply);
+        if (!config || nextScope === null) {
           setLoading(false);
           setLoadError(reply?.ok === false
             ? (reply?.error?.message || '读不到语气管线配置')
@@ -392,6 +449,8 @@ function TonePanel({ rpcCall }) {
         }
         setForm(config);
         setCommitted(config);
+        setScope(nextScope);
+        setScopeError('');
         setDefaults(normalizeConfig(reply?.value?.defaults));
         setLoading(false);
       })
@@ -495,6 +554,24 @@ function TonePanel({ rpcCall }) {
     submit(EMPTY_CONFIG, true);
   };
 
+  const toggleScope = async () => {
+    if (scopePending.current) return;
+    const next = !scope;
+    scopePending.current = true;
+    setScopeSaving(true);
+    setScopeError('');
+    try {
+      const reply = await rpcCall('tone.config.save', { allSessions: next });
+      if (scopeOf(reply) !== next) throw new Error(reply?.error?.message || '未收到有效确认');
+      if (alive.current) setScope(next);
+    } catch (error) {
+      if (alive.current) setScopeError(`作用范围保存失败：${String(error?.message || error)}。可重试。`);
+    } finally {
+      scopePending.current = false;
+      if (alive.current) setScopeSaving(false);
+    }
+  };
+
   const header = h(
     'div',
     { style: head },
@@ -522,6 +599,7 @@ function TonePanel({ rpcCall }) {
     h(
       'div',
       { style: card },
+      h(ToneScope, { on: scope, pending: scopeSaving, error: scopeError, onToggle: toggleScope }),
       h(ToneForm, {
         form,
         defaults,

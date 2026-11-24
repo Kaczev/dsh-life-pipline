@@ -2,6 +2,10 @@
 
 [中文](#中文) · [English](#english)
 
+> 历史组件。下文仅适用于与旧版记忆管线搭配的版本，不能与仓库当前的[记忆管线](../dsh-lpipe-memory/README.md)一起使用。
+>
+> Legacy component. The instructions below require an older compatible Memory release, not the current Memory plugin in this repository.
+
 ## 中文
 
 从生命管线已经保存的记忆中整理概念及其出处，帮助回忆找到相关旧事。原始对话仍由记忆管线保管，星图保存的是可以重新建立的索引。

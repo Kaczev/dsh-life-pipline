@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildFocusLayerMessage } from '../src/render.mjs';
+import { buildFocusLayerMessage, buildObjectiveMessage, buildTodoMessage } from '../src/render.mjs';
 import { collectFocusHistory, createFocusEquateTool, validateFocusEquateArgs } from '../src/tools.mjs';
 
 const fields = ['definitions', 'experience', 'conclusions', 'guidance'];
@@ -14,13 +14,13 @@ const receipt = (seq, id, overrides = {}) => ({ seq, type: 'tool/result', data: 
 const trace = (seq, id, args) => ({ seq, type: 'tool/call', data: { turn: 1, step: 2,
   callId: id, name: 'focus_equate', arguments: JSON.stringify(args) } });
 
-test('at least one content field is nonblank; work_done and next never count', async () => {
+test('at least one content field is nonblank; work_done, todos and next never count', async () => {
   const tool = createFocusEquateTool();
   const base = { key: 'contract', supersedes: [] };
   assert.equal(tool.name, 'focus_equate');
   assert.deepEqual(tool.parameters.required, ['key', 'supersedes']);
   assert.equal(tool.parameters.additionalProperties, false);
-  assert.deepEqual(Object.keys(tool.parameters.properties), ['key', 'supersedes', ...fields, 'work_done', 'next']);
+  assert.deepEqual(Object.keys(tool.parameters.properties), ['key', 'supersedes', ...fields, 'work_done', 'todos', 'next']);
   assert.deepEqual(tool.parameters.anyOf, fields.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })));
   for (let mask = 1; mask < 2 ** fields.length; mask++) {
     const args = { ...base }, expected = { ...base };
@@ -31,11 +31,60 @@ test('at least one content field is nonblank; work_done and next never count', a
     assert.deepEqual(validateFocusEquateArgs(args), expected);
     assert.equal((await tool.execute(args)).key, base.key);
   }
-  for (const extra of [{}, { work_done: 'Done.', next: 'Continue.' }, { definitions: ' ', experience: '\t', conclusions: '\n', guidance: '  ' },
+  for (const extra of [{}, { work_done: 'Done.', next: 'Continue.' }, { todos: 'Unfinished.', next: 'Continue.' }, { definitions: ' ', experience: '\t', conclusions: '\n', guidance: '  ' },
     { result: 'Obsolete.', conclusions: 'Otherwise valid.' }, ...fields.map(field => ({ conclusions: 'OK', [field]: 7 })),
     ...fields.map(field => ({ conclusions: 'OK', [field]: '\x00' }))]) {
     await assert.rejects(tool.execute({ ...base, ...extra }), { code: 'INVALID_ARGS' });
   }
+});
+
+test('todos replace, persist when omitted, clear with an empty string, and require a fresh next', async () => {
+  const tool = createFocusEquateTool();
+  const base = { key: 'todos-start', supersedes: [], conclusions: 'Recorded current work.' };
+  const todo = { kind: 'dsh-lpipe-focus', layer: 'todos', rawText: 'Finish the audit.' };
+  const events = [user(0, todo)];
+  const execute = args => tool.execute(args, { agent: { session: { snapshotEvents: () => events } } });
+
+  for (const extra of [{}, { next: ' \t' }, { todos: 'New task.' }, { todos: 'New task.', next: ' ' },
+    { todos: ['Not a string.'], next: 'Start.' }, { todos: 'bad\x00text', next: 'Start.' }]) {
+    const args = { ...base, ...extra };
+    await assert.rejects(execute(args), { code: 'INVALID_ARGS' });
+    const replay = collectFocusHistory([...events, call(1, 'invalid', args), receipt(2, 'invalid')]);
+    assert.deepEqual(replay, collectFocusHistory(events), 'even a success-looking receipt cannot commit invalid args');
+  }
+  const failedClear = { ...base, todos: '' };
+  const failed = collectFocusHistory([...events, call(1, 'failed', failedClear), receipt(2, 'failed', { error: { code: 'INVALID_ARGS' } })]);
+  assert.deepEqual(failed, collectFocusHistory(events), 'an unsuccessful clear neither reserves a key nor changes todos');
+
+  const replacement = { ...base, todos: 'Review remaining files.', next: 'Inspect the last file.' };
+  assert.equal((await execute(replacement)).key, replacement.key);
+  events.push(call(1, 'replace', replacement), receipt(2, 'replace'), stored(3, replacement));
+  assert.equal(collectFocusHistory(events).currentTodos, replacement.todos);
+  assert.deepEqual(collectFocusHistory(events).checkpoints.get(1), { layer: replacement, args: replacement, currentTodos: replacement.todos });
+
+  const keep = { key: 'todos-kept', supersedes: [], experience: 'Continue the established review.', next: 'Compare the results.' };
+  assert.equal((await execute(keep)).key, keep.key);
+  events.push(call(4, 'keep', keep), receipt(5, 'keep'), stored(6, keep));
+  assert.equal(collectFocusHistory(events).currentTodos, replacement.todos, 'omission retains the current todos');
+
+  const emptyWithoutNext = { key: 'todos-cleared', supersedes: [], conclusions: 'The review is complete.', todos: '' };
+  assert.equal((await execute(emptyWithoutNext)).key, emptyWithoutNext.key, 'empty todos clears without requiring next');
+  events.push(call(7, 'clear', emptyWithoutNext), receipt(8, 'clear'), stored(9, emptyWithoutNext));
+  assert.equal(collectFocusHistory(events).currentTodos, '');
+
+  const afterClear = { key: 'after-clear', supersedes: [], conclusions: 'No unfinished work remains.' };
+  assert.equal((await execute(afterClear)).key, afterClear.key, 'omitted todos after a clear do not require next');
+});
+
+test('todo and next render as separate sourced messages; next remains objective', () => {
+  const todo = buildTodoMessage('  Review the remaining files.  ', 123);
+  assert.equal(todo.content[0].text, `<current-todos>\n${todo.source.rawText}\n</current-todos>`);
+  assert.deepEqual(todo.source, { kind: 'dsh-lpipe-focus', layer: 'todos', rawText: 'Review the remaining files.', createdAt: 123 });
+  const next = buildObjectiveMessage({ rawText: 'Inspect the last file.', origin: 'model', now: 456 });
+  assert.equal(next.source.layer, 'objective');
+  assert.equal(next.source.rawText, 'Inspect the last file.');
+  assert.ok(next.content[0].text.includes(next.source.rawText));
+  assert.equal(buildTodoMessage('  '), null);
 });
 
 test('sources trust earlier keys and identical materializations, not text, bad references or conflicting rewrites', () => {
@@ -51,7 +100,7 @@ test('sources trust earlier keys and identical materializations, not text, bad r
   assert.deepEqual([...history.keys], ['first', 'second', 'future']);
   assert.deepEqual([...history.sources.keys()], [0, 3, 4, 11]);
   assert.equal('next' in history.sources.get(3), false, 'next belongs to the separate prompt');
-  assert.deepEqual([...history.checkpoints], [[1, { layer: b, args: b }]]);
+  assert.deepEqual([...history.checkpoints], [[1, { layer: b, args: b, currentTodos: '' }]]);
   assert.deepEqual([...collectFocusHistory(events, 2).keys], ['first'], 'a call alone does not reserve a key');
 });
 
@@ -78,7 +127,7 @@ test('long content fields and work_done are admitted, rendered and replayed with
   assert.equal(message.source.layer, 'equivalence');
   for (const field of [...fields, 'work_done']) assert.ok(message.content[0].text.includes(args[field]));
   const history = collectFocusHistory([call(0, 'c', args), receipt(1, 'c'), user(2, message.source)]);
-  assert.deepEqual(history.checkpoints.get(0), { layer: args, args });
+  assert.deepEqual(history.checkpoints.get(0), { layer: args, args, currentTodos: '' });
   assert.deepEqual(history.sources.get(2), args);
 });
 

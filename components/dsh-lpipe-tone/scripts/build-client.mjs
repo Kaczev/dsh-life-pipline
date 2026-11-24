@@ -11,7 +11,7 @@ export function wrapClient(body, id = LOADER_ID) {
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
-${body}
+${body.replace(/\r\n/g, '\n')}
     return module.exports;
   }
 });

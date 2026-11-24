@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { wrapClient } from '../scripts/build-client.mjs';
 import { MAX_TEXT_LENGTH as HOST_MAX_TEXT_LENGTH, normalize as normalizeHost } from '../src/config.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -147,7 +148,7 @@ const buttons = (tree) => select(tree, 'button');
 const areas = (tree) => select(tree, 'textarea');
 const button = (tree, label) => buttons(tree).find((node) => textOf(node) === label);
 const formOf = (tree, api) => componentNodes(tree, api.ToneForm)[0];
-const statusOf = (tree) => walk(tree).find((node) => node.props?.role === 'status');
+const statusOf = (tree) => walk(tree).find((node) => node.props?.role === 'status' && !node.props.id);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
@@ -160,7 +161,7 @@ test('恢复默认逐项只改草稿，可撤回并显式保存，保存时禁�
   let finishSave;
   const rpc = async (method, payload) => {
     calls.push({ method, payload });
-    if (method === 'tone.config') return { ok: true, value: { config: original, defaults } };
+    if (method === 'tone.config') return { ok: true, value: { config: { allSessions: false, ...original }, defaults } };
     return new Promise((resolve) => { finishSave = () => resolve(okConfig(payload)); });
   };
   harness.render(rpc); harness.mount(); await tick();
@@ -196,7 +197,7 @@ test('缺失或无效 defaults 不猜默认值，现有读写与清空仍可用'
   for (const defaults of [undefined, {}, { diction: 42 }]) {
     const harness = makeHarness();
     const rpc = async (method, payload) => method === 'tone.config'
-      ? { ok: true, value: { config: { diction: 'saved', syntax: '', rhythm: '', expression: '' }, defaults } }
+      ? { ok: true, value: { config: { allSessions: false, diction: 'saved', syntax: '', rhythm: '', expression: '' }, defaults } }
       : okConfig(payload);
     harness.render(rpc); harness.mount(); await tick();
     let tree = harness.render(rpc);
@@ -210,7 +211,7 @@ test('缺失或无效 defaults 不猜默认值，现有读写与清空仍可用'
 
 test('四项帮助文字与输入框关联，解释逐字采用确认文案', async () => {
   const harness = makeHarness();
-  const rpc = async () => okConfig({ diction: '', syntax: '', rhythm: '', expression: '' });
+  const rpc = async () => readConfig({ diction: '', syntax: '', rhythm: '', expression: '' });
   harness.render(rpc); harness.mount(); await tick();
   const tree = harness.render(rpc);
   const descriptions = [
@@ -226,6 +227,7 @@ test('四项帮助文字与输入框关联，解释逐字采用确认文案', as
 });
 
 const okConfig = (config) => ({ ok: true, value: { config } });
+const readConfig = (text, allSessions = false) => okConfig({ ...text, allSessions });
 
 test('语气设置块注册到 lpipe.settings.panel，排在最后，走既有 Fetch RPC', () => {
   const { id, exported } = loadBundle();
@@ -265,7 +267,7 @@ test('面板第一屏是读取中，读到空配置后显示四个空输入框',
   const calls = [];
   const rpcCall = async (method, payload) => {
     calls.push({ method, payload });
-    return okConfig({ rhythm: '', expression: '', diction: '', syntax: '' });
+    return readConfig({ rhythm: '', expression: '', diction: '', syntax: '' });
   };
   const first = harness.render(rpcCall);
   assert.match(textOf(first), /Lpipe Tone/);
@@ -302,7 +304,7 @@ test('读不到配置时报错并可重试，不假装成读到了空配置', as
     const rpcCall = async () => {
       calls += 1;
       if (fail) { fail = false; return failure(); }
-      return okConfig({ rhythm: '', expression: '', diction: '可可爱爱', syntax: '' });
+      return readConfig({ rhythm: '', expression: '', diction: '可可爱爱', syntax: '' });
     };
     harness.render(rpcCall);
     harness.mount();
@@ -409,7 +411,7 @@ test('编辑后保存：完整四项发给 RPC，成功用返回配置更新保�
   const calls = [];
   const rpcCall = async (method, payload) => {
     calls.push({ method, payload });
-    if (method === 'tone.config') return okConfig({ rhythm: '', expression: '', diction: '', syntax: '' });
+    if (method === 'tone.config') return readConfig({ rhythm: '', expression: '', diction: '', syntax: '' });
     return okConfig(payload);
   };
   harness.render(rpcCall);
@@ -442,7 +444,7 @@ test('编辑后保存：完整四项发给 RPC，成功用返回配置更新保�
 test('保存失败保留草稿与旧基线，不显示成已保存', async () => {
   const harness = makeHarness();
   const rpcCall = async (method, payload) => {
-    if (method === 'tone.config') return okConfig({ rhythm: '', expression: '', diction: '旧内容', syntax: '' });
+    if (method === 'tone.config') return readConfig({ rhythm: '', expression: '', diction: '旧内容', syntax: '' });
     assert.deepEqual(plain(payload), { rhythm: '', expression: '', diction: '新内容', syntax: '' });
     return { ok: false, error: { code: 'tone/failed', message: '文件损坏' } };
   };
@@ -464,7 +466,7 @@ test('保存失败保留草稿与旧基线，不显示成已保存', async () =>
   const harness2 = makeHarness();
   let stage = 'read';
   const rpc2 = async (method) => {
-    if (method === 'tone.config') return okConfig({ rhythm: '', expression: '', diction: 'a', syntax: '' });
+    if (method === 'tone.config') return readConfig({ rhythm: '', expression: '', diction: 'a', syntax: '' });
     stage = 'saved';
     return { ok: true, value: { config: { rhythm: '', expression: '', diction: 'a' } } };
   };
@@ -488,7 +490,7 @@ test('晚返回的保存不覆盖保存期间新打的草稿', async () => {
   let release;
   const gate = new Promise((done) => { release = done; });
   const rpcCall = async (method, payload) => {
-    if (method === 'tone.config') return okConfig({ rhythm: '', expression: '', diction: 'a', syntax: '' });
+    if (method === 'tone.config') return readConfig({ rhythm: '', expression: '', diction: 'a', syntax: '' });
     await gate;
     return okConfig({ rhythm: '', expression: '', diction: 'a', syntax: 'b' });
   };
@@ -519,7 +521,7 @@ test('清空四项：发空字符串、四项都回到空白、不注入任何�
   const calls = [];
   const rpcCall = async (method, payload) => {
     calls.push({ method, payload });
-    if (method === 'tone.config') return okConfig({ rhythm: '', expression: '', diction: '可可爱爱', syntax: '用户：你好' });
+    if (method === 'tone.config') return readConfig({ rhythm: '', expression: '', diction: '可可爱爱', syntax: '用户：你好' });
     return okConfig(payload);
   };
   harness.render(rpcCall);
@@ -551,7 +553,7 @@ test('空白内容原样保存，不会被 trim 成空字符串以外的东西',
 test('四个维度使用宿主原值，不复制默认值或生成旧字段', async () => {
   const harness = makeHarness();
   const baseline = { diction: '宿主选词', syntax: '宿主句式', rhythm: '宿主节奏', expression: '宿主显隐' };
-  const rpc = async () => okConfig(baseline);
+  const rpc = async () => readConfig(baseline);
   harness.render(rpc);
   harness.mount();
   await tick();
@@ -573,7 +575,7 @@ test('四项分别编辑后完整保存，撤回恢复宿主基线', async () =>
   const calls = [];
   const rpc = async (method, payload) => {
     calls.push({ method, payload });
-    return okConfig(method === 'tone.config' ? baseline : payload);
+    return method === 'tone.config' ? readConfig(baseline) : okConfig(payload);
   };
   harness.render(rpc);
   harness.mount();
@@ -596,4 +598,90 @@ test('四项分别编辑后完整保存，撤回恢复宿主基线', async () =>
   assert.deepEqual(plain(calls[1].payload), changed);
   assert.deepEqual(areas(tree).map((node) => node.props.value), Object.values(changed));
   assert.equal(button(tree, '保存').props.disabled, true);
+});
+
+test('client build is identical for LF and CRLF sources', () => {
+  const lf = panelSource.replace(/\r\n/g, '\n');
+  assert.equal(wrapClient(lf), wrapClient(lf.replace(/\n/g, '\r\n')));
+  assert.equal(bundleCode.replace(/\r\n/g, '\n'), wrapClient(lf));
+});
+
+const scopeSwitch = (tree) => buttons(tree).find((node) => node.props.role === 'switch');
+const scopeStatus = (tree) => walk(tree).find((node) => node.props.id === 'tone-allSessions-status');
+const emptyText = { rhythm: '', expression: '', diction: '', syntax: '' };
+
+test('范围开关即时单独保存，等待和回执不覆盖草稿或文字基线', async () => {
+  const harness = makeHarness();
+  const saves = [];
+  const rpc = async (method, payload) => {
+    if (method === 'tone.config') return readConfig({ ...emptyText, diction: '原措辞' });
+    return new Promise((resolve) => saves.push({ payload: plain(payload), resolve }));
+  };
+  harness.render(rpc); harness.mount(); await tick();
+  let tree = harness.render(rpc);
+  let toggle = scopeSwitch(tree);
+  assert.equal(toggle.props['aria-checked'], false);
+  assert.deepEqual([toggle.props.style.width, toggle.props.style.height], [36, 20]);
+  assert.match(toggle.props['aria-label'], /所有顶层对话生效/);
+  assert.match(textOf(tree), /所有顶层对话生效，不包含子智能体/);
+  areas(tree)[0].props.onChange({ target: { value: '草稿' } });
+  tree = harness.render(rpc);
+  toggle = scopeSwitch(tree);
+  toggle.props.onClick(); toggle.props.onClick(); await tick();
+  assert.deepEqual(saves.map(({ payload }) => payload), [{ allSessions: true }]);
+  tree = harness.render(rpc);
+  assert.equal(scopeSwitch(tree).props.disabled, true);
+  assert.equal(scopeSwitch(tree).props['aria-checked'], false);
+  assert.equal(button(tree, '保存').props.disabled, false);
+  assert.match(textOf(scopeStatus(tree)), /正在保存/);
+  button(tree, '保存').props.onClick(); await tick();
+  assert.deepEqual(saves[1].payload, { ...emptyText, diction: '草稿' });
+  saves[0].resolve(readConfig({ ...emptyText, diction: '过期范围回执' }, true)); await tick();
+  tree = harness.render(rpc);
+  assert.equal(scopeSwitch(tree).props['aria-checked'], true);
+  assert.equal(scopeSwitch(tree).props.disabled, false);
+  assert.equal(areas(tree)[0].props.value, '草稿');
+  assert.equal(harness.states[1].diction, '原措辞');
+  saves[1].resolve(readConfig(saves[1].payload, false)); await tick();
+  tree = harness.render(rpc);
+  assert.equal(scopeSwitch(tree).props['aria-checked'], true, 'a late text reply cannot change scope');
+  assert.equal(areas(tree)[0].props.value, '草稿');
+  assert.equal(harness.states[1].diction, '草稿');
+  scopeSwitch(tree).props.onClick();
+  await tick();
+  assert.deepEqual(saves[2].payload, { allSessions: false });
+  saves[2].resolve(okConfig({ allSessions: false })); await tick();
+  assert.equal(scopeSwitch(harness.render(rpc)).props['aria-checked'], false);
+});
+
+test('范围读取和保存失败不伪装成有效状态，失败后允许重试', async () => {
+  for (const bad of [okConfig(emptyText), readConfig(emptyText, 'false')]) {
+    const harness = makeHarness();
+    const rpc = async () => bad;
+    harness.render(rpc); harness.mount(); await tick();
+    const tree = harness.render(rpc);
+    assert.equal(scopeSwitch(tree), undefined);
+    assert.match(textOf(tree), /读取失败/);
+  }
+  const outcomes = [
+    () => ({ ok: false, error: { message: '磁盘错误' } }),
+    () => okConfig(emptyText),
+    () => readConfig(emptyText, 'true'),
+    () => readConfig(emptyText, false),
+    () => { throw new Error('连接中断'); },
+    () => okConfig({ allSessions: true }),
+  ];
+  const harness = makeHarness();
+  const rpc = async (method) => method === 'tone.config' ? readConfig(emptyText) : outcomes.shift()();
+  harness.render(rpc); harness.mount(); await tick();
+  for (let i = 0; i < 5; i++) {
+    scopeSwitch(harness.render(rpc)).props.onClick(); await tick();
+    const tree = harness.render(rpc);
+    assert.equal(scopeSwitch(tree).props['aria-checked'], false);
+    assert.equal(scopeSwitch(tree).props.disabled, false);
+    assert.match(textOf(scopeStatus(tree)), /作用范围保存失败/);
+  }
+  scopeSwitch(harness.render(rpc)).props.onClick(); await tick();
+  assert.equal(scopeSwitch(harness.render(rpc)).props['aria-checked'], true);
+  assert.equal(textOf(scopeStatus(harness.render(rpc))), '');
 });

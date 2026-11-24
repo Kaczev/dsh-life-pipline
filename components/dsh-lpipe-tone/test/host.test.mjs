@@ -18,6 +18,7 @@ function fixture() {
   const settings = join(root, 'settings');
   const sections = new Set(), routes = new Set(), disposers = [];
   const ctx = {
+    subagents: { rootOf() { throw new Error('unknown agent'); } },
     inject(keys, callback) { if (keys.includes('pluginManager')) return; callback(this); },
     effect(callback) { disposers.push(callback()); },
     systemPrompt: { section(section) { sections.add(section); return () => sections.delete(section); } },
@@ -94,4 +95,49 @@ test('read and write errors are explicit failures', async () => {
   let route; const disposer = () => {};
   assert.equal(registerToneRpc({ connection: { fetch: { register(value) { route = value; return disposer; } } } }, handle), disposer);
   assert.equal(route.path, '/api/dsh-lpipe-tone'); assert.deepEqual(route.methods, ['POST']);
+});
+
+test('scope RPC switches live injection between bound main and exact top-level Agents', async () => {
+  const f = fixture();
+  try {
+    const main = { id: 'main' }, other = { id: 'other' }, fork = { id: 'fork' };
+    const child = { id: 'child' }, nested = { id: 'nested' }, otherChild = { id: 'other-child' };
+    const historical = { id: 'historical' };
+    const roots = new Map([[main, main], [other, other], [fork, fork], [child, main], [nested, main], [otherChild, other]]);
+    const queried = [];
+    f.ctx.subagents.rootOf = agent => {
+      queried.push(agent);
+      if (!roots.has(agent)) throw new Error('unknown Agent');
+      return roots.get(agent);
+    };
+    apply(f.ctx, { root: f.settings });
+    const section = [...f.sections][0], route = [...f.routes][0];
+    const prompt = scope => section.text({ scope });
+    const save = async patch => (await (await route.fetch(request(envelope('tone.config.save', patch)))).json()).result;
+    assert.match(prompt(main), /Reply tone/);
+    assert.equal(prompt(other), '');
+    assert.equal(queried.length, 0, 'OFF uses the existing main-session gate');
+    assert.equal((await save({ allSessions: 'true' })).ok, false);
+    assert.equal((await save({ allSessions: true })).value.config.allSessions, true);
+    f.bind('');
+    for (const agent of [main, other, fork]) assert.match(prompt(agent), /Reply tone/);
+    for (const scope of [child, nested, otherChild, historical, { id: 'main' }, { id: 'other' }, {}, undefined, 'other']) {
+      assert.equal(prompt(scope), '');
+    }
+    assert.equal(section.text({ agent: other }), '', 'a missing scope is not accepted');
+    assert.equal(queried[0], main, 'pass the exact Agent, not just the ID');
+    const empty = await save({ diction: '', syntax: '', rhythm: '', expression: '' });
+    assert.equal(empty.value.config.allSessions, true);
+    assert.equal(prompt(other), '');
+    await save({ rhythm: 'kept' });
+    assert.match(prompt(other), /kept/);
+    assert.equal((await save({ allSessions: false })).value.config.allSessions, false);
+    assert.equal(prompt(other), '');
+    f.bind('main');
+    assert.match(prompt(main), /kept/);
+    await save({ allSessions: true });
+    // A missing or unreachable live registry fails closed, even for the main ID.
+    f.ctx.subagents = undefined;
+    assert.equal(prompt(main), '');
+  } finally { f.close(); }
 });

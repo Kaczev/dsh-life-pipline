@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lpipe Tone",
-    "description": "Configure diction, syntax, rhythm and expression visibility for the main session; all four blank means no injection."
+    "description": "Set diction, syntax, rhythm, and expressiveness for the Lpipe main session or all top-level conversations. Leave all four blank to add no tone instructions."
   }
 }
