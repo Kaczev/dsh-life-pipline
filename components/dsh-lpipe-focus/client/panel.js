@@ -14,6 +14,7 @@ const PANEL_SLOT = 'lpipe.settings.panel';
 const PANEL_ID = 'focus';
 const PANEL_ORDER = 85;
 
+const focusAccent = 'color-mix(in srgb, #5985b8 54%, var(--dsw-alias-label-primary))';
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
@@ -23,16 +24,16 @@ const COLORS = {
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   hover: 'var(--dsw-alias-interactive-bg-hover)',
-  accent: 'var(--dsw-alias-state-business-primary)',
-  accentSoft: 'var(--dsw-alias-state-business-tertiary)',
+  accent: focusAccent,
+  fill: '#426b9b',
   onAccent: 'var(--dsw-alias-label-on-color)',
   thumb: 'var(--dsw-alias-label-on-color)',
   success: 'var(--dsw-alias-state-success-primary)',
   warning: 'var(--dsw-alias-state-warn-primary)',
   danger: 'var(--dsw-alias-state-error-primary)',
   faintDanger: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent)',
-  accentLine: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 32%, transparent)',
-  accentBg: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent)',
+  accentLine: `color-mix(in srgb, ${focusAccent} 32%, transparent)`,
+  accentBg: `color-mix(in srgb, ${focusAccent} 12%, transparent)`,
 };
 
 const card = {
@@ -89,7 +90,7 @@ function switchTrackStyle(on, disabled) {
     padding: 0,
     borderRadius: 999,
     border: `1px solid ${on ? COLORS.accent : COLORS.borderStrong}`,
-    background: on ? COLORS.accent : COLORS.borderStrong,
+    background: on ? COLORS.fill : COLORS.borderStrong,
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.55 : 1,
     flex: 'none',
@@ -299,7 +300,7 @@ function buttonStyle(primary, disabled) {
     cursor: disabled ? 'not-allowed' : 'pointer',
     whiteSpace: 'nowrap',
     border: `1px solid ${primary && !disabled ? COLORS.accent : COLORS.borderStrong}`,
-    background: primary && !disabled ? COLORS.accent : COLORS.soft,
+    background: primary && !disabled ? COLORS.fill : COLORS.soft,
     color: primary && !disabled ? COLORS.onAccent : COLORS.text,
     fontWeight: primary && !disabled ? 650 : 400,
     opacity: disabled ? 0.42 : 1,

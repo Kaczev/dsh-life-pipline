@@ -17,10 +17,11 @@ const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
   faint: 'var(--dsw-alias-label-tertiary)',
-  border: 'var(--dsw-alias-border-l)',
+  border: 'var(--dsw-alias-border-l1)',
   borderStrong: 'var(--dsw-alias-border-l2)',
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
+  accent: 'color-mix(in srgb, #b87912 44%, var(--dsw-alias-label-primary))',
   success: 'var(--dsw-alias-state-success-primary)',
   danger: 'var(--dsw-alias-state-error-primary)',
 };
@@ -30,16 +31,16 @@ const COLORS = {
 // only when the pane is genuinely narrow.
 const row = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-  gap: 12,
-  marginBottom: 12,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
+  gap: 8,
+  marginBottom: 8,
 };
 const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
   background: COLORS.bg,
-  padding: 16,
-  marginBottom: 12,
+  padding: '10px 12px',
+  minWidth: 0,
 };
 
 const label = {
@@ -58,12 +59,13 @@ const value = {
 
 const button = (accent) => ({
   border: `1px solid ${accent || COLORS.borderStrong}`,
-  background: accent || 'transparent',
-  color: accent ? '#ffffff' : COLORS.text,
+  background: accent ? `color-mix(in srgb, ${accent} 10%, transparent)` : 'transparent',
+  color: accent || COLORS.text,
   borderRadius: 'var(--dsw-radius-sm)',
-  padding: '7px 14px',
-  fontSize: 13,
-  lineHeight: '18px',
+  padding: '4px 9px',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  lineHeight: '16px',
   cursor: 'pointer',
   flex: 'none',
   whiteSpace: 'nowrap',
@@ -78,7 +80,7 @@ const track = (on) => ({
   padding: 0,
   cursor: 'pointer',
   flex: 'none',
-  background: on ? COLORS.success : COLORS.borderStrong,
+  background: on ? COLORS.accent : COLORS.borderStrong,
   transition: 'background 120ms ease',
 });
 
@@ -277,9 +279,18 @@ function WakePanel({ rpcCall }) {
     }
   };
 
+  const header = h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+    h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Wake'),
+    h('span', { style: {
+      padding: '2px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap',
+      border: `1px solid color-mix(in srgb, ${COLORS.accent} 32%, transparent)`,
+      background: `color-mix(in srgb, ${COLORS.accent} 10%, transparent)`, color: COLORS.accent,
+    } }, '唤醒管线'));
+
   if (!status) {
-    return h('div', { style: { padding: 12, fontSize: 13, color: COLORS.muted } },
-      error ? `唤醒管线读取失败：${error}` : '正在读取唤醒管线状态…');
+    return h('section', null, header,
+      h('div', { role: error ? 'alert' : 'status', style: { ...card, fontSize: 12, color: error ? COLORS.danger : COLORS.muted } },
+        error ? `唤醒管线读取失败：${error}` : '正在读取唤醒管线状态…'));
   }
 
   const intervalMs = status.defaultIntervalMs;
@@ -332,16 +343,9 @@ function WakePanel({ rpcCall }) {
     void run('wake.config.save', { heartbeatMs: beatMs }).then(() => setBeatDraft(splitHeartbeat(beatMs)));
   };
 
-  return h('section', null,
-    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 } },
-      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Wake'),
-      h('span', {
-        style: {
-          fontSize: 11, padding: '2px 8px', borderRadius: 999,
-          background: 'rgba(7, 193, 96, 0.14)', color: COLORS.success,
-          border: '1px solid rgba(7, 193, 96, 0.28)',
-        },
-      }, '唤醒管线')),
+  return h('section', { className: 'lpipe-wake-panel' },
+    h('style', null, `.lpipe-wake-panel :is(input,select,button):focus-visible{outline:2px solid ${COLORS.accent};outline-offset:2px}`),
+    header,
 
     mainMissing ? note('还没有设置主会话：去上面的「公共」里填一个，唤醒才会生效。', 'error') : null,
 
@@ -420,7 +424,7 @@ function WakePanel({ rpcCall }) {
             h('option', { value: 'minutes' }, '分钟'),
             h('option', { value: 'hours' }, '小时')),
           h('button', {
-            style: { ...button(!busy && draftMs !== null && draftMs !== intervalMs ? '#5ec9b4' : null), padding: '4px 14px', opacity: !busy && draftMs !== null && draftMs !== intervalMs ? 1 : 0.42 },
+            style: { ...button(!busy && draftMs !== null && draftMs !== intervalMs ? COLORS.accent : null), padding: '4px 14px', opacity: !busy && draftMs !== null && draftMs !== intervalMs ? 1 : 0.42 },
             disabled: busy || draftMs === null || draftMs === intervalMs,
             onClick: saveDraft,
           }, '保存'),
@@ -457,7 +461,7 @@ function WakePanel({ rpcCall }) {
             h('option', { value: 'seconds' }, '秒'),
             h('option', { value: 'minutes' }, '分钟')),
           h('button', {
-            style: { ...button(!busy && beatMs !== null && beatMs !== heartbeatMs ? '#5ec9b4' : null), padding: '4px 14px', opacity: !busy && beatMs !== null && beatMs !== heartbeatMs ? 1 : 0.42 },
+            style: { ...button(!busy && beatMs !== null && beatMs !== heartbeatMs ? COLORS.accent : null), padding: '4px 14px', opacity: !busy && beatMs !== null && beatMs !== heartbeatMs ? 1 : 0.42 },
             disabled: busy || beatMs === null || beatMs === heartbeatMs,
             onClick: saveBeat,
           }, '保存'),

@@ -18,7 +18,8 @@ const STYLES = `
   --memory-strong: var(--dsw-alias-border-l2);
   --memory-surface: var(--dsw-alias-bg-layer-1);
   --memory-soft: var(--dsw-alias-bg-layer-2);
-  --memory-accent: var(--dsw-alias-state-business-primary);
+  --memory-accent: color-mix(in srgb, #779568 54%, var(--dsw-alias-label-primary));
+  --memory-fill: #526e4a;
   --memory-on-accent: #fff;
   --memory-wash: color-mix(in srgb, var(--memory-accent) 12%, transparent);
   --memory-line: color-mix(in srgb, var(--memory-accent) 32%, transparent);
@@ -53,7 +54,7 @@ const STYLES = `
 .lpipe-memory .memory-switch-hint { display: block; margin-top: 2px; }
 .lpipe-memory .memory-switch { appearance: none; position: relative; width: 36px; height: 20px; margin: 0; border-radius: 999px; border: 1px solid var(--memory-strong); background: var(--memory-strong); cursor: pointer; flex: none; }
 .lpipe-memory .memory-switch::before { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--memory-on-accent); }
-.lpipe-memory .memory-switch:checked { background: var(--memory-accent); border-color: var(--memory-accent); }
+.lpipe-memory .memory-switch:checked { background: var(--memory-fill); border-color: var(--memory-accent); }
 .lpipe-memory .memory-switch:checked::before { transform: translateX(16px); }
 .lpipe-memory .memory-switch:disabled { opacity: .55; cursor: not-allowed; }
 .lpipe-memory .memory-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 10px; }
@@ -64,7 +65,7 @@ const STYLES = `
 .lpipe-memory .memory-options-foot button { margin-inline-start: auto; }
 .lpipe-memory .memory-list-head { margin-top: 10px; padding: 8px 0 5px; border-top: 1px solid var(--memory-border); }
 .lpipe-memory button.memory-secondary, .lpipe-memory button.memory-primary:disabled { border-color: var(--memory-border); background: var(--memory-soft); }
-.lpipe-memory button.memory-primary:not(:disabled) { background: var(--memory-accent); color: var(--memory-on-accent); font-weight: 650; }
+.lpipe-memory button.memory-primary:not(:disabled) { background: var(--memory-fill); color: var(--memory-on-accent); font-weight: 650; }
 .lpipe-memory button.memory-primary:hover:not(:disabled) { filter: brightness(.92); }
 .lpipe-memory button.memory-danger { color: var(--memory-danger); border-color: color-mix(in srgb, var(--memory-danger) 32%, transparent); }
 .lpipe-memory button.memory-danger:hover:not(:disabled) { color: var(--memory-danger); background: color-mix(in srgb, var(--memory-danger) 12%, transparent); }

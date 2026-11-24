@@ -5,34 +5,30 @@ import { randomUUID } from 'node:crypto';
 
 export const toneRoot = () => join(process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'), 'life-tone');
 export const configFile = (root = toneRoot()) => join(root, 'config.json');
-const TEXT_DEFAULTS = Object.freeze({
-  diction: 'Use familiar, everyday words without forced slang or pet names.',
-  syntax: 'Use natural conversational sentences with clear references and conditions.',
-  rhythm: 'Pause at complete thoughts; keep connected ideas together.',
-  expression: 'Express existing feelings plainly, without exaggerating or adding feelings.',
-});
-export const TEXT_KEYS = Object.freeze(Object.keys(TEXT_DEFAULTS));
-export const DEFAULT_CONFIG = Object.freeze({ ...TEXT_DEFAULTS, allSessions: false });
+export const DEFAULT_CONFIG = Object.freeze({ phrase: '', allSessions: false });
 export const MAX_TEXT_LENGTH = 32000;
+const legacyDimensions = ['diction', 'syntax', 'rhythm', 'expression'];
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const forbiddenControls = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/u;
 
+function validateText(value, key) {
+  if (typeof value !== 'string' || value.length > MAX_TEXT_LENGTH || forbiddenControls.test(value)) {
+    throw new TypeError(`${key} 必须是最多 ${MAX_TEXT_LENGTH} 字符的文字，且不能包含制表符、回车和换行以外的控制字符。`);
+  }
+}
+
 export function normalize(raw) {
   if (!record(raw)) throw new TypeError('语气配置必须是对象。');
-  // Legacy text cannot be assigned to the four dimensions without interpretation.
-  // Keep it on disk and require an explicit four-field save instead of silently replacing it.
-  const legacy = ['description', 'examples'].some(key => typeof raw[key] === 'string' && raw[key].trim());
-  if (legacy && !TEXT_KEYS.some(key => Object.hasOwn(raw, key))) {
-    throw new TypeError('旧语气描述／示例仍保留在配置文件中；请先备份，再明确填写四项新配置。');
+  const { phrase, allSessions } = { ...DEFAULT_CONFIG, ...raw };
+  if (!Object.hasOwn(raw, 'phrase')) {
+    // Preserve the previous schema's corruption checks when opening older files.
+    if (Object.hasOwn(raw, 'prompt')) validateText(raw.prompt, 'prompt');
+    else for (const key of legacyDimensions) if (Object.hasOwn(raw, key)) validateText(raw[key], key);
   }
-  const config = { ...DEFAULT_CONFIG, ...raw };
-  for (const key of TEXT_KEYS) {
-    if (typeof config[key] !== 'string' || config[key].length > MAX_TEXT_LENGTH || forbiddenControls.test(config[key])) {
-      throw new TypeError(`${key} 必须是最多 ${MAX_TEXT_LENGTH} 字符的文字，且不能包含制表符、回车和换行以外的控制字符。`);
-    }
-  }
-  if (typeof config.allSessions !== 'boolean') throw new TypeError('allSessions 必须是布尔值。');
-  return { ...Object.fromEntries(TEXT_KEYS.map(key => [key, config[key]])), allSessions: config.allSessions };
+  validateText(phrase, 'phrase');
+  if (/[\r\n]/u.test(phrase)) throw new TypeError('习惯用语只能填写一行。');
+  if (typeof allSessions !== 'boolean') throw new TypeError('allSessions 必须是布尔值。');
+  return { phrase, allSessions };
 }
 
 export function loadConfig(root = toneRoot()) {
@@ -47,12 +43,7 @@ export function saveConfig(patch, root = toneRoot()) {
   let raw = {};
   try { raw = JSON.parse(readFileSync(configFile(root), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
-  // Never replace malformed persisted configuration, even if this patch would repair a field.
-  const explicitMigration = record(raw)
-    && !TEXT_KEYS.some(key => Object.hasOwn(raw, key))
-    && TEXT_KEYS.every(key => Object.hasOwn(patch, key));
-  normalize(explicitMigration ? { ...raw, ...TEXT_DEFAULTS } : raw);
-  const config = normalize({ ...raw, ...patch });
+  const config = normalize({ ...normalize(raw), ...patch });
   mkdirSync(root, { recursive: true });
   const temporary = `${configFile(root)}.${randomUUID()}.tmp`;
   try {

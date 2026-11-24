@@ -1,6 +1,15 @@
 {
   "name": "dsh-life-pipline",
-  "version": "0.9.0",
+  "version": "1.0.0",
+  "workspaces": [
+    "components/dsh-lpipe-bili",
+    "components/dsh-lpipe-chat",
+    "components/dsh-lpipe-focus",
+    "components/dsh-lpipe-home",
+    "components/dsh-lpipe-memory",
+    "components/dsh-lpipe-tone",
+    "components/dsh-lpipe-wake"
+  ],
   "description": "All-in-one Life Pipline installer: Life Core and seven independently switchable pipelines.",
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -50,13 +59,13 @@
   },
   "dependencies": {
     "dsh-life-core": "^0.1.2",
-    "dsh-lpipe-chat": "^0.7.13",
-    "dsh-lpipe-home": "^0.2.4",
-    "dsh-lpipe-bili": "^0.2.5",
-    "dsh-lpipe-wake": "^0.2.11",
-    "dsh-lpipe-memory": "^1.1.0",
-    "dsh-lpipe-tone": "^0.3.0",
-    "dsh-lpipe-focus": "^2.0.0"
+    "dsh-lpipe-chat": "^0.7.14",
+    "dsh-lpipe-home": "^0.2.5",
+    "dsh-lpipe-bili": "^0.2.6",
+    "dsh-lpipe-wake": "^0.2.12",
+    "dsh-lpipe-memory": "^1.1.1",
+    "dsh-lpipe-tone": "^1.0.0",
+    "dsh-lpipe-focus": "^2.3.1"
   },
   "dsh": {
     "client": {"inject": ["@deepseek-ai/dsh-client-ui-slots"], "platform": "web"},

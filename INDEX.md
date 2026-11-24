@@ -3,8 +3,8 @@
 `dsh-life-pipline` 是聚合安装入口，选择生命核心和独立管线；所有 `dsh-lpipe-*` 直接依赖 `dsh-life-core`。共享设置与主会话逻辑由核心提供，根 `src/` 只保留兼容转发及聚合激活。
 
 - [聚焦管线导航](components/dsh-lpipe-focus/INDEX.md)：开始下一段实质工作前如何用等效层替代已经得出结果的区间、何时跨轮提醒，以及如何按 `supersedes` 回收旧层；[实现说明](不入库/管线实现/dsh-lpipe-focus.md)，[局部设计](不入库/设计/dsh-lpipe-focus-配置块.html)。
-- [语气管线导航](components/dsh-lpipe-tone/INDEX.md)：四项语言呈现规则、系统提示词作用域（LP 主对话或所有顶层对话）、设置块与图标。
-- [语气设置块](components/dsh-lpipe-tone/client/panel.js)：四个多行输入、字符计数、保存／撤回／清空与读取失败重试；构建到 [lib/client.js](components/dsh-lpipe-tone/lib/client.js)，[回归](components/dsh-lpipe-tone/test/client.test.mjs)，[局部设计](不入库/设计/dsh-lpipe-tone-配置块.html)。
+- [语气管线导航](components/dsh-lpipe-tone/INDEX.md)介绍如何用习惯用语生成提示词，以及 LP 主对话与所有顶层对话的生效范围。
+- [语气设置块](components/dsh-lpipe-tone/client/panel.js)提供单行习惯用语输入框，可保存或撤回草稿。见[客户端产物](components/dsh-lpipe-tone/lib/client.js)和[面板回归](components/dsh-lpipe-tone/test/client.test.mjs)。
 - [生命核心导航](components/dsh-life-core/INDEX.md)：共享设置、隔离、数据路径与前置协调。
 - [聚合激活](src/aggregate.mjs)：选择规范 bundle，避免混装重复插件行；[测试](test/aggregate.test.mjs)。
 - [client/panel.js](client/panel.js)：聚合详情页组件开关，通过独立管理端点调用规范组件，中文名覆盖全部规范组件；[HTML 参考](不入库/设计/life-aggregate-components.html#aggregate-components)。

@@ -68,8 +68,16 @@ test('the client bundle contributes one settings block and nothing else', async 
   const { options: block } = registered[0];
   assert.equal(block.id, 'bili');
   assert.equal(block.order, 60);
-  assert.equal(block.label(), 'Lpipe Bili');
+  assert.equal(block.label(), 'B 站管线');
   const props = block.inject();
+  const panel = registered[0].Component(props);
+  const header = panel.props.children.find(node => node?.props?.children?.[0]?.type === 'h3');
+  const [title, badge] = header.props.children;
+  assert.equal(title.props.children, 'Lpipe Bili');
+  assert.equal(badge.type, 'span');
+  assert.equal(badge.props.children, block.label());
+  const panelText = texts(panel);
+  assert.ok(!panelText.includes('视频管线'));
   assert.equal(typeof props.rpcCall, 'function');
   const result = await props.rpcCall('bili.status', {});
   assert.deepEqual(result, { ok: true, value: {} });

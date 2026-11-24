@@ -24,12 +24,12 @@ const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
   faint: 'var(--dsw-alias-label-tertiary)',
-  border: 'var(--dsw-alias-border-l)',
+  border: 'var(--dsw-alias-border-l1)',
   borderStrong: 'var(--dsw-alias-border-l2)',
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   hover: 'var(--dsw-alias-interactive-bg-hover)',
-  accent: 'var(--dsw-alias-state-business-primary)',
+  accent: 'color-mix(in srgb, #008c83 44%, var(--dsw-alias-label-primary))',
   success: 'var(--dsw-alias-state-success-primary)',
   weixin: '#07c160',
   qq: '#12b7f5',
@@ -54,12 +54,12 @@ const head = { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 };
 const badge = {
   display: 'inline-flex',
   alignItems: 'center',
-  padding: '1px 7px',
+  padding: '2px 8px',
   borderRadius: 999,
-  border: '1px solid rgba(7, 193, 96, 0.28)',
-  background: 'rgba(7, 193, 96, 0.14)',
-  color: COLORS.success,
-  fontSize: 9.5,
+  border: `1px solid color-mix(in srgb, ${COLORS.accent} 32%, transparent)`,
+  background: `color-mix(in srgb, ${COLORS.accent} 10%, transparent)`,
+  color: COLORS.accent,
+  fontSize: 10.5,
   fontWeight: 600,
   lineHeight: 1.6,
   whiteSpace: 'nowrap',
@@ -121,14 +121,14 @@ const hintError = { ...hint, color: COLORS.danger };
 
 const channels = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 10,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+  gap: 8,
   alignItems: 'start',
 };
 const actions = { display: 'flex', gap: 6, marginLeft: 'auto', flex: 'none' };
 
 const scopedCss = [
-  '.lpipe-chat-control:focus-within{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px rgba(91,130,255,.17)}',
+  `.lpipe-chat-control:focus-within{outline:2px solid ${COLORS.accent};outline-offset:1px}`,
   '.lpipe-chat-control-invalid{border-color:var(--dsw-alias-state-error-primary)}',
   '.lpipe-chat-control input[type=number]::-webkit-outer-spin-button,',
   '.lpipe-chat-control input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}',
@@ -140,7 +140,7 @@ const scopedCss = [
   '.lpipe-chat-label{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-weight:650;line-height:1.3}',
   '.lpipe-chat-default{flex:none;color:var(--dsw-alias-label-tertiary);font-size:9.5px;letter-spacing:.01em}',
   '.lpipe-chat-unit{flex:none;padding-right:8px;color:var(--dsw-alias-label-tertiary);font-size:10px}',
-  '.lpipe-chat-switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
+  `.lpipe-chat-panel button:focus-visible{outline:2px solid ${COLORS.accent};outline-offset:2px}`,
   '.lpipe-chat-card{container-type:inline-size}',
   '@container (max-width:640px){.lpipe-chat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}',
   '@container (max-width:460px){.lpipe-chat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.lpipe-chat-owner{flex-basis:100%}.lpipe-chat-switch-row{margin-left:0}}',
@@ -198,8 +198,8 @@ function button(accent) {
     // two lines ("保" / "存").
     flex: 'none',
     border: `1px solid ${accent || COLORS.borderStrong}`,
-    background: accent || 'transparent',
-    color: accent ? 'white' : COLORS.text,
+    background: accent ? `color-mix(in srgb, ${accent} 10%, transparent)` : 'transparent',
+    color: accent ? `color-mix(in srgb, ${accent} 40%, ${COLORS.text})` : COLORS.text,
   };
 }
 
@@ -543,11 +543,11 @@ function ChatSettingsPanel({ rpcCall }) {
   };
 
   const header = h('div', { style: head },
-    h('h3', { style: { margin: 0, fontSize: 14, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
+    h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Chat'),
     h('span', { style: badge }, '聊天管线'));
 
   if (!status) {
-    return h('section', null,
+    return h('section', { className: 'lpipe-chat-panel' },
       header,
       h('div', { style: card },
         h('div', {
@@ -561,7 +561,7 @@ function ChatSettingsPanel({ rpcCall }) {
         }, error ? `聊天管线读取失败：${error}` : '正在读取聊天管线状态…')));
   }
 
-  return h('section', null,
+  return h('section', { className: 'lpipe-chat-panel' },
     h('style', null, scopedCss),
     header,
     h('div', { className: 'lpipe-chat-card', style: card },

@@ -16,24 +16,24 @@ const h = React.createElement;
 
 const RPC_ENDPOINT = 'dsh-lpipe-bili';
 const PANEL_SLOT = 'lpipe.settings.panel';
+const PANEL_TITLE = 'B 站管线';
 const LOGIN_POLL_MS = 2000;
 const RETENTION_LABEL = '下载保留天数（天）（默认：7）';
 const RETENTION_DEFAULT = 7;
 const RETENTION_MIN = 1;
 const RETENTION_MAX = 36500;
 
-// Host design tokens flip with the light/dark theme. The only literal colors
-// are the Bilibili brand blue and the white quiet zone behind the QR image.
+// Theme tokens drive the surfaces. Rose highlights actions and keyboard focus.
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
   faint: 'var(--dsw-alias-label-tertiary)',
-  border: 'var(--dsw-alias-border-l)',
+  border: 'var(--dsw-alias-border-l1)',
   borderStrong: 'var(--dsw-alias-border-l2)',
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   hover: 'var(--dsw-alias-interactive-bg-hover)',
-  accent: '#00a1d6',
+  accent: '#ac3d68',
   success: 'var(--dsw-alias-state-success-primary)',
   warning: 'var(--dsw-alias-state-warn-primary)',
   danger: 'var(--dsw-alias-state-error-primary)',
@@ -43,28 +43,17 @@ const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
   background: COLORS.bg,
-  padding: '12px 14px 8px',
-  marginBottom: 10,
+  padding: '10px 12px',
+  marginBottom: 6,
 };
 
-const loginCard = {
-  ...card,
-  padding: '12px 14px',
-  borderTop: `2px solid ${COLORS.accent}`,
-};
-
-const head = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' };
+const head = { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text };
+const badgeColor = `color-mix(in srgb, ${COLORS.accent} 54%, ${COLORS.text})`;
 const badge = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '2px 8px',
-  borderRadius: 999,
-  border: '1px solid rgba(0, 161, 214, 0.32)',
-  background: 'rgba(0, 161, 214, 0.14)',
-  color: COLORS.accent,
-  fontSize: 10.5,
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 999,
+  border: `1px solid color-mix(in srgb, ${badgeColor} 32%, transparent)`,
+  background: `color-mix(in srgb, ${badgeColor} 12%, transparent)`, color: badgeColor,
+  fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap',
 };
 
 const row = { display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' };
@@ -163,7 +152,8 @@ const terminalActions = { marginTop: 8, display: 'flex', gap: 6 };
 
 const scopedCss = `
 .lpipe-bili-field{max-width:360px}
-.lpipe-bili-control:focus-within{border-color:#00a1d6;box-shadow:0 0 0 2px rgba(0,161,214,.16)}
+.lpipe-bili-control:focus-within,.lpipe-bili-panel button:focus-visible{outline:2px solid ${COLORS.accent};outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.lpipe-bili-panel *{animation:none!important;transition:none!important}}
 .lpipe-bili-control input:disabled{color:var(--dsw-alias-label-tertiary);-webkit-text-fill-color:var(--dsw-alias-label-tertiary);opacity:.75}
 .lpipe-bili-control input[type=number]::-webkit-outer-spin-button,
 .lpipe-bili-control input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
@@ -351,9 +341,9 @@ function LoginCard({ status, login, busy, onBegin, onCancel }) {
         : '扫码后登录凭据保存在宿主，页面只显示账号名。'));
   }
 
-  return h('section', { style: loginCard, 'data-phase': login?.status ?? 'idle' },
+  return h('section', { style: card, 'data-phase': login?.status ?? 'idle' },
     h('div', { style: loginHead },
-      h('span', { style: loginTitle }, 'B 站'),
+      h('span', { style: loginTitle }, '账号登录'),
       h('span', { style: statusLine, 'aria-live': 'polite' },
         h('span', {
           className: current.tone === 'busy' ? 'lpipe-bili-dot-busy' : undefined,
@@ -496,11 +486,11 @@ function BiliSettingsPanel({ rpcCall }) {
     setSaveError('');
   };
 
-  return h('section', null,
+  return h('section', { className: 'lpipe-bili-panel' },
     h('style', null, scopedCss),
-    h('div', { style: head },
-      h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Bili'),
-      h('span', { style: badge }, '视频管线')),
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 } },
+      h('h3', { style: head }, 'Lpipe Bili'),
+      h('span', { style: badge }, PANEL_TITLE)),
 
     !status
       ? h(LoadingCard, { error: loadError, onRetry: reload })
@@ -568,7 +558,7 @@ function apply(ctx) {
     name: PANEL_SLOT,
     id: 'bili',
     order: 60,
-    label: () => 'Lpipe Bili',
+    label: () => PANEL_TITLE,
     inject: () => ({ rpcCall }),
   }, BiliSettingsPanel));
 }

@@ -145,10 +145,12 @@ test('lib/client.js matches build output and registers exclusively into lpipe.se
   assert.equal(registrations[0].options.label(), '聚焦管线');
 });
 
-test('panel uses only --dsw-alias-* theme tokens and imports no dsh-client-ui-primitives', () => {
+test('panel keeps host neutral and state tokens with a theme-aware focus accent', () => {
   assert.ok(!panelSource.includes('@deepseek-ai/dsh-client-ui-primitives'));
-  assert.ok(!/#[0-9a-fA-F]{3,8}/.test(panelSource), 'no literal hex colors in panel styles');
-  for (const key of ['text', 'muted', 'faint', 'border', 'borderStrong', 'bg', 'soft', 'accent', 'success', 'warning', 'danger']) {
+  assert.deepEqual([...new Set(panelSource.match(/#[0-9a-fA-F]{3,8}/g))].sort(), ['#426b9b', '#5985b8']);
+  assert.match(panelSource, /color-mix\(in srgb, #5985b8 \d+%, var\(--dsw-alias-label-primary\)\)/);
+  assert.match(panelSource, /accent: focusAccent/);
+  for (const key of ['text', 'muted', 'faint', 'border', 'borderStrong', 'bg', 'soft', 'hover', 'onAccent', 'thumb', 'success', 'warning', 'danger']) {
     assert.match(panelSource, new RegExp(`\\b${key}: 'var\\(--dsw-alias-[a-z0-9-]+\\)'`));
   }
 });

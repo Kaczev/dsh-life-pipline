@@ -31,7 +31,11 @@ const ACTIVE_TEXT = '生效中';
 const INVALID_FALLBACK = '栖所目录不可用';
 const LOAD_FAILED = '栖所配置无法读取，请检查配置文件。';
 const SAVE_INEFFECTIVE = '已保存，但栖所尚未生效：目录校验没有通过，提示词不会注入。';
-const FOOTNOTE = '未选择时停用；选了位置但目录不存在、不是文件夹或无法读写时停止注入并标红。不自动创建目录，也不改变工作目录。工作区模式跟随主会话的工作目录。';
+const LOCATION_HINT = {
+  none: '',
+  workspace: '跟随主会话的工作目录。',
+  custom: '选择已有且可读写的文件夹。栖所不会创建目录或更改工作目录。',
+};
 
 const LOCATIONS = [
   ['none', '未选择'],
@@ -39,8 +43,7 @@ const LOCATIONS = [
   ['custom', '自定义'],
 ];
 
-// Host design tokens flip with the light/dark theme. The one literal color is
-// the series accent, shared with the other Lpipe blocks.
+// Mix the terra-cotta tint with host tokens so selection works in both themes.
 const COLORS = {
   text: 'var(--dsw-alias-label-primary)',
   muted: 'var(--dsw-alias-label-secondary)',
@@ -50,7 +53,8 @@ const COLORS = {
   bg: 'var(--dsw-alias-bg-layer-1)',
   soft: 'var(--dsw-alias-bg-layer-2)',
   hover: 'var(--dsw-alias-interactive-bg-hover)',
-  accent: '#5ec9b4',
+  accent: '#a44d32',
+  tint: 'color-mix(in srgb, #c46e4c 23%, var(--dsw-alias-bg-layer-2))',
   danger: 'var(--dsw-alias-state-error-primary)',
 };
 
@@ -58,26 +62,19 @@ const card = {
   border: `1px solid ${COLORS.border}`,
   borderRadius: 'var(--dsw-radius-lg)',
   background: COLORS.bg,
-  padding: '12px 14px 8px',
-  marginBottom: 10,
+  padding: '10px 12px',
+  marginBottom: 8,
 };
 
-const head = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 };
+const head = { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text };
+const badgeColor = `color-mix(in srgb, ${COLORS.accent} 54%, ${COLORS.text})`;
 const badge = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '2px 8px',
-  borderRadius: 999,
-  border: '1px solid rgba(94, 201, 180, 0.32)',
-  background: 'rgba(94, 201, 180, 0.14)',
-  color: COLORS.accent,
-  fontSize: 10.5,
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 999,
+  border: `1px solid color-mix(in srgb, ${badgeColor} 32%, transparent)`,
+  background: `color-mix(in srgb, ${badgeColor} 12%, transparent)`, color: badgeColor,
+  fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap',
 };
-
-const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 };
-const field = { minWidth: 0 };
+const field = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 12px' };
 const label = {
   display: 'block',
   marginBottom: 4,
@@ -147,13 +144,13 @@ const segButton = {
 };
 const segButtonOn = {
   ...segButton,
-  background: 'rgba(94, 201, 180, 0.16)',
+  background: COLORS.tint,
   color: COLORS.text,
   fontWeight: 650,
 };
 
 const pathRow = { marginTop: 8 };
-const statusRow = { display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 10.5, color: COLORS.muted, minWidth: 0 };
+const statusRow = { display: 'flex', alignItems: 'center', flex: '1 1 160px', gap: 6, fontSize: 11, color: COLORS.muted, minWidth: 0, overflowWrap: 'anywhere' };
 const dot = { width: 6, height: 6, borderRadius: 999, flex: 'none' };
 const statusPath = {
   fontFamily: 'ui-monospace, "Cascadia Mono", Consolas, monospace',
@@ -170,7 +167,8 @@ const foot = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 8,
+  flexWrap: 'wrap',
+  gap: '6px 10px',
   marginTop: 8,
   paddingTop: 8,
   borderTop: `1px solid ${COLORS.border}`,
@@ -180,14 +178,15 @@ const actions = { display: 'flex', gap: 6, marginLeft: 'auto', flex: 'none' };
 const footnote = { margin: '6px 0 0', fontSize: 10, lineHeight: 1.55, color: COLORS.faint };
 
 const scopedCss = [
-  '.lpipe-home-control:focus-within{border-color:var(--dsw-alias-border-l2)}',
+  `.lpipe-home-control:focus-within{outline:2px solid ${COLORS.accent};outline-offset:1px}`,
+  '@media(prefers-reduced-motion:reduce){.lpipe-home-control{transition:none!important}}',
   '.lpipe-home-control input::placeholder{color:var(--dsw-alias-label-tertiary)}',
   // 宿主的按钮样式会带边框和焦点环，落在分段控件上就像三项同时被选中。
   // 这里把边框、描边、阴影全部清零，选中态只靠 [data-on] 的底色和字重。
   '.lpipe-home-seg button{appearance:none!important;background:transparent!important;border:0!important;',
   'outline:0!important;box-shadow:none!important;color:var(--dsw-alias-label-secondary)!important;',
   'font-weight:400!important;min-height:0!important;height:auto!important;width:auto!important;margin:0!important}',
-  '.lpipe-home-seg button[data-on="true"]{background:rgba(94,201,180,.16)!important;',
+  `.lpipe-home-seg button[data-on="true"]{background:${COLORS.tint}!important;`,
   'color:var(--dsw-alias-label-primary)!important;font-weight:650!important}',
   '.lpipe-home-seg button:focus,.lpipe-home-seg button:focus-visible{outline:0!important;box-shadow:none!important}',
   '.lpipe-home-seg button:focus-visible{text-decoration:underline!important;text-decoration-thickness:1px!important;',
@@ -261,10 +260,10 @@ function StatusRow({ status }) {
   const view = statusView(status);
   const color = view.tone === 'bad' ? COLORS.danger : COLORS.muted;
   const dotColor = view.tone === 'bad' ? COLORS.danger : view.tone === 'ok' ? COLORS.accent : COLORS.borderStrong;
-  return h('div', { style: { ...statusRow, color } },
-    h('span', { style: { ...dot, background: dotColor } }),
+  return h('div', { role: 'status', style: { ...statusRow, color } },
+    h('span', { 'aria-hidden': true, style: { ...dot, background: dotColor } }),
     h('span', null, view.text),
-    view.path ? h('span', { style: { ...statusPath, color: view.tone === 'bad' ? COLORS.danger : COLORS.faint } }, view.path) : null);
+    view.path ? h('span', { title: view.path, style: { ...statusPath, color: view.tone === 'bad' ? COLORS.danger : COLORS.faint } }, view.path) : null);
 }
 
 function LoadFailed({ error, onRetry }) {
@@ -394,8 +393,8 @@ function HomeSettingsPanel({ rpcCall }) {
     setSaved(false);
   };
 
-  const header = h('div', { style: head },
-    h('h3', { style: { margin: 0, fontSize: 15, fontWeight: 600, color: COLORS.text } }, 'Lpipe Home'),
+  const header = h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 } },
+    h('h3', { style: head }, 'Lpipe Home'),
     h('span', { style: badge }, '栖所管线'));
 
   if (!hasReadableConfig(snapshot)) {
@@ -416,14 +415,13 @@ function HomeSettingsPanel({ rpcCall }) {
     h('style', null, scopedCss),
     header,
     h('div', { style: card },
-      h('div', { style: grid },
-        h('div', { style: field },
-          h('span', { style: label }, LOCATION_LABEL),
-          h(SegmentedControl, {
-            value: draft.location,
-            disabled: busy,
-            onChange: (location) => update({ location }),
-          }))),
+      h('div', { style: field },
+        h('span', { style: { ...label, marginBottom: 0 } }, LOCATION_LABEL),
+        h(SegmentedControl, {
+          value: draft.location,
+          disabled: busy,
+          onChange: (location) => update({ location }),
+        })),
 
       showPath
         ? h('div', { style: pathRow },
@@ -443,7 +441,7 @@ function HomeSettingsPanel({ rpcCall }) {
           })))
         : null,
 
-      h(StatusRow, { status }),
+      LOCATION_HINT[draft.location] ? h('p', { style: footnote }, LOCATION_HINT[draft.location]) : null,
 
       saved && view.tone === 'bad'
         ? h('p', { style: { ...noteStyle, color: COLORS.danger } }, SAVE_INEFFECTIVE)
@@ -451,12 +449,12 @@ function HomeSettingsPanel({ rpcCall }) {
       error ? h('p', { style: { ...noteStyle, color: COLORS.danger } }, error) : null,
 
       h('div', { style: foot },
-        h('span', { style: savedText }, saved ? '已保存' : ''),
+        h(StatusRow, { status }),
+        saved ? h('span', { role: 'status', style: savedText }, '已保存') : null,
         h('div', { style: actions },
           h('button', { type: 'button', style: { ...button(true), background: canSave ? COLORS.accent : COLORS.soft, border: `1px solid ${canSave ? COLORS.accent : COLORS.borderStrong}`, color: canSave ? '#ffffff' : COLORS.text, opacity: canSave ? 1 : 0.42 }, disabled: !canSave, onClick: save },
             busy ? '保存中…' : '保存'),
-          h('button', { type: 'button', style: button(), disabled: busy, onClick: cancel }, '取消'))),
-      h('p', { style: footnote }, FOOTNOTE)),
+          h('button', { type: 'button', style: button(), disabled: busy, onClick: cancel }, '取消')))),
   );
 }
 
@@ -471,7 +469,7 @@ function apply(ctx) {
     name: PANEL_SLOT,
     id: 'home',
     order: 70,
-    label: () => 'Lpipe Home',
+    label: () => '栖所管线',
     inject: () => ({ rpcCall }),
   }, HomeSettingsPanel));
 }

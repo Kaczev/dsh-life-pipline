@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lpipe Tone",
-    "description": "Set diction, syntax, rhythm, and expressiveness for the Lpipe main session or all top-level conversations. Leave all four blank to add no tone instructions."
+    "description": "Under Settings → Lpipe settings → Tone, enter a phrase you want the model to use in replies. The field starts empty and takes effect when you save a phrase."
   }
 }

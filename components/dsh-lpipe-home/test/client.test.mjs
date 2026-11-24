@@ -69,8 +69,14 @@ test('the client bundle contributes one settings block and nothing else', async 
   const { options: block } = registered[0];
   assert.equal(block.id, 'home');
   assert.equal(block.order, 70);
-  assert.equal(block.label(), 'Lpipe Home');
+  assert.equal(block.label(), '栖所管线');
   const props = block.inject();
+  const panel = registered[0].Component(props);
+  const header = panel.props.children.find(node => node?.props?.children?.[0]?.type === 'h3');
+  const [title, badge] = header.props.children;
+  assert.equal(title.props.children, 'Lpipe Home');
+  assert.equal(badge.type, 'span');
+  assert.equal(badge.props.children, block.label());
   assert.equal(typeof props.rpcCall, 'function');
   const result = await props.rpcCall('home.config', {});
   assert.deepEqual(result, { ok: true, value: {} });
@@ -178,7 +184,12 @@ test('the selected segment is a tinted pill, never a border or outline', async (
   assert.ok(source.includes('var(--dsw-alias-border-l1)'));
   assert.ok(!/segButtonOn[\s\S]*?borderColor/.test(source), 'selection must not rely on a border');
   assert.ok(source.includes('border:0!important'), 'segment buttons must drop any host border');
-  assert.ok(source.includes('rgba(94, 201, 180, 0.16)'), 'the selected pill keeps the series accent');
+  const { exports } = await loadClient();
+  const group = exports.__test__.SegmentedControl({ value: 'custom', disabled: false, onChange() {} });
+  const [off, , selected] = group.props.children;
+  assert.equal(off.props.style.background, 'transparent');
+  assert.match(selected.props.style.background, /color-mix\(in srgb, #c46e4c .+var\(--dsw-alias-bg-layer-2\)/,
+    'the terra-cotta selection must blend with the active host theme');
 });
 
 test('the client carries no owner credentials or hardcoded light surface', async () => {

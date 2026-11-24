@@ -20,7 +20,7 @@ test('Bili contributes one block and leaves the page to the common package', () 
   assert.match(source, /ctx\.slots\.inject\(PANEL_SLOT/);
   assert.match(source, /id: 'bili'/);
   assert.match(source, /order: 60/);
-  assert.match(source, /label: \(\) => 'Lpipe Bili'/);
+  assert.match(source, /label: \(\) => PANEL_TITLE/);
   assert.ok(!source.includes("name: 'settings.section'"), 'Bili must not host the page');
   assert.ok(!source.includes('LpipeSettingsPage'), 'the page component belongs to dsh-life-pipline');
   assert.ok(!source.includes("'plugins.bundle.config'"));
