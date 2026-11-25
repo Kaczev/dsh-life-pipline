@@ -16,7 +16,10 @@ test('the package advertises a client, icon and bilingual metadata', async () =>
   for (const lang of ['en-US', 'zh-CN']) {
     const resolved = import.meta.resolve(`dsh-lpipe-bili/locale/${lang}.json`);
     const locale = JSON.parse(await readFile(new URL(resolved), 'utf8'));
-    assert.ok(locale.meta.title);
+    assert.equal(
+      locale.meta.title,
+      lang === 'zh-CN' ? 'B 站管线（Lpipe Bili）' : 'Lpipe Bili',
+    );
     assert.ok(locale.meta.description);
   }
   assert.equal(pkg.scripts['build-client'], 'node scripts/build-client.mjs');
@@ -41,11 +44,12 @@ test('the icon is a square 512px transparent PNG', async () => {
   await stat(file);
 });
 
-test('both locales carry a title and a description', async () => {
-  for (const lang of ['zh', 'en']) {
-    const locale = JSON.parse(await readFile(new URL(`locale/${lang}.json`, root), 'utf8'));
-    assert.equal(typeof locale.meta.title, 'string');
-    assert.ok(locale.meta.title.length > 0);
+test('both locales carry the series title and a description', async () => {
+  const zh = JSON.parse(await readFile(new URL('locale/zh.json', root), 'utf8'));
+  const en = JSON.parse(await readFile(new URL('locale/en.json', root), 'utf8'));
+  assert.equal(zh.meta.title, 'B 站管线（Lpipe Bili）');
+  assert.equal(en.meta.title, 'Lpipe Bili');
+  for (const locale of [zh, en]) {
     assert.equal(typeof locale.meta.description, 'string');
     assert.ok(locale.meta.description.length > 0);
   }

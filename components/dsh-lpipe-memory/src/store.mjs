@@ -3,7 +3,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink } from 'no
 import { hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-export const MEMORY_VERSION = 1;
+export const MEMORY_VERSION = 2;
 export const MEMORY_KINDS = Object.freeze(['wishes', 'settings']);
 export const MEMORY_DEFAULTS = Object.freeze({
   wishes: Object.freeze({ enabled: true, maxEntries: 8, maxTextLength: 120 }),
@@ -15,7 +15,9 @@ const uiIdPattern = /^ui-([1-9][0-9]*)(?![\s\S])/;
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?![\s\S])/i;
 const configKeys = ['enabled', 'maxEntries', 'maxTextLength'];
 const legacyStateKeys = ['version', 'storeId', 'nextUiId', ...MEMORY_KINDS];
-const stateKeys = [...legacyStateKeys, 'allSessions'];
+const legacyScopeKeys = [...legacyStateKeys, 'allSessions'];
+const stateKeys = [...legacyScopeKeys, 'sharedLists'];
+const defaultSharedLists = () => ({ wishes: false, settings: true });
 const maxEntries = 32;
 const maxTextLength = 500;
 
@@ -55,6 +57,7 @@ export function createMemoryState(storeId = randomUUID()) {
     storeId,
     nextUiId: 1,
     allSessions: false,
+    sharedLists: defaultSharedLists(),
     ...Object.fromEntries(MEMORY_KINDS.map((kind) => [kind, { ...MEMORY_DEFAULTS[kind], entries: [] }])),
   });
 }
@@ -66,6 +69,9 @@ export function validateMemoryState(state) {
   if (state.version !== MEMORY_VERSION) throw new MemoryError('store_version', 'Memory state uses an unsupported version.');
   if (!exact(state, stateKeys) || typeof state.allSessions !== 'boolean' || typeof state.storeId !== 'string' || !uuidPattern.test(state.storeId) ||
       !inRange(state.nextUiId, Number.MAX_SAFE_INTEGER)) throw corrupt('Memory state has invalid store metadata.');
+  if (!exact(state.sharedLists, MEMORY_KINDS) || MEMORY_KINDS.some(kind => typeof state.sharedLists[kind] !== 'boolean')) {
+    throw corrupt('Memory state has invalid shared-list preferences.');
+  }
   const uiIds = new Set();
   for (const kind of MEMORY_KINDS) {
     const group = state[kind];
@@ -101,6 +107,14 @@ export function validateToolInput(kind, input) {
     throw invalid('Expected exact update or remove parameters.', 'action');
   }
   if (!validId(input.id)) throw invalid('Use a kebab-case ID of 1 to 32 characters.', 'id');
+  return input;
+}
+
+export function validateScopeInput(input) {
+  if (typeof input === 'boolean') return input;
+  if (!exact(input, ['kind', 'enabled']) || !validKind(input.kind) || typeof input.enabled !== 'boolean') {
+    throw invalid('Expected a scope boolean or a list kind and boolean enabled flag.');
+  }
   return input;
 }
 
@@ -312,8 +326,16 @@ async function loadState(file) {
     try { state = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
     catch (cause) { throw corrupt('Memory state is not valid UTF-8 JSON.', cause); }
   } finally { await handle.close(); }
-  // Existing v1 stores had no scope field. Normalize in memory without rewriting on open.
-  if (exact(state, legacyStateKeys)) state.allSessions = false;
+  // Upgrade only the two known v1 shapes. The next changed transaction persists v2.
+  if (state?.version === 1) {
+    if (exact(state, legacyStateKeys)) state.allSessions = false;
+    else if (!exact(state, legacyScopeKeys) || typeof state.allSessions !== 'boolean') {
+      throw corrupt('Memory state has invalid v1 store metadata.');
+    }
+    state.version = MEMORY_VERSION;
+    state.sharedLists = defaultSharedLists();
+    if (state.allSessions) state.sharedLists.wishes = true;
+  }
   return validateMemoryState(state);
 }
 

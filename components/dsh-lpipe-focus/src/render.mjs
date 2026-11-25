@@ -5,7 +5,7 @@ export const FOCUS_SOURCE_KIND = 'dsh-lpipe-focus';
 function nudgeText(chars) {
   return [
     '<system-reminder>',
-    `Work since the last equivalence layer: ${chars} characters. What has this work established? If that result can replace the span and you are starting further substantive work, call focus_equate before proceeding. If your next action is a reply or a question, respond directly.`,
+    `Work since the last equivalence layer: ${chars} characters. Review this span using the folding criteria in the context equivalence instructions.`,
     '</system-reminder>',
   ].join('\n');
 }
@@ -22,12 +22,24 @@ function renderObjectiveText(rawText) {
   ].join('\n');
 }
 
-export function buildTodoMessage(rawText, now = Date.now()) {
-  const text = String(rawText ?? '').trim();
-  if (!text) return null;
+function indentContinuation(text, spaces) {
+  return text.replace(/\r\n?|\n/g, `\n${spaces}`);
+}
+
+function renderDetails(entries) {
+  return entries.map(({ content, known, unknown }) => [
+    `- ${indentContinuation(content, '  ')}`,
+    ...(known ? [`  - Known: ${indentContinuation(known, '    ')}`] : []),
+    ...(unknown ? [`  - Unknown: ${indentContinuation(unknown, '    ')}`] : []),
+  ].join('\n')).join('\n');
+}
+
+export function buildTodoMessage(entries, now = Date.now()) {
+  if (!entries?.length) return null;
+  const text = renderDetails(entries);
   return createFocusUserMessage({
     text: `<current-todos>\n${escapeClosingTag(text, 'current-todos')}\n</current-todos>`,
-    source: { kind: FOCUS_SOURCE_KIND, layer: 'todos', rawText: text, createdAt: now },
+    source: { kind: FOCUS_SOURCE_KIND, layer: 'todos', entries, rawText: text, createdAt: now },
   });
 }
 
@@ -40,13 +52,16 @@ export function createFocusUserMessage({ text, source }) {
   });
 }
 
-export function buildObjectiveMessage({ rawText, origin, now = Date.now(), asNotice = false }) {
+export function buildObjectiveMessage({ entries, origin, now = Date.now(), asNotice = false }) {
+  if (!entries?.length) return null;
+  const rawText = renderDetails(entries);
   return createFocusUserMessage({
     text: renderObjectiveText(rawText),
     source: {
       kind: FOCUS_SOURCE_KIND,
       layer: 'objective',
       origin,
+      entries,
       rawText,
       createdAt: now,
       ...(asNotice ? { form: 'notice', summary: '聚焦 · 当前目标' } : {}),
@@ -55,17 +70,15 @@ export function buildObjectiveMessage({ rawText, origin, now = Date.now(), asNot
 }
 
 const layerSections = [
-  ['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'],
-  ['guidance', 'Guidance'], ['work_done', 'Work done'],
+  ['definitions', 'Definitions'], ['experience', 'Experience'], ['guidance', 'Guidance'],
+  ['conclusions', 'Conclusions'], ['work_done', 'Work done'],
 ];
 
 export function renderFocusLayerText(layer) {
-  return [
-    `<equivalence key="${layer.key}">`,
-    ...(layer.supersedes.length ? [`Supersedes: ${layer.supersedes.join(', ')}`] : []),
-    ...layerSections.filter(([field]) => layer[field]).map(([field, label]) => `${label}: ${escapeClosingTag(layer[field], 'equivalence')}`),
-    '</equivalence>',
-  ].join('\n');
+  const sections = layerSections.filter(([field]) => layer[field]?.length).map(([field, label]) =>
+    `## ${label}\n\n${escapeClosingTag(renderDetails(layer[field]), 'equivalence')}`);
+  if (layer.supersedes.length) sections.unshift(`Supersedes: ${layer.supersedes.join(', ')}`);
+  return [`<equivalence key="${layer.key}">`, sections.join('\n\n'), '</equivalence>'].join('\n');
 }
 
 export function buildFocusLayerMessage(args, now = Date.now()) {

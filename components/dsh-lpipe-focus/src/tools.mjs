@@ -41,7 +41,9 @@ function latestAssistantToolCalls(events) {
 const KEY_PATTERN = '^[a-z0-9]+(?:-[a-z0-9]+)*$';
 const KEBAB_KEY = new RegExp(KEY_PATTERN, 'u');
 const CONTENT_FIELDS = ['definitions', 'experience', 'conclusions', 'guidance'];
-const LAYER_FIELDS = new Set(['key', 'supersedes', ...CONTENT_FIELDS, 'work_done', 'todos', 'next']);
+const DETAIL_FIELDS = [...CONTENT_FIELDS, 'work_done', 'todos', 'next'];
+const LAYER_FIELDS = new Set(['key', 'supersedes', ...DETAIL_FIELDS]);
+const DETAIL_ENTRY_FIELDS = new Set(['content', 'known', 'unknown']);
 
 function checkKey(key, field) {
   if (typeof key !== 'string' || key.length > MAX_KEY_LENGTH || !KEBAB_KEY.test(key)) {
@@ -49,15 +51,45 @@ function checkKey(key, field) {
   }
 }
 
-function checkText(text, field, limit) {
+function checkText(text, field) {
   if (typeof text !== 'string' || TEXT_FORBIDDEN_CONTROLS.test(text)) {
     throw new FocusToolArgsError(`${field} must be text without forbidden control characters`);
   }
-  if (limit !== undefined && text.length > limit) throw new FocusToolArgsError(`${field} must be at most ${limit} characters`);
   return text.trim();
 }
 
-export function validateFocusEquateArgs(args, knownKeys, currentTodos = '') {
+function normalizeDetailEntry(entry, field, index) {
+  const location = `${field}[${index}]`;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new FocusToolArgsError(`${location} must be a detail entry object`);
+  }
+  for (const property of Object.keys(entry)) {
+    if (!DETAIL_ENTRY_FIELDS.has(property)) throw new FocusToolArgsError(`unexpected property "${location}.${property}"`);
+  }
+  if (!Object.hasOwn(entry, 'content')) throw new FocusToolArgsError(`${location}.content is required`);
+  const content = checkText(entry.content, `${location}.content`);
+  if (!content) throw new FocusToolArgsError(`${location}.content must be nonblank`);
+  const result = { content };
+  for (const property of ['known', 'unknown']) {
+    if (!Object.hasOwn(entry, property)) continue;
+    const text = checkText(entry[property], `${location}.${property}`);
+    if (!text) throw new FocusToolArgsError(`${location}.${property} must be nonblank when provided`);
+    result[property] = text;
+  }
+  return result;
+}
+
+function normalizeDetailList(value, field) {
+  if (!Array.isArray(value)) throw new FocusToolArgsError(`${field} must be a detail list array`);
+  const entries = Array.from(value, (entry, index) => normalizeDetailEntry(entry, field, index));
+  if (field === 'next') {
+    const length = entries.reduce((total, entry) => total + entry.content.length + (entry.known?.length ?? 0) + (entry.unknown?.length ?? 0), 0);
+    if (length > MAX_OBJECTIVE_LENGTH) throw new FocusToolArgsError(`next must be at most ${MAX_OBJECTIVE_LENGTH} characters`);
+  }
+  return entries;
+}
+
+export function validateFocusEquateArgs(args, knownKeys, currentTodos = []) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new FocusToolArgsError('arguments must be an object');
   for (const field of Object.keys(args)) {
     if (!LAYER_FIELDS.has(field)) throw new FocusToolArgsError(`unexpected property "${field}"`);
@@ -74,26 +106,19 @@ export function validateFocusEquateArgs(args, knownKeys, currentTodos = '') {
     if (knownKeys && !knownKeys.has(ref)) throw new FocusToolArgsError(`unknown earlier layer key "${ref}"`);
     refs.add(ref);
   }
+  if (!Array.isArray(currentTodos)) throw new FocusToolArgsError('current todos must be a detail list array');
   const layer = { key, supersedes: [...refs] };
-  for (const field of CONTENT_FIELDS) {
-    if (Object.hasOwn(args, field)) {
-      const text = checkText(args[field], field);
-      if (text) layer[field] = text;
-    }
+  for (const field of DETAIL_FIELDS) {
+    if (!Object.hasOwn(args, field)) continue;
+    const entries = normalizeDetailList(args[field], field);
+    if (entries.length || field === 'todos' || field === 'next') layer[field] = entries;
   }
-  if (!CONTENT_FIELDS.some(field => Object.hasOwn(layer, field))) {
-    throw new FocusToolArgsError('at least one of definitions, experience, conclusions, or guidance must not be blank');
+  if (!CONTENT_FIELDS.some(field => layer[field]?.length)) {
+    throw new FocusToolArgsError('at least one of definitions, experience, conclusions, or guidance must contain an entry');
   }
-  for (const [field, limit] of [['work_done'], ['next', MAX_OBJECTIVE_LENGTH]]) {
-    if (Object.hasOwn(args, field)) {
-      const text = checkText(args[field], field, limit);
-      if (text) layer[field] = text;
-    }
-  }
-  if (Object.hasOwn(args, 'todos')) layer.todos = checkText(args.todos, 'todos');
-  const resultingTodos = layer.todos ?? currentTodos;
-  if (resultingTodos && !layer.next) {
-    throw new FocusToolArgsError('next must be nonblank while unfinished user work remains');
+  const resultingTodos = Object.hasOwn(layer, 'todos') ? layer.todos : currentTodos;
+  if (resultingTodos.length && !layer.next?.length) {
+    throw new FocusToolArgsError('next must contain at least one entry while unfinished user work remains');
   }
   return layer;
 }
@@ -110,13 +135,23 @@ export function readFocusLayerSource(source, knownKeys) {
   }
 }
 
+function normalizeSeedTodos(source) {
+  try {
+    if (Object.hasOwn(source, 'entries')) return normalizeDetailList(source.entries, 'todos');
+    return null;
+  } catch (error) {
+    if (error instanceof FocusToolArgsError) return null;
+    throw error;
+  }
+}
+
 // The durable log, not the current surface, reserves a key. A successful receipt
 // can precede its folded layer on restore. Never derive identity from message text.
 export function collectFocusHistory(events, beforeSeq = Infinity) {
   const layersByKey = new Map();
   const checkpoints = new Map();
   const sources = new Map();
-  let currentTodos = '';
+  let currentTodos = [];
   let pending = null;
   for (const ev of events) {
     if (ev.seq >= beforeSeq) break;
@@ -149,7 +184,7 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
           const layer = validateFocusEquateArgs(args, layersByKey, currentTodos);
           if (match.traced && match.raw != null && match.trace !== match.raw
             && !isDeepStrictEqual(layer, validateFocusEquateArgs(decode(match.trace), layersByKey, currentTodos))) break;
-          currentTodos = layer.todos ?? currentTodos;
+          currentTodos = Object.hasOwn(layer, 'todos') ? layer.todos : currentTodos;
           checkpoints.set(match.seq, { layer, args, currentTodos });
           layersByKey.set(layer.key, layer);
         } catch (error) {
@@ -160,11 +195,9 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
       case 'user/message': {
         pending = null;
         const source = data?.source;
-        // A seed may contain only materialized messages. After the first receipt,
-        // checkpoints are authoritative; an older fold can be written to the log later.
-        if (!checkpoints.size && source?.kind === FOCUS_SOURCE_KIND && source.layer === 'todos'
-          && typeof source.rawText === 'string' && !TEXT_FORBIDDEN_CONTROLS.test(source.rawText)) {
-          currentTodos = source.rawText.trim();
+        // A seed may contain only materialized messages. Structured entries are authoritative.
+        if (!checkpoints.size && source?.kind === FOCUS_SOURCE_KIND && source.layer === 'todos') {
+          currentTodos = normalizeSeedTodos(source) ?? currentTodos;
         }
         const layer = readFocusLayerSource(source);
         if (!layer || layer.supersedes.some(key => !layersByKey.has(key))) break;
@@ -185,38 +218,45 @@ export function collectFocusHistory(events, beforeSeq = Infinity) {
   return { keys: new Set(layersByKey.keys()), checkpoints, sources, currentTodos };
 }
 
+function detailListSchema(description) {
+  return {
+    type: 'array', description,
+    items: {
+      type: 'object', additionalProperties: false, required: ['content'],
+      properties: {
+        content: { type: 'string', pattern: '\\S' },
+        known: { type: 'string', pattern: '\\S' },
+        unknown: { type: 'string', pattern: '\\S' },
+      },
+    },
+  };
+}
+
 export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
     description: [
-      'Create a new equivalence layer and replace the current todo and next layers. The new equivalence layer replaces the entire surface span after the previous equivalence layer. That span will no longer be available, so preserve in the appropriate layer anything from it that can still affect how you understand the user, what you should say, or what you should do.',
-      'The layers appear in this order: the latest equivalence layer, the current todo layer, then the current next layer. Existing equivalence layers remain available and are not removed merely because they are old. Use `supersedes` only for earlier equivalence-layer keys whose still-needed content is fully preserved by the new equivalence layer; a superseded layer may be removed during later compaction.',
-      'Use equivalence-layer fields for durable context. Set `todos` only when the unfinished user work changes: omitting it keeps the current todo layer, a nonblank value replaces it with the complete current set of unfinished requests and questions, and an empty value clears it. The next layer is an immediate-action hint, not a record of unfinished work. Whenever the resulting todo layer is nonempty, provide a nonblank `next` that advances that work.',
-      'Call this tool alone after all outstanding tool calls have returned. Use each field that applies. When a passage contains several kinds of information, split it by purpose and record each detail once.',
+      'Call `focus_equate` alone after all outstanding tool calls have returned. The span starts immediately after the most recent equivalence layer. On the first fold, it starts after the fixed opening instructions. It ends with the successful tool result for this call, inclusive. The new equivalence layer takes that span’s place, followed by the current todo and next layers when present. Messages after the tool result stay in their original order.',
+      'Use a *detail list* for each content field. Each entry has a required `content` string stating one point that makes sense on its own. Add `known` for established details whose omission could change how that point is understood, acted on, or verified. Add `unknown` for a specific unresolved detail whose answer would change a later judgment or action. Both are optional strings. Place each point in the field that serves its purpose and record each detail once.',
+      'Provide at least one entry in `definitions`, `experience`, `conclusions`, or `guidance`. Earlier equivalence layers remain available unless you identify them in `supersedes` for later compaction.',
+      'Set `todos` only when unfinished user work changes. Omit it to keep the current list, provide the complete updated list to replace it, or pass `[]` to clear it. Each call replaces `next`. If the resulting todo list has entries, provide at least one `next` entry that advances the work. Otherwise, omitting `next` or passing `[]` clears the previous next layer.',
     ].join('\n\n'),
     parameters: {
       type: 'object', additionalProperties: false, required: ['key', 'supersedes'],
-      anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { pattern: '\\S' } } })),
+      anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { minItems: 1 } } })),
       properties: {
         key: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH,
-          description: 'A new, unique lowercase kebab-case key for this layer.' },
+          description: 'A new, unique lowercase kebab-case key for this equivalence layer.' },
         supersedes: { type: 'array',
           items: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH },
-          description: 'Keys of earlier layers this one fully replaces. Include a key only when this layer preserves everything still needed from it. Use [] if none qualify.' },
-        definitions: { type: 'string',
-          description: 'Preserve the conversation-specific meaning of terms and procedures that later reasoning depends on, including meanings established through use. For a provisional or disputed term, state what is understood and what remains open. Retain an earlier meaning when needed to interpret the exchange.' },
-        experience: { type: 'string',
-          description: 'Preserve what the next model needs to know how to do. State each reusable method or still-applicable skill rule as an instruction, with its conditions and limits. Name the skill when retaining its guidance.' },
-        conclusions: { type: 'string',
-          description: 'What remains established or open. Record decisions, constraints, findings, and questions the user still expects you to answer. Preserve whose position a judgment represents and the evidence or uncertainty that affects it.' },
-        guidance: { type: 'string',
-          description: 'Preserve preferences, agreements, and constraints that still guide choices or actions. State whose guidance it is, where it applies, and whether it expresses a preference, a shared commitment, or a requirement.' },
-        work_done: { type: 'string',
-          description: 'Record actions taken or attempted, their scope, and the observed result. When an action also yields guidance for future work, put that guidance in `experience`.' },
-        todos: { type: 'string',
-          description: 'The complete current set of unfinished user requests and questions. Set only when it changes; omit to keep the current todo layer, or use an empty value to clear it.' },
-        next: { type: 'string', maxLength: MAX_OBJECTIVE_LENGTH,
-          description: 'The immediate next action, not the unfinished-work record. Required and nonblank whenever the resulting todo layer is nonempty; otherwise optional. The latest user instruction takes precedence.' },
+          description: 'Keys of earlier equivalence layers this layer fully replaces. Include a key only when the new layer preserves everything still needed from it. Use `[]` if none qualify.' },
+        definitions: detailListSchema('A detail list of conversation-specific meanings that later reasoning depends on. Preserve the scope of each term or procedure, including earlier meanings needed to interpret the exchange.'),
+        experience: detailListSchema('A detail list of reusable methods and applicable skill rules. State what to do, when it applies, and its limits. Name the skill when retaining its guidance.'),
+        conclusions: detailListSchema('A detail list of decisions, findings, and judgments that are established or still open. Identify whose judgment each is and how far the evidence or confirmation extends.'),
+        guidance: detailListSchema('A detail list of preferences, agreements, and constraints that should guide later choices. Preserve whose guidance it is, where it applies, and whether it is a preference, a shared commitment, or a requirement.'),
+        work_done: detailListSchema('A detail list of actions taken or attempted. Record the scope and observed outcome so later work can resume from the right point.'),
+        todos: detailListSchema('A detail list of all unfinished user requests and unanswered user questions. State what remains due to the user in each entry.'),
+        next: detailListSchema('A detail list of immediate actions, in execution order. State what each action advances and any prerequisite it must wait for. The latest user instruction takes precedence.'),
       },
     },
     output: {

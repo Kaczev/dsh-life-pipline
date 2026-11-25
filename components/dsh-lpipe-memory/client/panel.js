@@ -45,10 +45,11 @@ const STYLES = `
 .lpipe-memory [role=tab][aria-selected=true] { border-color: var(--memory-line); background: var(--memory-wash); color: var(--memory-accent); font-weight: 650; }
 .lpipe-memory .memory-options { display: grid; gap: 9px; }
 .lpipe-memory .memory-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--memory-soft); border: 1px solid var(--memory-border); border-radius: var(--dsw-radius-sm); }
-.lpipe-memory .memory-switch-label { font-weight: 650; }
+.lpipe-memory .memory-switch-label { font-size: 11px; line-height: 1.4; font-weight: 650; }
 .lpipe-memory .memory-scope { margin-bottom: 8px; }
-.lpipe-memory .memory-scope .memory-switch-label { color: var(--memory-text); font-size: 11px; line-height: 1.4; }
-.lpipe-memory .memory-scope .memory-switch-hint { color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; }
+.lpipe-memory .memory-options > .memory-scope { margin-bottom: 0; }
+.lpipe-memory .memory-scope .memory-switch-label { color: var(--memory-text); }
+.lpipe-memory .memory-scope .memory-switch-hint { color: var(--dsw-alias-label-tertiary); }
 .lpipe-memory .memory-scope .memory-switch::before { background: var(--dsw-alias-label-on-color); }
 .lpipe-memory .memory-scope :is([role=status], [role=alert]):not(:empty) { margin-top: 4px; }
 .lpipe-memory .memory-switch-hint { display: block; margin-top: 2px; }
@@ -76,6 +77,7 @@ const STYLES = `
 .lpipe-memory .memory-entry { min-width: 0; padding: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .lpipe-memory .memory-actions { flex: none; display: flex; gap: 2px; }
 .lpipe-memory .memory-note, .lpipe-memory .memory-error { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.lpipe-memory .memory-switch-hint { font-size: 10px; line-height: 1.45; }
 .lpipe-memory .memory-note { color: var(--memory-muted); font-variant-numeric: tabular-nums; }
 .lpipe-memory .memory-error { color: var(--memory-danger); }
 .lpipe-memory .memory-empty, .lpipe-memory .memory-list-status:not(:empty) { padding: 4px 0; }
@@ -130,7 +132,8 @@ function stateOf(reply) {
   const state = reply.state;
   if (typeof state?.allSessions !== 'boolean') return null;
   for (const kind of KINDS) {
-    const group = state?.[kind];
+    if (typeof state.sharedLists?.[kind] !== 'boolean') return null;
+    const group = state[kind];
     if (typeof group?.enabled !== 'boolean' || !inRange(group.maxEntries, LIMITS.maxEntries)
       || !inRange(group.maxTextLength, LIMITS.maxTextLength) || !Array.isArray(group.entries)
       || group.entries.length > group.maxEntries) return null;
@@ -270,23 +273,26 @@ function MemoryPanel({ rpcCall, locale, t }) {
     setReload(n => n + 1);
   };
 
-  async function setScope(allSessions) {
-    if (write.current || uncertain || allSessions === state.allSessions) return;
+  async function setScope(key, enabled) {
+    if (write.current || uncertain) return;
+    const master = key === 'allSessions';
+    if (!master && !state.allSessions) return;
+    if (enabled === (master ? state.allSessions : state.sharedLists[key])) return;
     const request = new AbortController();
     write.current = request;
-    setPending({ scope: true });
+    setPending({ scope: key });
     setScopeFeedback(null);
     try {
-      const reply = await rpcCall('memory.setScope', allSessions, request.signal);
+      const reply = await rpcCall('memory.setScope', master ? enabled : { kind: key, enabled }, request.signal);
       if (!mounted.current || request.signal.aborted) return;
       const failure = mutationProblem(reply);
       if (failure) {
         if (failure.uncertain) setUncertain('scope');
-        else setScopeFeedback({ issue: failure.issue });
+        else setScopeFeedback({ key, issue: failure.issue });
         return;
       }
       const next = stateOf(reply);
-      if (!next || next.allSessions !== allSessions) throw new Error('Invalid memory scope');
+      if (!next || (master ? next.allSessions : next.sharedLists[key]) !== enabled) throw new Error('Invalid memory scope');
       setState(next);
       setDrafts(previous => rebaseDrafts(previous, state, next));
     } catch {
@@ -375,6 +381,21 @@ function MemoryPanel({ rpcCall, locale, t }) {
       event.preventDefault(); select(KINDS[next], true);
     },
   });
+  const scopeRow = (key, label, hint, checked, disabled) => {
+    const id = key === 'allSessions' ? `${uid}-scope` : `${uid}-${key}-scope`;
+    const saving = pending?.scope === key;
+    return h('div', { id, className: 'memory-scope', 'aria-busy': saving },
+      h('label', { className: 'memory-switch-row' },
+        h('span', null,
+          h('span', { id: `${id}-label`, className: 'memory-switch-label' }, t(label)),
+          h('span', { id: `${id}-hint`, className: 'memory-note memory-switch-hint' }, t(hint))),
+        h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
+          'aria-labelledby': `${id}-label`, 'aria-describedby': `${id}-hint`, checked, disabled: locked || disabled,
+          onChange: event => void setScope(key, event.currentTarget.checked),
+        })),
+      h('p', { role: 'status', className: 'memory-note' }, saving ? t('saving') : null),
+      errorView(scopeFeedback?.key === key && scopeFeedback.issue));
+  };
   const showPanel = key => {
     const section = state[key], draft = drafts[key], labels = LABELS[key], issue = optionIssues[key];
     const issueId = `${uid}-${key}-error`;
@@ -400,6 +421,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
             'aria-label': t(labels.enable), name: 'enabled', checked: draft.enabled,
             disabled: locked, onChange: event => updateDraft(key, 'enabled', event.currentTarget.checked), ...inputError('enabled'),
           })),
+        scopeRow(key, `${key}Scope`, state.allSessions ? 'listScopeHint' : 'scopeOffHint', state.sharedLists[key], !state.allSessions),
         h('div', { className: 'memory-fields' }, Object.keys(LIMITS).map(number)),
         errorView(optionIssue, issueId),
         h('div', { className: 'memory-options-foot' },
@@ -446,20 +468,9 @@ function MemoryPanel({ rpcCall, locale, t }) {
     h('style', null, STYLES),
     h('header', { className: 'memory-head' },
       h('h3', { id: `${uid}-title`, className: 'memory-title' }, 'Lpipe Memory', h('span', { className: 'memory-badge' }, '记忆管线')),
-      h('p', { className: 'memory-note' }, t(state?.allSessions ? 'allSessions' : 'mainOnly'))),
+      h('p', { className: 'memory-note' }, t(state?.allSessions && state.sharedLists[kind] ? 'allSessions' : 'mainOnly'))),
     h('div', { className: 'memory-card' }, state && drafts ? h(React.Fragment, null,
-      h('div', { className: 'memory-scope', 'aria-busy': Boolean(pending?.scope) },
-        h('label', { className: 'memory-switch-row' },
-          h('span', null,
-            h('span', { id: `${uid}-scope-label`, className: 'memory-switch-label' }, t('allSessions')),
-            h('span', { id: `${uid}-scope-hint`, className: 'memory-note memory-switch-hint' }, t('scopeHint'))),
-          h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
-            'aria-labelledby': `${uid}-scope-label`, 'aria-describedby': `${uid}-scope-hint`,
-            checked: state.allSessions, disabled: locked,
-            onChange: event => void setScope(event.currentTarget.checked),
-          })),
-        h('p', { role: 'status', className: 'memory-note' }, pending?.scope ? t('saving') : null),
-        errorView(scopeFeedback?.issue)),
+      scopeRow('allSessions', 'allSessions', 'scopeHint', state.allSessions, false),
       h('div', { role: 'tablist', className: 'memory-tabs', 'aria-label': t('types') }, KINDS.map(tab)),
       KINDS.map(showPanel),
       uncertain && !editing && h('div', null, h('p', { role: 'alert', className: 'memory-error' }, t('saveFailed')), button(t('reloadMemory'), { onClick: retryLoad })),

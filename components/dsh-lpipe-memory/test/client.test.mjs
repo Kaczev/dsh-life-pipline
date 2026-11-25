@@ -108,7 +108,7 @@ function mountMemoryPanel() {
     assert.equal(matches.length, 1);
     return matches[0];
   }
-  const scope = () => find(node => node.props.className === 'memory-scope');
+  const scope = () => find(node => node.props.id === 'memory-test-scope');
   const scopeSwitch = () => find(node => node.props.role === 'switch', scope());
   const option = (kind, name) => find(node => node.type === 'input' && node.props.name === name,
     find(node => node.props.id === `memory-test-${kind}-pane`));
@@ -128,8 +128,8 @@ function mountMemoryPanel() {
   return { requests, dictionary: dictionary.en, scope, scopeSwitch, option, button, change, click, find, respond };
 }
 
-const snapshot = (allSessions, wishes = {}, settings = {}) => ({
-  ok: true, state: { allSessions, wishes: section(wishes), settings: section(settings) },
+const snapshot = (allSessions, wishes = {}, settings = {}, sharedLists = { wishes: true, settings: true }) => ({
+  ok: true, state: { allSessions, sharedLists, wishes: section(wishes), settings: section(settings) },
 });
 
 test('Memory scope switch waits for the Host and rebases drafts in both tabs on success', async () => {
@@ -162,6 +162,71 @@ test('Memory scope switch waits for the Host and rebases drafts in both tabs on 
   assert.equal(ui.option('wishes', 'maxTextLength').props.value, 15);
   assert.equal(ui.option('settings', 'maxTextLength').props.value, 12);
   assert.equal(ui.option('settings', 'maxEntries').props.value, 3);
+  assert.equal(ui.requests.length, 0);
+});
+
+test('Each tab presents its enable switch before its list sharing switch', async () => {
+  const ui = mountMemoryPanel();
+  await ui.respond('memory.state', null, snapshot(true));
+  for (const kind of ['wishes', 'settings']) {
+    ui.click(ui.button(kind));
+    const pane = ui.find(node => node.props.id === `memory-test-${kind}-pane`);
+    assert.equal(pane.props.hidden, false);
+    const order = [];
+    function visit(node) {
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (!node?.children) return;
+      if (node.props.role === 'switch') order.push(node.props.name ?? node.props['aria-labelledby']);
+      node.children.forEach(visit);
+    }
+    visit(pane);
+    assert.deepEqual(order, ['enabled', `memory-test-${kind}-scope-label`]);
+  }
+});
+
+test('Each tab shares its own list immediately and retains its choice while the master is off', async () => {
+  const ui = mountMemoryPanel();
+  const row = kind => ui.find(node => node.props.id === `memory-test-${kind}-scope`);
+  const toggle = kind => ui.find(node => node.props.role === 'switch', row(kind));
+  const flags = { wishes: false, settings: true };
+  await ui.respond('memory.state', null, snapshot(false, {}, {}, flags));
+  for (const kind of ['wishes', 'settings']) {
+    assert.equal(toggle(kind).props.disabled, true);
+    assert.equal(toggle(kind).props.checked, flags[kind]);
+    assert.equal(ui.find(node => node.props.id === toggle(kind).props['aria-labelledby']).children[0], ui.dictionary[`${kind}Scope`]);
+    ui.change(toggle(kind), { checked: !flags[kind] });
+  }
+  assert.equal(ui.requests.length, 0);
+  ui.change(ui.scopeSwitch(), { checked: true });
+  await ui.respond('memory.setScope', true, snapshot(true, {}, {}, flags));
+  ui.change(ui.option('wishes', 'maxEntries'), { valueAsNumber: 4 });
+  ui.click(ui.button('settings'));
+  ui.change(ui.option('settings', 'enabled'), { checked: false });
+  ui.change(toggle('settings'), { checked: false });
+  assert.equal(toggle('settings').props.checked, true);
+  assert.equal(row('settings').props['aria-busy'], true);
+  assert.equal(ui.scopeSwitch().props.disabled, true);
+  const neither = { wishes: false, settings: false };
+  await ui.respond('memory.setScope', { kind: 'settings', enabled: false }, snapshot(true, {}, {}, neither));
+  assert.equal(toggle('settings').props.checked, false);
+  assert.equal(toggle('wishes').props.checked, false);
+  assert.equal(ui.option('settings', 'enabled').props.checked, false);
+  assert.equal(ui.option('wishes', 'maxEntries').props.value, 4);
+  ui.click(ui.button('wishes'));
+  ui.change(toggle('wishes'), { checked: true });
+  await ui.respond('memory.setScope', { kind: 'wishes', enabled: true }, snapshot(true, {}, {}, neither));
+  assert.equal(toggle('wishes').props.disabled, true, 'an unconfirmed list write locks further writes');
+  ui.click(ui.button('reloadMemory'));
+  const wishesOnly = { wishes: true, settings: false };
+  await ui.respond('memory.state', null, snapshot(true, {}, {}, wishesOnly));
+  assert.equal(ui.option('wishes', 'maxEntries').props.value, 4);
+  assert.equal(ui.option('settings', 'enabled').props.checked, false);
+  ui.change(ui.scopeSwitch(), { checked: false });
+  await ui.respond('memory.setScope', false, snapshot(false, {}, {}, wishesOnly));
+  assert.equal(toggle('wishes').props.checked, true);
+  assert.equal(toggle('settings').props.checked, false);
+  assert.equal(toggle('wishes').props.disabled, true);
+  assert.equal(toggle('settings').props.disabled, true);
   assert.equal(ui.requests.length, 0);
 });
 
@@ -212,7 +277,7 @@ test('memory Client bundle and manifest expose the managed settings panel', asyn
 test('registered panel calls the real Host RPC route and preserves domain failures', async () => {
   let route, transportError;
   const serverCalls = [], clientCalls = [];
-  const initial = { ok: true, state: { allSessions: false, wishes: section(), settings: section() } };
+  const initial = snapshot(false);
   const invalid = { ok: false, code: 'not_found', message: 'No memory entry has that ID.', field: 'id' };
   registerMemoryRpc({ connection: { fetch: { register: value => { route = value; } } } }, async (method, payload) => {
     serverCalls.push({ method, payload });
@@ -274,7 +339,10 @@ test('Client limits configuration to the chosen type and refuses invalid or dest
 
 test('Client accepts authoritative snapshots only, and marks uncertain commits for reload', () => {
   const settings = section();
-  const state = { allSessions: false, wishes: section(), settings };
+  const state = { allSessions: false, sharedLists: { wishes: true, settings: false }, wishes: section(), settings };
+  for (const sharedLists of [undefined, {}, { wishes: true }, { wishes: 'false', settings: true }]) {
+    assert.equal(api.stateOf({ ok: true, state: { ...state, sharedLists } }), null);
+  }
   assert.equal(api.stateOf({ ok: true, state }), state);
   assert.equal(api.stateOf({ ok: true, state: { ...state, allSessions: 'true' } }), null);
   assert.equal(api.stateOf({ ok: false, state }), null);

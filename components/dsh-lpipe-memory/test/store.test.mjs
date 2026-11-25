@@ -83,7 +83,7 @@ test('tool and UI shapes are exact; only the wish tool accepts a read', () => {
 test('pure mutations enforce per-kind limits, normalize Unicode text and preserve entry IDs', () => {
   const state = createMemoryState(storeId);
   assert.deepEqual(state, {
-    version: 1, storeId, nextUiId: 1, allSessions: false,
+    version: 2, storeId, nextUiId: 1, allSessions: false, sharedLists: { wishes: false, settings: true },
     wishes: { enabled: true, maxEntries: 8, maxTextLength: 120, entries: [] },
     settings: { enabled: true, maxEntries: 12, maxTextLength: 160, entries: [] },
   });
@@ -108,23 +108,45 @@ test('pure mutations enforce per-kind limits, normalize Unicode text and preserv
   assert.equal(validateMemoryState(state), state);
 });
 
-test('legacy v1 state defaults to main-only and persists an explicit scope independently of entries', async t => {
+test('both v1 formats migrate lazily, preserving existing sharing, list configuration and IDs', async t => {
   const f = await fixture(t);
   await mkdir(f.dir);
-  const legacy = createMemoryState(storeId);
-  applyUiMutation(legacy, add('settings', 'existing'));
-  delete legacy.allSessions;
-  await writeFile(f.file, JSON.stringify(legacy));
-  const store = await f.open();
-  assert.deepEqual(store.read(), { ...legacy, allSessions: false });
-  assert.deepEqual(JSON.parse(await readFile(f.file, 'utf8')), legacy);
-  await store.transact(draft => { draft.allSessions = true; });
-  await store.close();
-  const reopened = await f.open();
-  assert.deepEqual(reopened.read(), { ...legacy, allSessions: true });
-  await reopened.close();
-  await writeFile(f.file, JSON.stringify({ ...legacy, allSessions: 'false' }));
-  await assert.rejects(f.open(), isError('store_corrupt'));
+  const legacy = {
+    version: 1, storeId, nextUiId: 4,
+    wishes: { enabled: false, maxEntries: 3, maxTextLength: 10, entries: [{ id: 'ui-2', text: 'wish' }] },
+    settings: { enabled: true, maxEntries: 4, maxTextLength: 20, entries: [{ id: 'ui-3', text: 'existing' }] },
+  };
+  for (const scope of [{}, { allSessions: false }, { allSessions: true }]) {
+    const source = JSON.stringify({ ...legacy, ...scope });
+    await writeFile(f.file, source);
+    const store = await f.open();
+    const allSessions = scope.allSessions ?? false;
+    const expected = { ...legacy, version: 2, allSessions, sharedLists: { wishes: allSessions, settings: true } };
+    assert.deepEqual(store.read(), expected);
+    assert.equal(await readFile(f.file, 'utf8'), source);
+    await store.transact(draft => { draft.sharedLists.settings = false; });
+    await store.close();
+    expected.sharedLists.settings = false;
+    const reopened = await f.open();
+    assert.deepEqual(reopened.read(), expected);
+    assert.deepEqual(JSON.parse(await readFile(f.file, 'utf8')), expected);
+    await reopened.close();
+  }
+});
+
+test('malformed scope data is rejected without rewriting the store', async t => {
+  const f = await fixture(t);
+  await mkdir(f.dir);
+  const { sharedLists, ...metadata } = createMemoryState(storeId);
+  for (const invalid of [metadata, { ...metadata, version: 1, allSessions: 'false' },
+    { ...metadata, version: 1, sharedLists }, { ...metadata, sharedLists: null },
+    { ...metadata, sharedLists: { settings: true } }, { ...metadata, sharedLists: { ...sharedLists, wishes: 1 } },
+    { ...metadata, sharedLists: { ...sharedLists, extra: true } }]) {
+    const source = JSON.stringify(invalid);
+    await writeFile(f.file, source);
+    await assert.rejects(f.open(), isError('store_corrupt'));
+    assert.equal(await readFile(f.file, 'utf8'), source);
+  }
 });
 
 test('queued writes read their predecessor; rejected drafts and snapshots cannot change state', async (t) => {
@@ -205,7 +227,7 @@ test('recovery discards only uncommitted temporary files and fails closed when c
   await reopened.close();
   const valid = JSON.stringify(createMemoryState(storeId));
   for (const [invalid, code] of [[Buffer.from([0xff]), 'store_corrupt'], ['{', 'store_corrupt'],
-    [JSON.stringify({ ...createMemoryState(storeId), version: 2 }), 'store_version'],
+    [JSON.stringify({ ...createMemoryState(storeId), version: 3 }), 'store_version'],
     [JSON.stringify({ ...createMemoryState(storeId), nextUiId: 0 }), 'store_corrupt']]) {
     await writeFile(f.file, invalid); await writeFile(f.temp, valid);
     await assert.rejects(f.open(), isError(code));
@@ -290,5 +312,5 @@ test('unverifiable owners are left in place and empty interrupted locks can be a
   await assert.rejects(f.open(), isError('store_locked'));
   assert.deepEqual(await readdir(f.lock), ['unknown-owner']);
   await rm(join(f.lock, 'unknown-owner'), { recursive: true });
-  assert.equal((await f.open()).read().version, 1);
+  assert.equal((await f.open()).read().version, 2);
 });

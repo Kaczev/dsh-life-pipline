@@ -20,11 +20,12 @@ export function apply(ctx, options = {}) {
       return () => { rootOf = undefined; };
     });
   });
-  const inScope = (state, agent) => {
-    if (!state || !agent || typeof agent !== 'object') return false;
+  const allowedInState = (kind, state, agent) => {
+    if (!state?.[kind]?.enabled || !agent || typeof agent !== 'object') return false;
     try {
       const root = rootOf?.(agent);
-      return root === agent && Boolean(root.session?.id) && (state.allSessions || isMain(root.session.id));
+      return root === agent && Boolean(root.session?.id) &&
+        ((state.allSessions && state.sharedLists[kind]) || isMain(root.session.id));
     } catch {
       // Detached and stale agents are not eligible, even in all-sessions mode.
       return false;
@@ -34,11 +35,11 @@ export function apply(ctx, options = {}) {
     const logger = typeof ctx.logger === 'function' ? ctx.logger(name) : ctx.logger;
     logger?.warn?.(`Memory: ${String(error)}`);
   };
-  const service = createMemoryService({ opened: openMemoryStore(options.home ?? homeDir()), inScope, warn });
+  const service = createMemoryService({ opened: openMemoryStore(options.home ?? homeDir()), allowedInState, warn });
   ctx.effect(() => () => service.close());
 
   const settings = createSettingsHandlers({
-    inScope,
+    allowedInState,
     current: async () => {
       try { return await service.readCurrent(); }
       catch { return undefined; } // Fail closed: drop old snapshots without blocking the conversation.

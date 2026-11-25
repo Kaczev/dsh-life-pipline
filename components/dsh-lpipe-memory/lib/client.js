@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "dsh-lpipe-memory",
   factory: (require) => {
     const module = { exports: {} };
-    const MEMORY_LOCALES = {"en":{"title":"Memory Pipeline","allSessions":"Apply to all top-level conversations","mainOnly":"Lpipe main session only","scopeHint":"On: wishes and settings apply to all top-level conversations. Off: only the Lpipe main session. Subagents are always excluded.","wishesHint":"Things you want to do, without deadlines or reminders.","settingsHint":"Information eligible conversations can use by default.","saveOptions":"Save options","unsaved":"Save to apply your changes.","types":"Memory type","wishes":"Wishes","settings":"Settings","enableWishes":"Enable wishes","enableSettings":"Enable settings","disabled":"Off · You can still manage entries","maxEntries":"Maximum entries","maxTextLength":"Characters per entry","save":"Save","saving":"Saving…","loading":"Loading memory…","loadFailed":"Could not load memory. Try again.","saveFailed":"Could not confirm the save. Reload memory before making another change.","reloadMemory":"Reload memory","retry":"Retry","countWishes":"{count} / {limit} wishes","countSettings":"{count} / {limit} settings","full":" · Full","emptyWishes":"No wishes yet.","emptySettings":"No settings yet.","addWishes":"Add wish","addSettings":"Add setting","edit":"Edit","editWishes":"Edit wish","editSettings":"Edit setting","removeWishes":"Remove wish","removeSettings":"Delete setting","removeWishAction":"Remove","removeSettingAction":"Delete","entryAction":"{action}: {text}","confirmWish":"Remove “{text}”?","confirmSetting":"Delete “{text}”?","body":"Text","charCount":"{count} / {limit} characters","cancel":"Cancel","savedWishesConfig":"Wish options saved.","savedSettingsConfig":"Setting options saved.","savedWishes":"Wish saved.","savedSettings":"Setting saved.","removedWishes":"Wish removed.","removedSettings":"Setting deleted.","requiredText":"Enter text.","textLimit":"Use at most {limit} characters.","addLimit":"The list is full. Remove an entry first.","entriesRange":"Enter a whole number from 1 to {limit}.","textRange":"Enter a whole number from 1 to {limit}.","existingEntries":"Remove entries before lowering the limit this far.","existingText":"Shorten or remove entries that exceed the new character limit."},"zh":{"title":"记忆管线","allSessions":"所有顶层对话生效","mainOnly":"仅 Lpipe 主会话","scopeHint":"开启后，欲望与设定在所有顶层对话中生效；关闭后仅在 Lpipe 主会话中生效。子代理始终不受影响。","wishesHint":"想做的事，不是待办，也不会定时提醒。","settingsHint":"生效范围内的对话可以默认采用的信息。","saveOptions":"保存选项","unsaved":"有未保存的修改，保存后生效。","types":"记忆类型","wishes":"欲望","settings":"设定","enableWishes":"启用欲望","enableSettings":"启用设定","disabled":"已关闭 · 仍可管理条目","maxEntries":"最多条数","maxTextLength":"单条字数","save":"保存","saving":"保存中…","loading":"正在读取记忆…","loadFailed":"无法读取记忆，请重试。","saveFailed":"无法确认是否已保存。请先重新读取记忆，再继续修改。","reloadMemory":"重新读取记忆","retry":"重试","countWishes":"{count} / {limit} 条欲望","countSettings":"{count} / {limit} 条设定","full":" · 已满","emptyWishes":"还没有欲望。","emptySettings":"还没有设定。","addWishes":"添加欲望","addSettings":"添加设定","edit":"编辑","editWishes":"编辑欲望","editSettings":"编辑设定","removeWishes":"移除欲望","removeSettings":"删除设定","removeWishAction":"移除","removeSettingAction":"删除","entryAction":"{action}：{text}","confirmWish":"确定移除「{text}」？","confirmSetting":"确定删除「{text}」？","body":"正文","charCount":"{count} / {limit} 字","cancel":"取消","savedWishesConfig":"已保存欲望选项。","savedSettingsConfig":"已保存设定选项。","savedWishes":"已保存欲望。","savedSettings":"已保存设定。","removedWishes":"已移除欲望。","removedSettings":"已删除设定。","requiredText":"请输入正文。","textLimit":"正文最多 {limit} 字。","addLimit":"已达条数上限，请先删除一条。","entriesRange":"请输入 1 到 {limit} 之间的整数。","textRange":"请输入 1 到 {limit} 之间的整数。","existingEntries":"现有条目多于拟设上限，请先删除多出的条目。","existingText":"有条目超过拟设字数，请先缩短或删除。"}};
+    const MEMORY_LOCALES = {"en":{"title":"Memory Pipeline","allSessions":"Apply to all top-level conversations","mainOnly":"Lpipe main session only","scopeHint":"Choose which lists to share. With sharing off, both lists are limited to the Lpipe main session. Subagents are always excluded.","wishesScope":"Share the wish list","settingsScope":"Share the settings list","listScopeHint":"Other top-level conversations can use this list when sharing is on. Turn it off to keep the list in the Lpipe main session.","scopeOffHint":"Turn on sharing above to share this list.","wishesHint":"Things you want to do, without deadlines or reminders.","settingsHint":"Information eligible conversations can use by default.","saveOptions":"Save options","unsaved":"Save to apply your changes.","types":"Memory type","wishes":"Wishes","settings":"Settings","enableWishes":"Enable wishes","enableSettings":"Enable settings","disabled":"Off · You can still manage entries","maxEntries":"Maximum entries","maxTextLength":"Characters per entry","save":"Save","saving":"Saving…","loading":"Loading memory…","loadFailed":"Could not load memory. Try again.","saveFailed":"Could not confirm the save. Reload memory before making another change.","reloadMemory":"Reload memory","retry":"Retry","countWishes":"{count} / {limit} wishes","countSettings":"{count} / {limit} settings","full":" · Full","emptyWishes":"No wishes yet.","emptySettings":"No settings yet.","addWishes":"Add wish","addSettings":"Add setting","edit":"Edit","editWishes":"Edit wish","editSettings":"Edit setting","removeWishes":"Remove wish","removeSettings":"Delete setting","removeWishAction":"Remove","removeSettingAction":"Delete","entryAction":"{action}: {text}","confirmWish":"Remove “{text}”?","confirmSetting":"Delete “{text}”?","body":"Text","charCount":"{count} / {limit} characters","cancel":"Cancel","savedWishesConfig":"Wish options saved.","savedSettingsConfig":"Setting options saved.","savedWishes":"Wish saved.","savedSettings":"Setting saved.","removedWishes":"Wish removed.","removedSettings":"Setting deleted.","requiredText":"Enter text.","textLimit":"Use at most {limit} characters.","addLimit":"The list is full. Remove an entry first.","entriesRange":"Enter a whole number from 1 to {limit}.","textRange":"Enter a whole number from 1 to {limit}.","existingEntries":"Remove entries before lowering the limit this far.","existingText":"Shorten or remove entries that exceed the new character limit."},"zh":{"title":"记忆管线","allSessions":"所有顶层对话生效","mainOnly":"仅 Lpipe 主会话","scopeHint":"选择要共享的清单。关闭总开关后，两份清单都仅限 Lpipe 主会话。子代理始终不参与共享。","wishesScope":"共享欲望清单","settingsScope":"共享设定清单","listScopeHint":"开启后，其他顶层对话也可使用此清单。关闭后仅限 Lpipe 主会话。","scopeOffHint":"开启上方总开关后可共享此清单。","wishesHint":"想做的事，不是待办，也不会定时提醒。","settingsHint":"生效范围内的对话可以默认采用的信息。","saveOptions":"保存选项","unsaved":"有未保存的修改，保存后生效。","types":"记忆类型","wishes":"欲望","settings":"设定","enableWishes":"启用欲望","enableSettings":"启用设定","disabled":"已关闭 · 仍可管理条目","maxEntries":"最多条数","maxTextLength":"单条字数","save":"保存","saving":"保存中…","loading":"正在读取记忆…","loadFailed":"无法读取记忆，请重试。","saveFailed":"无法确认是否已保存。请先重新读取记忆，再继续修改。","reloadMemory":"重新读取记忆","retry":"重试","countWishes":"{count} / {limit} 条欲望","countSettings":"{count} / {limit} 条设定","full":" · 已满","emptyWishes":"还没有欲望。","emptySettings":"还没有设定。","addWishes":"添加欲望","addSettings":"添加设定","edit":"编辑","editWishes":"编辑欲望","editSettings":"编辑设定","removeWishes":"移除欲望","removeSettings":"删除设定","removeWishAction":"移除","removeSettingAction":"删除","entryAction":"{action}：{text}","confirmWish":"确定移除「{text}」？","confirmSetting":"确定删除「{text}」？","body":"正文","charCount":"{count} / {limit} 字","cancel":"取消","savedWishesConfig":"已保存欲望选项。","savedSettingsConfig":"已保存设定选项。","savedWishes":"已保存欲望。","savedSettings":"已保存设定。","removedWishes":"已移除欲望。","removedSettings":"已删除设定。","requiredText":"请输入正文。","textLimit":"正文最多 {limit} 字。","addLimit":"已达条数上限，请先删除一条。","entriesRange":"请输入 1 到 {limit} 之间的整数。","textRange":"请输入 1 到 {limit} 之间的整数。","existingEntries":"现有条目多于拟设上限，请先删除多出的条目。","existingText":"有条目超过拟设字数，请先缩短或删除。"}};
 const React = require('react');
 const h = React.createElement;
 const RPC_ENDPOINT = 'dsh-lpipe-memory';
@@ -50,10 +50,11 @@ const STYLES = `
 .lpipe-memory [role=tab][aria-selected=true] { border-color: var(--memory-line); background: var(--memory-wash); color: var(--memory-accent); font-weight: 650; }
 .lpipe-memory .memory-options { display: grid; gap: 9px; }
 .lpipe-memory .memory-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--memory-soft); border: 1px solid var(--memory-border); border-radius: var(--dsw-radius-sm); }
-.lpipe-memory .memory-switch-label { font-weight: 650; }
+.lpipe-memory .memory-switch-label { font-size: 11px; line-height: 1.4; font-weight: 650; }
 .lpipe-memory .memory-scope { margin-bottom: 8px; }
-.lpipe-memory .memory-scope .memory-switch-label { color: var(--memory-text); font-size: 11px; line-height: 1.4; }
-.lpipe-memory .memory-scope .memory-switch-hint { color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1.45; }
+.lpipe-memory .memory-options > .memory-scope { margin-bottom: 0; }
+.lpipe-memory .memory-scope .memory-switch-label { color: var(--memory-text); }
+.lpipe-memory .memory-scope .memory-switch-hint { color: var(--dsw-alias-label-tertiary); }
 .lpipe-memory .memory-scope .memory-switch::before { background: var(--dsw-alias-label-on-color); }
 .lpipe-memory .memory-scope :is([role=status], [role=alert]):not(:empty) { margin-top: 4px; }
 .lpipe-memory .memory-switch-hint { display: block; margin-top: 2px; }
@@ -81,6 +82,7 @@ const STYLES = `
 .lpipe-memory .memory-entry { min-width: 0; padding: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .lpipe-memory .memory-actions { flex: none; display: flex; gap: 2px; }
 .lpipe-memory .memory-note, .lpipe-memory .memory-error { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.lpipe-memory .memory-switch-hint { font-size: 10px; line-height: 1.45; }
 .lpipe-memory .memory-note { color: var(--memory-muted); font-variant-numeric: tabular-nums; }
 .lpipe-memory .memory-error { color: var(--memory-danger); }
 .lpipe-memory .memory-empty, .lpipe-memory .memory-list-status:not(:empty) { padding: 4px 0; }
@@ -135,7 +137,8 @@ function stateOf(reply) {
   const state = reply.state;
   if (typeof state?.allSessions !== 'boolean') return null;
   for (const kind of KINDS) {
-    const group = state?.[kind];
+    if (typeof state.sharedLists?.[kind] !== 'boolean') return null;
+    const group = state[kind];
     if (typeof group?.enabled !== 'boolean' || !inRange(group.maxEntries, LIMITS.maxEntries)
       || !inRange(group.maxTextLength, LIMITS.maxTextLength) || !Array.isArray(group.entries)
       || group.entries.length > group.maxEntries) return null;
@@ -275,23 +278,26 @@ function MemoryPanel({ rpcCall, locale, t }) {
     setReload(n => n + 1);
   };
 
-  async function setScope(allSessions) {
-    if (write.current || uncertain || allSessions === state.allSessions) return;
+  async function setScope(key, enabled) {
+    if (write.current || uncertain) return;
+    const master = key === 'allSessions';
+    if (!master && !state.allSessions) return;
+    if (enabled === (master ? state.allSessions : state.sharedLists[key])) return;
     const request = new AbortController();
     write.current = request;
-    setPending({ scope: true });
+    setPending({ scope: key });
     setScopeFeedback(null);
     try {
-      const reply = await rpcCall('memory.setScope', allSessions, request.signal);
+      const reply = await rpcCall('memory.setScope', master ? enabled : { kind: key, enabled }, request.signal);
       if (!mounted.current || request.signal.aborted) return;
       const failure = mutationProblem(reply);
       if (failure) {
         if (failure.uncertain) setUncertain('scope');
-        else setScopeFeedback({ issue: failure.issue });
+        else setScopeFeedback({ key, issue: failure.issue });
         return;
       }
       const next = stateOf(reply);
-      if (!next || next.allSessions !== allSessions) throw new Error('Invalid memory scope');
+      if (!next || (master ? next.allSessions : next.sharedLists[key]) !== enabled) throw new Error('Invalid memory scope');
       setState(next);
       setDrafts(previous => rebaseDrafts(previous, state, next));
     } catch {
@@ -380,6 +386,21 @@ function MemoryPanel({ rpcCall, locale, t }) {
       event.preventDefault(); select(KINDS[next], true);
     },
   });
+  const scopeRow = (key, label, hint, checked, disabled) => {
+    const id = key === 'allSessions' ? `${uid}-scope` : `${uid}-${key}-scope`;
+    const saving = pending?.scope === key;
+    return h('div', { id, className: 'memory-scope', 'aria-busy': saving },
+      h('label', { className: 'memory-switch-row' },
+        h('span', null,
+          h('span', { id: `${id}-label`, className: 'memory-switch-label' }, t(label)),
+          h('span', { id: `${id}-hint`, className: 'memory-note memory-switch-hint' }, t(hint))),
+        h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
+          'aria-labelledby': `${id}-label`, 'aria-describedby': `${id}-hint`, checked, disabled: locked || disabled,
+          onChange: event => void setScope(key, event.currentTarget.checked),
+        })),
+      h('p', { role: 'status', className: 'memory-note' }, saving ? t('saving') : null),
+      errorView(scopeFeedback?.key === key && scopeFeedback.issue));
+  };
   const showPanel = key => {
     const section = state[key], draft = drafts[key], labels = LABELS[key], issue = optionIssues[key];
     const issueId = `${uid}-${key}-error`;
@@ -405,6 +426,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
             'aria-label': t(labels.enable), name: 'enabled', checked: draft.enabled,
             disabled: locked, onChange: event => updateDraft(key, 'enabled', event.currentTarget.checked), ...inputError('enabled'),
           })),
+        scopeRow(key, `${key}Scope`, state.allSessions ? 'listScopeHint' : 'scopeOffHint', state.sharedLists[key], !state.allSessions),
         h('div', { className: 'memory-fields' }, Object.keys(LIMITS).map(number)),
         errorView(optionIssue, issueId),
         h('div', { className: 'memory-options-foot' },
@@ -451,20 +473,9 @@ function MemoryPanel({ rpcCall, locale, t }) {
     h('style', null, STYLES),
     h('header', { className: 'memory-head' },
       h('h3', { id: `${uid}-title`, className: 'memory-title' }, 'Lpipe Memory', h('span', { className: 'memory-badge' }, '记忆管线')),
-      h('p', { className: 'memory-note' }, t(state?.allSessions ? 'allSessions' : 'mainOnly'))),
+      h('p', { className: 'memory-note' }, t(state?.allSessions && state.sharedLists[kind] ? 'allSessions' : 'mainOnly'))),
     h('div', { className: 'memory-card' }, state && drafts ? h(React.Fragment, null,
-      h('div', { className: 'memory-scope', 'aria-busy': Boolean(pending?.scope) },
-        h('label', { className: 'memory-switch-row' },
-          h('span', null,
-            h('span', { id: `${uid}-scope-label`, className: 'memory-switch-label' }, t('allSessions')),
-            h('span', { id: `${uid}-scope-hint`, className: 'memory-note memory-switch-hint' }, t('scopeHint'))),
-          h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
-            'aria-labelledby': `${uid}-scope-label`, 'aria-describedby': `${uid}-scope-hint`,
-            checked: state.allSessions, disabled: locked,
-            onChange: event => void setScope(event.currentTarget.checked),
-          })),
-        h('p', { role: 'status', className: 'memory-note' }, pending?.scope ? t('saving') : null),
-        errorView(scopeFeedback?.issue)),
+      scopeRow('allSessions', 'allSessions', 'scopeHint', state.allSessions, false),
       h('div', { role: 'tablist', className: 'memory-tabs', 'aria-label': t('types') }, KINDS.map(tab)),
       KINDS.map(showPanel),
       uncertain && !editing && h('div', null, h('p', { role: 'alert', className: 'memory-error' }, t('saveFailed')), button(t('reloadMemory'), { onClick: retryLoad })),

@@ -290,7 +290,7 @@ test('parallel sibling tool calls with focus_equate are hard-rejected and never 
     session.append('user/message', userMsg('Read file and conclude at once'), { surfaceOp: 'append' });
 
     // Assistant emits both `read` and `focus_equate` in the same message
-    const fcArgs = { key: 'bad-parallel', supersedes: [], conclusions: 'should reject' };
+    const fcArgs = { key: 'bad-parallel', supersedes: [], conclusions: point('should reject') };
     session.append(
       'assistant/message',
       assistantToolCallMsg(1, 1, [
@@ -362,7 +362,7 @@ test('unconverted nudge triggers without percentages, throttles repeats by half-
     const nudgeEvent2 = session.append('user/message', d3.messages[0], { surfaceOp: 'append' });
 
     // Step 5: model calls focus_equate -> both nudges in unconverted layer are shadowed and gone from surface.nodes
-    const fcArgs = { key: 'search-done', supersedes: [], conclusions: 'Summarized huge, small, and more files.' };
+    const fcArgs = { key: 'search-done', supersedes: [], conclusions: point('Summarized huge, small, and more files.') };
     session.append('assistant/message', assistantToolCallMsg(1, 4, [{ id: 'fc-clean', name: FOCUS_TOOL_NAME, args: fcArgs }]), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 4, 'fc-clean', 'ok'), { surfaceOp: 'append' });
 
@@ -412,7 +412,7 @@ test('nudge counts unfinished work across turns and replay, pacing reminders unt
     const repeat = (await check(3)).messages;
     assert.equal(repeat.length, 1, 'repeat at exactly half a threshold of new work');
     append('user/message', repeat[0]);
-    appendCheckpoint(session, 'across-turns', { key: 'both-parts', supersedes: [], conclusions: 'Both parts checked.' });
+    appendCheckpoint(session, 'across-turns', { key: 'both-parts', supersedes: [], conclusions: point('Both parts checked.') });
     assert.deepEqual((await check(3)).messages, [], 'successful fold starts a fresh reminder interval');
     const [conclusion] = focusEvents(session, 'equivalence');
     assert.deepEqual(session.surface.nodes, [head, conclusion.seq], 'the whole skill batch folds with earlier work, continue and both nudges');
@@ -453,7 +453,7 @@ test('active compaction lock avoidance, stale pre-seed lock handling, and strict
     appendSurface(grandchild.session, 'assistant/message', assistantToolCallMsg(1, 1, [{ id: 'nested-read', name: 'read', args: {} }]));
     appendSurface(grandchild.session, 'tool/result', toolResultMsg(1, 1, 'nested-read', 'x'.repeat(20000)));
     assert.equal((await h.runPreStep(grandchild)).messages[0]?.source?.layer, 'nudge');
-    assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: 'v' }, { agent: otherAgent }), /not enabled/);
+    assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: point('v') }, { agent: otherAgent }), /not enabled/);
 
     const section = h.sections[0];
     assert.equal(section.name, 'dsh-lpipe-focus');
@@ -462,7 +462,7 @@ test('active compaction lock avoidance, stale pre-seed lock handling, and strict
     assert.match(section.text({ scope: mainAgent }), /focus_equate/);
     assert.equal(section.text({ scope: otherAgent }), '');
     assert.match(section.text({ scope: childAgent }), /focus_equate/);
-    assert.equal((await tool.execute({ key: 'child-check', supersedes: [], conclusions: 'OK' }, { agent: childAgent })).key, 'child-check');
+    assert.equal((await tool.execute({ key: 'child-check', supersedes: [], conclusions: point('OK') }, { agent: childAgent })).key, 'child-check');
 
     // Non-main session does not fold or nudge
     seedBaseLayer(otherSession);
@@ -473,7 +473,7 @@ test('active compaction lock avoidance, stale pre-seed lock handling, and strict
     // Active compaction lock on main session skips surface rewrite
     seedBaseLayer(session);
     session.append('user/message', userMsg('Work item'), { surfaceOp: 'append' });
-    const fcArgs = { key: 'lock-test', supersedes: [], conclusions: 'val1' };
+    const fcArgs = { key: 'lock-test', supersedes: [], conclusions: point('val1') };
     session.append('assistant/message', assistantToolCallMsg(1, 1, [{ id: 'fc-lock', name: FOCUS_TOOL_NAME, args: fcArgs }]), { surfaceOp: 'append' });
     session.append('tool/result', toolResultMsg(1, 1, 'fc-lock', 'ok'), { surfaceOp: 'append' });
     session.append('compaction/start', { compactionId: 'c-1', turn: 1 });
@@ -512,7 +512,7 @@ test('active compaction lock avoidance, stale pre-seed lock handling, and strict
     ]) {
       assert.equal(options.when({ agent: sub }), false, 'subagent must stay isolated even when allSessions is true');
       assert.equal(section.text({ scope: sub }), '');
-      assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: 'v' }, { agent: sub }), /not enabled/);
+      assert.throws(() => tool.execute({ key: 'k', supersedes: [], conclusions: point('v') }, { agent: sub }), /not enabled/);
     }
     const thirdSession = new FakeSession('third-session');
     const thirdAgent = { id: 'third-session', session: thirdSession };
@@ -574,7 +574,11 @@ function fixture(t, config) {
   return { h, session, agent, check, applyLayer };
 }
 
-const layer = (key, conclusions, extra = {}) => ({ key, supersedes: [], conclusions, ...extra });
+const point = content => [{ content }];
+const detailList = value => typeof value === 'string' ? point(value) : value;
+const listFields = ['definitions', 'experience', 'conclusions', 'guidance', 'work_done', 'todos', 'next'];
+const layer = (key, conclusions, extra = {}) => Object.fromEntries(Object.entries({ key, supersedes: [], conclusions, ...extra })
+  .map(([field, value]) => [field, listFields.includes(field) ? detailList(value) : value]));
 const appendSurface = (session, type, data) => session.append(type, data, { surfaceOp: 'append' });
 const textOf = event => event.data.content.map(block => block.text).join('\n');
 
@@ -586,15 +590,22 @@ function assertLayer(event, { todos, next, ...expected }) {
   assert.deepEqual(fields, expected, 'only durable fields belong in the layer source');
   const text = textOf(event);
   assert.ok(text.startsWith(`<equivalence key="${expected.key}">\n`) && text.endsWith('\n</equivalence>'));
-  const sections = [['definitions', 'Definitions'], ['experience', 'Experience'], ['conclusions', 'Conclusions'], ['guidance', 'Guidance'], ['work_done', 'Work done']];
+  const sections = [['definitions', 'Definitions'], ['experience', 'Experience'], ['guidance', 'Guidance'], ['conclusions', 'Conclusions'], ['work_done', 'Work done']];
   const expectedLines = [`<equivalence key="${expected.key}">`];
   if (expected.supersedes.length) expectedLines.push(`Supersedes: ${expected.supersedes.join(', ')}`);
   for (const [field, label] of sections) {
-    if (expected[field]) expectedLines.push(`${label}: ${expected[field]}`);
+    if (!expected[field]?.length) continue;
+    if (expectedLines.length > 1) expectedLines.push('');
+    expectedLines.push(`## ${label}`, '');
+    for (const { content, known, unknown } of expected[field]) {
+      expectedLines.push(`- ${content.replaceAll('\n', '\n  ')}`);
+      if (known) expectedLines.push(`  - Known: ${known.replaceAll('\n', '\n    ')}`);
+      if (unknown) expectedLines.push(`  - Unknown: ${unknown.replaceAll('\n', '\n    ')}`);
+    }
   }
   expectedLines.push('</equivalence>');
-  assert.equal(text, expectedLines.join('\n'), 'durable sections render once in contract order');
-  if (next) assert.ok(!textOf(event).includes(next), 'next is never part of the durable equivalence layer');
+  assert.equal(text, expectedLines.join('\n'), 'sections and their entries render in order');
+  if (next) for (const entry of next) assert.ok(!text.includes(entry.content), 'next is never part of the durable equivalence layer');
 }
 
 test('complete tail folds across turns, chat, host updates, skill and parallel results; next remains a separate disposable hint', async t => {
@@ -623,13 +634,19 @@ test('complete tail folds across turns, chat, host updates, skill and parallel r
       { type: 'tool-removal', toolName: 'old-audit' }, { type: 'tool-addition', toolName: 'audit' },
     ] },
   });
+  appendSurface(session, 'developer/message', { turn: 2, step: 1,
+    message: { ...userMsg('Preserve the audit scope.', { kind: 'app-context' }), role: 'developer' } });
+  const snapshot = post('Earlier settings', { kind: 'dsh-lpipe-memory/settings' });
+  session.append('developer/message', { turn: 2, step: 1,
+    message: { id: randomUUID(), role: 'developer', source: snapshot.data.source, content: [] } },
+  { surfaceOp: { op: 'replace', startSeq: snapshot.seq, endSeq: snapshot.seq }, sourceEventSeqs: [snapshot.seq] });
   post('Consider a checkpoint', { kind: FOCUS_SOURCE_KIND, layer: 'nudge', form: 'notice' });
   const calls = [{ id: 'load-skill', name: 'skill', args: { name: 'audit' } }, { id: 'sibling', name: 'read', args: { file_path: 'input' } }];
   appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 1, calls));
   appendSurface(session, 'tool/result', toolResultMsg(2, 1, 'sibling', 'Package input'));
   appendSurface(session, 'tool/result', toolResultMsg(2, 1, 'load-skill', 'Read-only audit instructions'));
   post('Continue');
-  const a = layer('release-audit', 'The user authorized a read-only audit of both packages; no publication. The editor reports v2.4 is in staging; this is unverified.', { work_done: 'Compared both manifests.', next: 'Inspect the signing certificates.' });
+  const a = layer('release-audit', point('The user authorized a read-only audit of both packages; no publication. The editor reports v2.4 is in staging; this is unverified.'), { work_done: 'Compared both manifests.', next: 'Inspect the signing certificates.' });
   const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
   appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 2, [{ id: 'first', name: FOCUS_TOOL_NAME, args: a }]));
   const output = await tool.execute(a, { agent });
@@ -641,7 +658,7 @@ test('complete tail folds across turns, chat, host updates, skill and parallel r
   const [hint] = focusEvents(session, 'objective');
   assertLayer(first, a);
   assert.equal(hint.data.source.origin, 'model');
-  assert.ok(textOf(hint).includes(a.next));
+  assert.ok(textOf(hint).includes(a.next[0].content));
   assert.deepEqual(session.surface.nodes, [system, first.seq, hint.seq]);
   assert.deepEqual([...first.sourceEventSeqs, ...(hint.sourceEventSeqs ?? [])].filter(seq => consumed.includes(seq)).sort((a, b) => a - b), consumed, 'every original tail node is shadowed');
 
@@ -651,13 +668,13 @@ test('complete tail folds across turns, chat, host updates, skill and parallel r
   await resume();
   assert.equal(restored.seq, end, 'replaying a successful checkpoint never repeats it');
   appendSurface(restored, 'user/message', userMsg('Check licenses instead.'));
-  const b = layer('package-licenses', 'Both packages declare MIT.');
+  const b = layer('package-licenses', point('Both packages declare MIT.'));
   appendCheckpoint(restored, 'second', b);
   await resume();
   const [, second] = focusEvents(restored, 'equivalence');
   assertLayer(second, b);
   assert.deepEqual(restored.surface.nodes, [system, first.seq, second.seq], 'the first layer stays verbatim; its next and the redirect fold with the work');
-  assert.ok(!textOf(second).includes(a.next));
+  assert.ok(!textOf(second).includes(a.next[0].content));
   assert.equal(focusEvents(restored, 'objective').length, 0, 'an omitted next is never inferred or carried');
 });
 
@@ -665,7 +682,7 @@ test('todo checkpoint keeps its surface range when newer surface context follows
   const { h, session, check } = fixture(t);
   const head = appendSurface(session, 'system/message', sysMsg());
   const args = layer('todo-checkpoint-followed', 'Captured the ongoing review.', {
-    todos: 'Review the remaining files.', next: 'Inspect the next file.',
+    todos: point('Review the remaining files.'), next: point('Inspect the next file.'),
   });
   appendCheckpoint(session, 'todo-followed', args);
   const followup = appendSurface(session, 'user/message', userMsg('Also verify the changelog.'));
@@ -683,7 +700,7 @@ test('a tail todo checkpoint emits its equivalence, current todo and next in one
   const { h, session, applyLayer } = fixture(t);
   const head = appendSurface(session, 'system/message', sysMsg());
   const args = layer('todo-tail', 'The work remains underway.', {
-    todos: 'Review the remaining files.', next: 'Inspect the next file.',
+    todos: point('Review the remaining files.'), next: point('Inspect the next file.'),
   });
   let batch;
   const append = session.append.bind(session);
@@ -702,23 +719,23 @@ test('a tail todo checkpoint emits its equivalence, current todo and next in one
   const [todo] = focusEvents(session, 'todos');
   const [next] = focusEvents(session, 'objective');
   assertLayer(equivalence, args);
-  assert.equal(todo.data.source.rawText, args.todos);
-  assert.equal(textOf(todo), `<current-todos>\n${args.todos}\n</current-todos>`);
+  assert.deepEqual(todo.data.source.entries, args.todos);
+  assert.equal(textOf(todo), `<current-todos>\n${todo.data.source.rawText}\n</current-todos>`);
   assert.equal(next.data.source.layer, 'objective');
-  assert.equal(next.data.source.rawText, args.next);
+  assert.deepEqual(next.data.source.entries, args.next);
   assert.deepEqual(session.surface.nodes, [head.seq, equivalence.seq, todo.seq, next.seq]);
 });
 
 test('a checkpoint with no preceding ordinary work can emit next without protecting it', async t => {
   const { session, applyLayer } = fixture(t);
   const head = appendSurface(session, 'system/message', sysMsg());
-  const firstArgs = layer('package-scope', 'Read-only audit.', { next: 'Read the manifest.' });
+  const firstArgs = layer('package-scope', 'Read-only audit.', { next: point('Read the manifest.') });
   await applyLayer(firstArgs);
   const [first] = focusEvents(session, 'equivalence');
   const [next] = focusEvents(session, 'objective');
   assertLayer(first, firstArgs);
   assert.deepEqual(session.surface.nodes, [head.seq, first.seq, next.seq]);
-  assert.ok(textOf(next).includes(firstArgs.next));
+  assert.ok(textOf(next).includes(firstArgs.next[0].content));
   const secondArgs = layer('license', 'The manifest declares MIT.');
   await applyLayer(secondArgs);
   const [, second] = focusEvents(session, 'equivalence');
@@ -729,7 +746,7 @@ test('a checkpoint with no preceding ordinary work can emit next without protect
 test('an unsafe span is left untouched, not partially folded after the obstacle', async t => {
   for (const [name, obstacle] of [
     ['later system instructions', s => appendSurface(s, 'system/message', sysMsg('New system instructions'))],
-    ['later developer instructions', s => appendSurface(s, 'developer/message', { turn: 1, step: 3, message: { ...userMsg('Never publish.'), role: 'developer', source: { kind: 'developer' } } })],
+    ['tool update without independent schemas', s => appendSurface(s, 'developer/message', { turn: 1, step: 3, message: { id: randomUUID(), role: 'developer', source: { kind: 'tool-registry' }, content: [{ type: 'tool-removal', toolName: 'audit' }] } })],
     ['missing sibling result', s => {
       appendSurface(s, 'assistant/message', assistantToolCallMsg(1, 3, [{ id: 'a', name: 'read', args: {} }, { id: 'b', name: 'skill', args: {} }]));
       appendSurface(s, 'tool/result', toolResultMsg(1, 3, 'a', 'Only one result'));
@@ -790,7 +807,7 @@ test('a completed checkpoint before a later committed direction and open batch p
   const { h, session } = fixture(t);
   const [head] = seedBaseLayer(session);
   appendRead(session, 'search', 'Located the manifest.');
-  const args = layer('manifest-file', 'The manifest is in packages/core.', { next: 'Read its metadata.' });
+  const args = layer('manifest-file', 'The manifest is in packages/core.', { next: point('Read its metadata.') });
   appendCheckpoint(session, 'manifest', args);
   const redirect = appendSurface(session, 'user/message', userMsg('Inspect its license first.'));
   const open = appendSurface(session, 'assistant/message', assistantToolCallMsg(2, 1, [{ id: 'later', name: 'read', args: { file_path: 'LICENSE' } }]));
@@ -807,8 +824,10 @@ test('a completed checkpoint before a later committed direction and open batch p
 test('consecutive pending checkpoints retain both durable layers but only the latest todo and next on replay', async t => {
   const { h, session } = fixture(t);
   const [head] = seedBaseLayer(session);
-  const a = layer('package-location', 'The manifest is under packages/core.', { todos: 'Review the license.', next: 'Inspect the license.' });
-  const b = { key: 'license-scope', supersedes: [], guidance: 'The user requires a read-only license review.', next: 'Verify the license notice.' };
+  const pending = [{ content: 'Review the license.', known: 'Manifest is available.', unknown: 'License version.' }, { content: 'Report to the user.' }];
+  const a = layer('package-location', 'The manifest is under packages/core.', { todos: pending, next: point('Inspect the license.') });
+  const b = { key: 'license-scope', supersedes: [], guidance: point('The user requires a read-only license review.'),
+    next: [{ content: 'Verify the license notice.', known: 'Read-only review.' }, { content: 'Compare it with the manifest.' }] };
   appendCheckpoint(session, 'location', a);
   appendCheckpoint(session, 'license-review', b);
   const restored = replaySession(session);
@@ -819,8 +838,10 @@ test('consecutive pending checkpoints retain both durable layers but only the la
   assertLayer(second, b);
   const [todo] = focusEvents(restored, 'todos');
   const [next] = focusEvents(restored, 'objective');
-  assert.equal(todo.data.source.rawText, a.todos, 'the second checkpoint omits todos');
-  assert.equal(next.data.source.rawText, b.next);
+  assert.deepEqual(todo.data.source.entries, a.todos, 'the second checkpoint omits todos');
+  assert.deepEqual(next.data.source.entries, b.next);
+  assert.match(todo.data.source.rawText, /Review the license\./);
+  assert.match(next.data.source.rawText, /Verify the license notice\./);
   assert.deepEqual(restored.surface.nodes, [head, first.seq, second.seq, todo.seq, next.seq]);
   const replay = replaySession(restored);
   const resumed = { id: replay.id, session: replay };
@@ -828,7 +849,7 @@ test('consecutive pending checkpoints retain both durable layers but only the la
   await h.runPreStep(resumed);
   assert.equal(replay.seq, end, 'replay does not fold either checkpoint again');
 
-  const clear = layer('license-reviewed', 'The license notice is verified.', { todos: '' });
+  const clear = layer('license-reviewed', 'The license notice is verified.', { todos: [] });
   appendCheckpoint(replay, 'done', clear);
   await h.runPreStep(resumed);
   const last = focusEvents(replay, 'equivalence').at(-1);
@@ -845,16 +866,16 @@ test('folded diagnostics preserve original arguments in batch order without chan
   const { h, session, check } = fixture(t);
   seedBaseLayer(session);
   const a = layer('assistant-args', '  assistant finding\n', {
-    definitions: '', experience: '\t', work_done: ' read both files ', next: ' earlier hint ',
+    work_done: point(' read both files '), next: point(' earlier hint '),
   });
-  const b = layer('trace-args', '\ntrace finding\t', { supersedes: [a.key], next: '', definitions: ' exact term ' });
+  const b = layer('trace-args', '\ntrace finding\t', { supersedes: [a.key], next: [], definitions: point(' exact term ') });
   const addTraced = (id, assistantArgs, traceArgs) => {
     const step = session.seq;
     appendSurface(session, 'assistant/message', assistantToolCallMsg(1, step, [{ id, name: FOCUS_TOOL_NAME, args: assistantArgs }]));
     session.append('tool/call', { turn: 1, step, callId: id, name: FOCUS_TOOL_NAME, arguments: traceArgs });
     appendSurface(session, 'tool/result', toolResultMsg(1, step, id, 'Recorded'));
   };
-  addTraced('first', a, { ...a, conclusions: 'assistant finding', experience: '' });
+  addTraced('first', a, { ...a, conclusions: point('assistant finding') });
   addTraced('second', undefined, b);
   await check();
   await check();
@@ -872,7 +893,7 @@ test('a folded diagnostic exceeding the UTF-8 rolling budget is readable as one 
   const { h, session, applyLayer } = fixture(t);
   seedBaseLayer(session);
   const args = layer('oversize-audit', 'Verified.', { work_done: '\u3000'.repeat(700000) + ' done ' });
-  assert.ok(Buffer.byteLength(args.work_done, 'utf8') > 2 * 1024 * 1024);
+  assert.ok(Buffer.byteLength(args.work_done[0].content, 'utf8') > 2 * 1024 * 1024);
   await applyLayer(args);
   const rows = readFoldDiagnostics(h);
   assert.equal(rows.length, 1);
@@ -884,18 +905,20 @@ test('a changed definition keeps both meanings in order until a later layer expl
   const { h, session, applyLayer, check } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
   const prompt = h.sections[0].text({ scope: { id: session.id, session } });
-  assert.match(prompt, /scope and force of that guidance/i);
+  assert.match(prompt, /decisions, corrections, and open questions can also accumulate across short exchanges/i);
+  assert.match(prompt, /if your next reply or action depends on those details, fold before using them/i);
   const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
-  assert.match(tool.parameters.properties.definitions.description, /retain an earlier meaning/i);
-  const first = { key: 'launch-in-design', supersedes: [], definitions: 'In design, launch means the first internal demo.' };
-  const second = { key: 'launch-in-ops', supersedes: [], definitions: 'In operations, launch means public availability.', next: 'Ask which audience is in scope.' };
+  assert.match(tool.description, /detail list/i);
+  assert.match(tool.parameters.properties.definitions.description, /earlier meanings/i);
+  const first = { key: 'launch-in-design', supersedes: [], definitions: point('In design, launch means the first internal demo.') };
+  const second = { key: 'launch-in-ops', supersedes: [], definitions: point('In operations, launch means public availability.'), next: point('Ask which audience is in scope.') };
   await applyLayer(first);
   await applyLayer(second);
   const [a, b] = focusEvents(session, 'equivalence');
   const [hint] = focusEvents(session, 'objective');
   assertLayer(a, first);
   assertLayer(b, second);
-  assert.ok(textOf(hint).includes(second.next));
+  assert.ok(textOf(hint).includes(second.next[0].content));
   const pressure = [userMsg('x'.repeat(32000))];
   assert.equal((await check(pressure)).messages.at(-1).source.layer, 'pressure');
   assert.deepEqual(session.surface.nodes, [head, a.seq, b.seq, hint.seq]);
@@ -903,9 +926,9 @@ test('a changed definition keeps both meanings in order until a later layer expl
   const restored = replaySession(session);
   const agent = { id: restored.id, session: restored };
   const current = { key: 'launch-by-stage', supersedes: [first.key, second.key],
-    definitions: `${first.definitions}\n${second.definitions}`, experience: 'Check the audience before scheduling a launch.',
-    conclusions: 'The operations launch is still pending.', guidance: 'Use the team’s stage-specific terminology.',
-    work_done: 'Confirmed the design demo took place.' };
+    definitions: [{ content: `${first.definitions[0].content}\n${second.definitions[0].content}` }], experience: point('Check the audience before scheduling a launch.'),
+    conclusions: point('The operations launch is still pending.'), guidance: point('Use the team’s stage-specific terminology.'),
+    work_done: point('Confirmed the design demo took place.') };
   appendCheckpoint(restored, 'both-meanings', current);
   await h.runPreStep(agent);
   assert.deepEqual(focusEvents(restored, 'equivalence').map(e => e.data.source.key), [first.key, second.key, current.key]);
@@ -932,7 +955,7 @@ test('older tool receipts and conclusion sources are ordinary context, not equiv
   const { messages } = await h.runPreStep(agent, [request]);
   assert.deepEqual(restored.surface.nodes, original, 'old calls do not materialize on replay');
   assert.deepEqual(messages.map(m => m.source.layer), [undefined, 'nudge'], 'old layers neither reset the meter nor trigger pressure');
-  const args = { key: 'observations', supersedes: [], experience: 'Use the trace to distinguish attempts from success.' };
+  const args = { key: 'observations', supersedes: [], experience: point('Use the trace to distinguish attempts from success.') };
   appendCheckpoint(restored, 'observations', args);
   await h.runPreStep(agent);
   const [current] = focusEvents(restored, 'equivalence');
@@ -944,7 +967,7 @@ test('invalid equivalence sources do not reset the work meter, trigger pressure 
   const { session, check, applyLayer } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
   appendSurface(session, 'assistant/message', assistantTextMsg(1, 1, 'x'.repeat(16000)));
-  const source = { kind: FOCUS_SOURCE_KIND, layer: 'equivalence', key: 'mixed', supersedes: [], definitions: 'New spelling.' };
+  const source = { kind: FOCUS_SOURCE_KIND, layer: 'equivalence', key: 'mixed', supersedes: [], definitions: point('New spelling.') };
   appendSurface(session, 'user/message', userMsg('Mixed format.', { ...source, result: 'Obsolete field.' }));
   appendSurface(session, 'user/message', userMsg('Unknown reference.', { ...source, key: 'unknown', supersedes: ['missing'] }));
   const before = session.surface.nodes;
@@ -967,7 +990,7 @@ test('idle and pressure remove only explicitly superseded layers, preserving ful
       const a = layer('original-location', 'The first manifest was under src.');
       const keep = layer('original-constraints', 'Keep intact: ' + 'x'.repeat(4700) + ' END_OF_RECORD', { work_done: 'Captured the original constraints.' });
       const b = layer('temp-location', 'An intermediate manifest used tmp/.');
-      const current = layer('verified-location', 'The current manifest is under pkg/.', { supersedes: [a.key, b.key], next: 'Run the audit without editing.' });
+      const current = layer('verified-location', 'The current manifest is under pkg/.', { supersedes: [a.key, b.key], next: point('Run the audit without editing.') });
       for (const args of [a, keep, b, current]) await applyLayer(args);
       assert.deepEqual(focusEvents(session, 'equivalence').map(e => e.data.source.key), [a.key, keep.key, b.key, current.key], 'ordinary folds stack even explicitly covered layers until cleanup');
       const [hint] = focusEvents(session, 'objective');
@@ -992,7 +1015,7 @@ test('idle and pressure remove only explicitly superseded layers, preserving ful
 test('low-space notices do not evict or truncate valid layers and are deduplicated on input and replay', async t => {
   const { h, session, check, applyLayer } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
-  const record = layer('full-result', 'a'.repeat(7000) + ' EXACT_END', { work_done: 'Verified the full record.' });
+  const record = layer('full-result', 'a'.repeat(7000) + ' EXACT_END', { work_done: point('Verified the full record.') });
   await applyLayer(record);
   const [conclusion] = focusEvents(session, 'equivalence');
   const input = userMsg('z'.repeat(33000));
@@ -1020,7 +1043,7 @@ test('the public tool requires a fresh key, explicit supersedes and nonblank equ
   const valid = layer('release-audit-2', 'Located both manifests.\nOne uses MIT.', { supersedes: ['old-audit'], work_done: 'Read both manifests.', next: 'Compare their licenses.' });
   assert.deepEqual(validateFocusEquateArgs(valid), valid);
   const minimal = layer('complete', 'Checked.');
-  assert.deepEqual(validateFocusEquateArgs({ ...minimal, next: '  ', work_done: '' }), minimal);
+  assert.equal(validateFocusEquateArgs({ ...minimal, next: [], work_done: [] }).key, minimal.key);
   for (const bad of [null, {}, { ...minimal, key: ['a', 'b'] }, ...['', 'a.b', 'A-b', '-a', 'a-', 'a--b', 'two_words', 'a b', ' trim', 'bad\nkey'].map(key => ({ ...minimal, key })),
     { key: 'a', conclusions: 'Missing array' }, { ...minimal, supersedes: 'old-audit' }, { ...minimal, supersedes: [12] },
     { ...minimal, supersedes: ['old-audit', 'old-audit'] }, { ...minimal, supersedes: ['complete'] }, { ...minimal, supersedes: ['bad.key'] },

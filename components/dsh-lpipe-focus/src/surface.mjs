@@ -97,8 +97,11 @@ function fixed(ev, independentTools) {
   if (ev?.type === 'system/message') return true;
   if (ev?.type !== 'developer/message') return false;
   const msg = ev.data?.message;
-  return !(msg?.source?.kind === 'tool-registry' && Array.isArray(msg.content) && msg.content.length &&
-    msg.content.every(b => (b?.type === 'tool-addition' || b?.type === 'tool-removal') && typeof b.toolName === 'string' && b.toolName.length > 0
+  const registry = msg?.source?.kind === 'tool-registry';
+  const toolChange = b => b?.type === 'tool-addition' || b?.type === 'tool-removal';
+  if (!registry) return msg?.content?.some(toolChange) === true;
+  return !(Array.isArray(msg.content) && msg.content.length &&
+    msg.content.every(b => toolChange(b) && typeof b.toolName === 'string' && b.toolName.length > 0
       && Object.keys(b).every(key => key === 'type' || key === 'toolName')) && independentTools());
 }
 export function foldPendingEquivalences(session, { now = Date.now(), turn = 0, step = 0, onDiagnostic = () => {} } = {}) {
@@ -129,8 +132,8 @@ export function foldPendingEquivalences(session, { now = Date.now(), turn = 0, s
     const end = i + 1;
     const messages = [buildFocusLayerMessage(layer, now)];
     if (match === matches.at(-1)) {
-      if (currentTodos) messages.push(buildTodoMessage(currentTodos, now));
-      if (layer.next) messages.push(buildObjectiveMessage({ rawText: layer.next, origin: 'model', now }));
+      if (currentTodos?.length) messages.push(buildTodoMessage(currentTodos, now));
+      if (layer.next?.length) messages.push(buildObjectiveMessage({ entries: layer.next, origin: 'model', now }));
     }
     const slots = end - start + 1;
     // Append only at the true tail. Otherwise a hint could override newer instructions.

@@ -1,4 +1,4 @@
-import { applyToolMutation, applyUiMutation, MemoryError, validateToolInput, validateUiInput } from './store.mjs';
+import { applyToolMutation, applyUiMutation, MemoryError, validateScopeInput, validateToolInput, validateUiInput } from './store.mjs';
 
 const BUSINESS_ERRORS = new Set(['entry_limit', 'text_limit', 'reserved_id', 'not_found', 'id_exhausted', 'empty_text']);
 const unavailable = () => ({ ok: false, code: 'not_available', message: 'This memory tool is not enabled for this session.' });
@@ -13,21 +13,20 @@ function failure(error, warn) {
   return { ok: false, code: 'store_io', message: 'Memory could not be accessed.' };
 }
 
-export function createMemoryService({ opened, inScope, warn = () => {} }) {
+export function createMemoryService({ opened, allowedInState, warn = () => {} }) {
   let store;
   let live = true;
   const ready = opened.then(value => { store = value; return value; });
   // Report open failures via RPC, not as an unhandled rejection or a failed plugin load.
   ready.catch(() => {});
   const current = () => live && store ? store.read() : undefined;
-  const allowedInState = (kind, state, subject) => state?.[kind]?.enabled === true && inScope(state, subject);
   const allowed = (kind, subject) => {
     try { return allowedInState(kind, current(), subject); }
     catch { return false; }
   };
   const withWishes = (kind, state, result) => kind === 'wishes'
     ? { ...result, wishes: state.wishes.entries.map(entry => ({ ...entry })) } : result;
-  const publicState = ({ allSessions, wishes, settings }) => ({ allSessions, wishes, settings });
+  const publicState = ({ allSessions, sharedLists, wishes, settings }) => ({ allSessions, sharedLists, wishes, settings });
   return {
     allowed, async readCurrent() { await ready; return current(); },
     async close() {
@@ -71,14 +70,14 @@ export function createMemoryService({ opened, inScope, warn = () => {} }) {
         }
         if (method === 'memory.mutate' || method === 'memory.setScope') {
           const setScope = method === 'memory.setScope';
-          if (setScope) {
-            if (typeof payload !== 'boolean') return invalid('memory.setScope requires a boolean payload.');
-          } else validateUiInput(payload);
+          if (setScope) validateScopeInput(payload);
+          else validateUiInput(payload);
           const value = await ready;
           return await value.transact(state => {
             if (!live) return { ok: false, code: 'store_closed', message: 'Memory is closed.' };
-            if (setScope) state.allSessions = payload;
-            else applyUiMutation(state, payload);
+            if (!setScope) applyUiMutation(state, payload);
+            else if (typeof payload === 'boolean') state.allSessions = payload;
+            else state.sharedLists[payload.kind] = payload.enabled;
             return { ok: true, state: publicState(state) };
           });
         }
