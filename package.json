@@ -1,6 +1,6 @@
 {
   "name": "dsh-life-pipline",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "workspaces": [
     "components/dsh-lpipe-bili",
     "components/dsh-lpipe-chat",
