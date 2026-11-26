@@ -12,7 +12,7 @@ function snapshot(state, sessionId) {
   return {
     id: randomUUID(), role: 'user',
     source: { kind: SETTINGS_SOURCE, storeId: state.storeId, sessionId, format: FORMAT, digest },
-    content: [{ type: 'text', text: `This list replaces all earlier Lpipe settings lists.\n${list}` }],
+    content: [{ type: 'text', text: `<system-reminder>\nThis list replaces all earlier Lpipe settings lists.\n${list}\n</system-reminder>` }],
   };
 }
 

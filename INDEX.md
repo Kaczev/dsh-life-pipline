@@ -31,6 +31,7 @@
 - [components/dsh-lpipe-chat/](components/dsh-lpipe-chat/)：社交通道组件包（微信 / QQ），独立设置块只依赖核心。
 - [components/dsh-lpipe-wake/](components/dsh-lpipe-wake/)：唤醒组件包（自然唤醒 + 自主安排的主动唤醒），同样是独立 bundle，依赖核心。
 - [记忆管线导航](components/dsh-lpipe-memory/INDEX.md)：欲望与设定（LP 主对话或所有顶层对话）、Lpipe 设置面板；不归档对话。
+- [事件型长期记忆短方案](不入库/管线规划/dsh-lpipe-memory-event.md)：按需查询、显式规则、语义自动召回三种路线及验收案例；未实现讨论稿。
 
 ### 旧组件源码（不随整合包安装）
 
