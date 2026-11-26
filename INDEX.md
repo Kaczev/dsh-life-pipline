@@ -117,7 +117,7 @@
 - [package.json](components/dsh-lpipe-memory/package.json)、[cordis.patch.yml](components/dsh-lpipe-memory/cordis.patch.yml)：宿主与客户端入口、打包及独立挂载。
 - [src/index.js](components/dsh-lpipe-memory/src/index.js)、[src/prompt.mjs](components/dsh-lpipe-memory/src/prompt.mjs)：主会话接入和两段提示词。
 - [src/tools.mjs](components/dsh-lpipe-memory/src/tools.mjs)、[src/service.mjs](components/dsh-lpipe-memory/src/service.mjs)：工具 schema、操作权限及面板 RPC。
-- [src/settings-context.mjs](components/dsh-lpipe-memory/src/settings-context.mjs)：在模型请求前投递、复用或撤销设定清单。
+- [src/settings-context.mjs](components/dsh-lpipe-memory/src/settings-context.mjs)：在 pre-step 去重并追加完整设定清单，保留旧清单。
 - [src/store.mjs](components/dsh-lpipe-memory/src/store.mjs)：数据格式、校验、事务及恢复。
 - [client/panel.js](components/dsh-lpipe-memory/client/panel.js)、[scripts/build-client.mjs](components/dsh-lpipe-memory/scripts/build-client.mjs)：设置面板及其客户端产物构建。
 - [test/host.test.mjs](components/dsh-lpipe-memory/test/host.test.mjs)、[test/store.test.mjs](components/dsh-lpipe-memory/test/store.test.mjs)、[test/client.test.mjs](components/dsh-lpipe-memory/test/client.test.mjs)：宿主、存储及客户端回归。

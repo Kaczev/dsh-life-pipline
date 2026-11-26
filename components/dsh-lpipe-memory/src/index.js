@@ -42,11 +42,10 @@ export function apply(ctx, options = {}) {
     allowedInState,
     current: async () => {
       try { return await service.readCurrent(); }
-      catch { return undefined; } // Fail closed: drop old snapshots without blocking the conversation.
+      catch { return undefined; } // Leave history untouched if the store cannot be read.
     },
   });
   ctx.on('agent/pre-step', settings.preStep, { prepend: true });
-  ctx.on('agent/request', settings.request, { prepend: true });
 
   ctx.inject(['tools'], toolsCtx => {
     for (const kind of MEMORY_KINDS) {
