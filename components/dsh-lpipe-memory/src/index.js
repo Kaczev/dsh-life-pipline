@@ -1,9 +1,10 @@
 import { registerDependencies } from 'dsh-life-core/dependencies';
 import { homeDir } from 'dsh-life-core/internal/paths';
-import { isMainSession, registerMainSection } from 'dsh-life-core/main-session';
+import { mainSessionId, isMainSession, registerMainSection } from 'dsh-life-core/main-session';
 import { SETTING_PROMPT, WISH_PROMPT } from './prompt.mjs';
 import { createMemoryService, registerMemoryRpc } from './service.mjs';
 import { createSettingsHandlers } from './settings-context.mjs';
+import { createReviewRunner } from './review.mjs';
 import { openMemoryStore } from './store.mjs';
 import { createMemoryTool } from './tools.mjs';
 import { createRecollectionTool, RECOLLECTION_PROMPT } from './recollection-tools.mjs';
@@ -37,6 +38,11 @@ export function apply(ctx, options = {}) {
   };
   const service = createMemoryService({ opened: openMemoryStore(options.home ?? homeDir()), allowedInState, warn });
   ctx.effect(() => () => service.close());
+  ctx.inject(['sessionController'], host => {
+    if (!host.sessionController) return;
+    const runner = createReviewRunner({ current: service.readCurrent, advance: service.advanceReview, mainId: options.mainId ?? mainSessionId, controller: host.sessionController, warn });
+    host.effect(() => { runner.start(); return () => runner.dispose(); });
+  });
   const settings = createSettingsHandlers({
     allowedInState,
     current: async () => {

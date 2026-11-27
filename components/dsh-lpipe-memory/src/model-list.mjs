@@ -13,6 +13,7 @@ export function renderEntries(tag, entries) {
 }
 
 export function renderSceneEntries(tag, scene, entries) {
-  const rows = entries.map(({ id, text }) => `- ${id}: ${escapeBody(text)}`).join('\n') || '(empty)';
+  const list = items => items.map(({ id, text }) => `- ${id}: ${escapeBody(text)}`).join('\n') || '(empty)';
+  const rows = !scene ? list(entries) : `## Recollections\n${list(entries.filter(e => e.kind !== 'thought'))}\n\n## Thoughts\n${list(entries.filter(e => e.kind === 'thought'))}`;
   return `<${tag}${scene ? ` scene="${scene}"` : ''}>\n${rows}\n</${tag}>`;
 }

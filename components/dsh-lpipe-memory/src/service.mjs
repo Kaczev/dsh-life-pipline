@@ -1,6 +1,6 @@
 import { applyToolMutation, applyUiMutation, MemoryError, validateScopeInput, validateToolInput, validateUiInput } from './store.mjs';
 
-import { applySceneMutation, applyRecollectionMutation, validateSceneInput, validateRecollectionInput, readScene } from './store.mjs';
+import { applySceneMutation, applyRecollectionMutation, validateSceneInput, validateRecollectionInput, readScene, configureReview, nextReviewAt } from './store.mjs';
 
 const BUSINESS_ERRORS = new Set(['entry_limit', 'text_limit', 'reserved_id', 'not_found', 'id_exhausted', 'empty_text']);
 const unavailable = () => ({ ok: false, code: 'not_available', message: 'This memory tool is not enabled for this session.' });
@@ -28,9 +28,15 @@ export function createMemoryService({ opened, allowedInState, warn = () => {} })
   };
   const withWishes = (kind, state, result) => kind === 'wishes'
     ? { ...result, wishes: state.wishes.entries.map(entry => ({ ...entry })) } : result;
-  const publicState = ({ allSessions, sharedLists, wishes, settings, recollections: { selections: _private, ...recollections } }) => ({ allSessions, sharedLists, wishes, settings, recollections });
+  const publicState = ({ allSessions, sharedLists, wishes, settings, review, recollections: { selections: _private, ...recollections } }) => ({ allSessions, sharedLists, wishes, settings, review, recollections });
   return {
     allowed, async readCurrent() { await ready; return current(); },
+    async advanceReview(due, now) {
+      const value = await ready;
+      return value.transact(state => {
+        if (live && state.review.enabled && state.review.nextReviewAt === due) state.review.nextReviewAt = nextReviewAt(state.review.time, now);
+      });
+    },
     async close() {
       live = false;
       const value = await ready.catch(() => undefined);
@@ -85,6 +91,14 @@ export function createMemoryService({ opened, allowedInState, warn = () => {} })
           const value = await ready;
           if (!live) return { ok: false, code: 'store_closed', message: 'Memory is closed.' };
           return { ok: true, state: publicState(value.read()) };
+        }
+        if (method === 'memory.setReview') {
+          const value = await ready;
+          return await value.transact(state => {
+            if (!live) return { ok: false, code: 'store_closed', message: 'Memory is closed.' };
+            configureReview(state, payload);
+            return { ok: true, state: publicState(state) };
+          });
         }
         if (method === 'memory.mutate' || method === 'memory.setScope') {
           const setScope = method === 'memory.setScope';

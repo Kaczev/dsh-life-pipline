@@ -140,14 +140,14 @@ function mountMemoryPanel() {
 }
 
 const snapshot = (allSessions, wishes = {}, settings = {}, sharedLists = { wishes: true, settings: true }) => ({
-  ok: true, state: { allSessions, sharedLists: { recollections: false, ...sharedLists }, wishes: section(wishes), settings: section(settings), recollections: { enabled: true, maxScenes: 12, maxEntries: 8, maxDescriptionLength: 64, maxTextLength: 160, scenes: [] } },
+  ok: true, state: { allSessions, review: { enabled:false,time:'04:00' }, sharedLists: { recollections: false, ...sharedLists }, wishes: section(wishes), settings: section(settings), recollections: { enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts:4, maxDescriptionLength: 64, maxTextLength: 160, scenes: [] } },
 });
 
 test('Recollection panel manages scene and entry lifecycle with explicit names and four safe limits', async () => {
   const ui = mountMemoryPanel(), snap = snapshot(true), group = snap.state.recollections;
   await ui.respond('memory.state', null, snap);
   ui.click(ui.button('recollections'));
-  assert.deepEqual(['maxScenes','maxEntries','maxDescriptionLength','maxTextLength'].map(k => ui.option('recollections', k).props.value), [12,8,64,160]);
+  assert.deepEqual(['maxScenes','maxEntries','maxThoughts','maxDescriptionLength','maxTextLength'].map(k => ui.option('recollections', k).props.value), [12,8,4,64,160]);
   const pane = () => ui.find(n => n.props.id === 'memory-test-recollections-pane');
   const dialog = () => ui.find(n => n.type === 'dialog');
   const submit = () => ui.submit(ui.find(n => n.type === 'form', dialog()));
@@ -166,18 +166,18 @@ test('Recollection panel manages scene and entry lifecycle with explicit names a
   ui.change(ui.option('recollections','maxDescriptionLength'), { valueAsNumber: 24 });
   ui.submit(ui.find(n => n.type === 'form', pane()));
   group.maxDescriptionLength = 24;
-  await reply('configure', { config: { enabled:true, maxScenes:12, maxEntries:8, maxTextLength:160, maxDescriptionLength:24 } });
+  await reply('configure', { config: { enabled:true, maxScenes:12, maxEntries:8, maxThoughts:4, maxTextLength:160, maxDescriptionLength:24 } });
   ui.click(ui.button('addRecollection')); set('input','Bad_1'); set('textarea','detail'); submit();
   assert.equal(ui.requests.length,0);
   set('input','first-detail'); submit();
-  row.entries.push({ id:'first-detail', text:'detail' });
+  row.entries.push({ id:'first-detail', text:'detail', kind:'recollection' });
   const target = { scene: row.scene, id:'first-detail' };
-  await reply('addEntry', { ...target,text:'detail' });
+  await reply('addEntry', { ...target,text:'detail', entryKind:'recollection' });
   assert.equal(ui.button('removeScene').props.disabled, true);
-  const list = () => ui.find(n => n.type === 'ul',pane());
+  const list = () => ui.find(n => n.type === 'ul' && n.props['aria-label'] === ui.dictionary[row.entries[0].kind === 'thought' ? 'thoughts' : 'recollections'],pane());
   ui.click(ui.find(n => n.type === 'button' && n.children[0] === ui.dictionary.edit,list()));
-  set('textarea','revised'); submit(); row.entries[0].text = 'revised';
-  await reply('updateEntry',{ ...target,text:'revised' });
+  set('select','thought'); set('textarea','revised'); submit(); row.entries[0].text = 'revised'; row.entries[0].kind = 'thought';
+  await reply('updateEntry',{ ...target,text:'revised', entryKind:'thought' });
   ui.click(ui.find(n => n.type === 'button' && n.children[0] === ui.dictionary.removeSettingAction,list()));
   submit(); row.entries.pop(); await reply('removeEntry',target);
   ui.click(ui.button('removeScene')); submit(); group.scenes.pop(); await reply('removeScene',{ scene:row.scene });
@@ -203,7 +203,7 @@ test('Recollection browser writes only explicit scoped edits and recovers drafts
   ui.change(input(), { value: 'first-visit' });
   ui.change(body(), { value: 'A specific visit.' });
   ui.submit(form());
-  const payload = { kind: 'recollections', action: 'addEntry', scene: 'second', id: 'first-visit', text: 'A specific visit.' };
+  const payload = { kind: 'recollections', action: 'addEntry', scene: 'second', id: 'first-visit', entryKind:'recollection', text: 'A specific visit.' };
   await ui.respond('memory.mutate', payload, new Error('lost reply'));
   ui.click(ui.button('reloadMemory'));
   await ui.respond('memory.state', null, snap);
@@ -214,11 +214,24 @@ test('Recollection browser writes only explicit scoped edits and recovers drafts
   ui.submit(form());
   await ui.respond('memory.mutate', payload, { ok: false, code: 'commit_uncertain' });
   ui.click(ui.button('reloadMemory'));
-  snap.state.recollections.scenes[1].entries.push({ id: payload.id, text: payload.text });
+  snap.state.recollections.scenes[1].entries.push({ id: payload.id, text: payload.text, kind:payload.entryKind });
   await ui.respond('memory.state', null, snap);
   assert.equal(dialog().children[0], null);
   assert.equal(ui.button('removeScene').props.disabled, true);
   assert.equal(ui.requests.length, 0);
+});
+
+test('Review time and global switch persist independently of sharing', async () => {
+  const ui = mountMemoryPanel(), snap = snapshot(false);
+  await ui.respond('memory.state', null, snap);
+  const toggle = () => ui.find(n => n.props.role === 'switch' && n.props['aria-labelledby'] === 'memory-test-review-scope-label');
+  const clock = () => ui.find(n => n.props.type === 'time');
+  assert.equal(toggle().props.checked,false); assert.equal(clock().props.value,'04:00');
+  ui.change(clock(), { value:'05:30' }); snap.state.review.time='05:30';
+  await ui.respond('memory.setReview',{enabled:false,time:'05:30'},snap);
+  ui.change(toggle(),{checked:true}); snap.state.review.enabled=true;
+  await ui.respond('memory.setReview',{enabled:true,time:'05:30'},snap);
+  assert.equal(toggle().props.checked,true); assert.equal(ui.scopeSwitch().props.checked,false);
 });
 
 test('Memory scope switch waits for the Host and rebases drafts in both tabs on success', async () => {

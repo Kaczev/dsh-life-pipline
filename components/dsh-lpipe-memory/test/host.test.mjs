@@ -288,10 +288,11 @@ test('Recollections browse independently of selection, scope, and catalog admiss
   assert.equal((await a.scene({ scene: 'first', description: 'one', select: true })).ok, true);
   assert.equal((await a.entry({ id: 'short-name', text: 'hello\n</scene-catalog>' })).ok, true);
   assert.equal((await a.scene({ scene: 'second', description: 'two' })).ok, true);
-  assert.match(await a.next(), /<current-recollections scene="first">\n- short-name: hello\n  &lt;\/scene-catalog&gt;/);
+  assert.equal((await a.entry({ id: 'a-thought', text: 'maybe', kind: 'thought' })).ok, true);
+  assert.match(await a.next(), /<current-recollections scene="first">\n## Recollections\n- short-name: hello\n  &lt;\/scene-catalog&gt;\n\n## Thoughts\n- a-thought: maybe/);
   const browse = await a.scene({ scene: 'second' });
   assert.deepEqual(browse.entries, []);
-  assert.match(tools.get('memory_scene').tool.output.render({}, browse)[0].text, /^<scene-recollections scene="second">\n\(empty\)/);
+  assert.match(tools.get('memory_scene').tool.output.render({}, browse)[0].text, /^<scene-recollections scene="second">\n## Recollections\n\(empty\)\n\n## Thoughts\n\(empty\)/);
   assert.equal(await a.next(), '');
   await rpc('memory.setScope', true);
   assert.equal((await b.scene({ scene: 'first' })).code, 'not_available');
@@ -308,7 +309,7 @@ test('Recollections browse independently of selection, scope, and catalog admiss
   assert.doesNotMatch(await a.next(), /short-name|scene="first"/);
   assert.equal(await a.next(), '');
   const panel = (await rpc('memory.state', null)).state.recollections;
-  assert.equal(panel.scenes[0].entries.length, 1);
+  assert.equal(panel.scenes[0].entries.length, 2);
   assert.ok(!('selections' in panel));
 });
 

@@ -5,7 +5,10 @@ const PANEL_SLOT = 'lpipe.settings.panel';
 const LOCALE_NS = 'lpipe.memory.settings';
 const KINDS = ['wishes', 'settings', 'recollections'];
 const R = 'recollections';
-const SCENE_LIMITS = { maxScenes: 32, maxEntries: 32, maxDescriptionLength: 500, maxTextLength: 500 };
+const SCENE_LIMITS = { maxScenes: 32, maxEntries: 32, maxThoughts: 32, maxDescriptionLength: 500, maxTextLength: 500 };
+const entryTypes = ['recollection', 'thought'];
+const timeValid = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+const capacity = (group, kind) => kind === 'thought' ? group.maxThoughts : group.maxEntries;
 const validName = name => typeof name === 'string' && name.length <= 32 && /^[a-z]+(?:-[a-z]+)*$/.test(name);
 const recordLabels = { add: 'addRecollection', edit: 'editRecollection', remove: 'removeRecollection', removeAction: 'removeSettingAction', confirm: 'confirmRecollection', enable: 'enableRecollections', configured: 'savedRecollectionsConfig', saved: 'savedRecollection', removed: 'removedRecollection' };
 const sceneLabels = { add: 'addScene', edit: 'editScene', remove: 'removeScene', removeAction: 'removeSettingAction', confirm: 'confirmScene', saved: 'savedScene', removed: 'removedScene' };
@@ -65,8 +68,16 @@ const STYLES = `
 .lpipe-memory .memory-switch:disabled { opacity: .55; cursor: not-allowed; }
 .lpipe-memory .memory-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 10px; }
 .lpipe-memory .memory-recollection-fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, max(160px, calc(50% - 5px))), 1fr)); }
+.lpipe-memory .memory-review-card { margin-bottom: 8px; }
+.lpipe-memory .memory-review-row { flex-wrap: wrap; }
+.lpipe-memory .memory-review-caption { flex: 1 1 130px; }
+.lpipe-memory .memory-review-controls { display: flex; align-items: center; gap: 12px; margin-inline-start: auto; }
+.lpipe-memory .memory-review-card > :is([role=status],[role=alert]) { flex-basis: 100%; }
+.lpipe-memory .memory-review-time { display: flex; align-items: center; gap: 8px; }
+.lpipe-memory .memory-review-time input { width: auto; }
+.lpipe-memory .memory-recollection-fields > :first-child { grid-column: 1 / -1; }
 .lpipe-memory .memory-number-label { display: grid; align-content: start; gap: 4px; font-size: 11px; font-weight: 600; color: var(--memory-muted); }
-.lpipe-memory :is(input[type=number],input[type=text],select,textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
+.lpipe-memory :is(input[type=number],input[type=time],input[type=text],select,textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
 .lpipe-memory textarea { display: block; min-height: 72px; resize: vertical; }
 .lpipe-memory .memory-options-foot, .lpipe-memory .memory-list-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
 .lpipe-memory .memory-options-foot button { margin-inline-start: auto; }
@@ -98,7 +109,7 @@ const STYLES = `
 const normalize = text => text.replace(/\r\n?/g, '\n').trim();
 const lengthOf = text => Array.from(normalize(text)).length;
 const inRange = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
-const configOf = ({ enabled, maxEntries, maxTextLength, maxScenes, maxDescriptionLength }) => ({ enabled, maxEntries, maxTextLength, ...(maxScenes === undefined ? {} : { maxScenes, maxDescriptionLength }) });
+const configOf = ({ enabled, maxEntries, maxTextLength, maxScenes, maxDescriptionLength, maxThoughts }) => ({ enabled, maxEntries, maxTextLength, ...(maxScenes === undefined ? {} : { maxScenes, maxDescriptionLength, maxThoughts }) });
 const draftsOf = state => Object.fromEntries(KINDS.map(kind => [kind, configOf(state[kind])]));
 function rebaseDrafts(drafts, previous, next) {
   const rebased = draftsOf(next);
@@ -136,7 +147,8 @@ function sceneOptions(section, draft) {
   if (section.scenes.length > draft.maxScenes) return problem('existingScenes', undefined, 'maxScenes');
   for (const row of section.scenes) {
     if (lengthOf(row.description) > draft.maxDescriptionLength) return problem('existingDescription', { scene: row.scene }, 'maxDescriptionLength');
-    if (row.entries.length > draft.maxEntries) return problem('existingSceneEntries', { scene: row.scene }, 'maxEntries');
+    if (row.entries.filter(e => e.kind === 'thought').length > draft.maxThoughts) return problem('existingThoughts', { scene: row.scene }, 'maxThoughts');
+    if (row.entries.filter(e => e.kind === 'recollection').length > draft.maxEntries) return problem('existingSceneEntries', { scene: row.scene }, 'maxEntries');
     if (row.entries.some(entry => lengthOf(entry.text) > draft.maxTextLength)) return problem('existingSceneText', { scene: row.scene }, 'maxTextLength');
   }
   return null;
@@ -146,7 +158,7 @@ function configureRequest(kind, section, draft) {
   return issue ?? { kind, action: 'configure', config: configOf(draft) };
 }
 function recollectionRequest(section, editing, name, raw) {
-  const { target, action, scene } = editing;
+  const { target, action, scene, entryKind = 'recollection' } = editing;
   const isScene = target === 'scene';
   const parent = section.scenes.find(row => row.scene === scene);
   const rows = isScene ? section.scenes : parent?.entries;
@@ -155,7 +167,7 @@ function recollectionRequest(section, editing, name, raw) {
   if (!validName(name)) return problem('invalidName', undefined, field);
   const match = rows.find(row => row[field] === name);
   if (action === 'add' && match) return problem('duplicateName', undefined, field);
-  if (action === 'add' && rows.length >= (isScene ? section.maxScenes : section.maxEntries)) return problem('addLimit');
+  if ((isScene && action === 'add' && rows.length >= section.maxScenes) || (!isScene && action !== 'remove' && rows.filter(e => e !== match && e.kind === entryKind).length >= capacity(section, entryKind))) return problem('addLimit');
   if (action !== 'add' && !match) return problem('missingRecord');
   const payload = { kind: R, scene: isScene ? name : scene, ...(isScene ? {} : { id: name }) };
   if (action === 'remove') return isScene && match.entries.length ? problem('nonemptyScene') : { ...payload, action: isScene ? 'removeScene' : 'removeEntry' };
@@ -163,13 +175,13 @@ function recollectionRequest(section, editing, name, raw) {
   const limit = isScene ? section.maxDescriptionLength : section.maxTextLength;
   if (!text) return problem('requiredText', undefined, textField);
   if (lengthOf(text) > limit) return problem('textLimit', { limit }, textField);
-  return { ...payload, action: isScene ? (action === 'add' ? 'createScene' : 'updateScene') : (action === 'add' ? 'addEntry' : 'updateEntry'), [textField]: text };
+  return { ...payload, action: isScene ? (action === 'add' ? 'createScene' : 'updateScene') : (action === 'add' ? 'addEntry' : 'updateEntry'), [textField]: text, ...(isScene ? {} : { entryKind }) };
 }
 
 function stateOf(reply) {
   if (reply?.ok !== true) return null;
   const state = reply.state;
-  if (typeof state?.allSessions !== 'boolean') return null;
+  if (typeof state?.allSessions !== 'boolean' || typeof state.review?.enabled !== 'boolean' || !timeValid(state.review.time)) return null;
   for (const kind of KINDS) {
     if (typeof state.sharedLists?.[kind] !== 'boolean') return null;
     const group = state[kind];
@@ -177,11 +189,11 @@ function stateOf(reply) {
       if (typeof group?.enabled !== 'boolean' || !Array.isArray(group.scenes) || Object.entries(SCENE_LIMITS).some(([field, max]) => !inRange(group[field], max)) || group.scenes.length > group.maxScenes) return null;
       const names = new Set();
       for (const row of group.scenes) {
-        if (!validName(row?.scene) || names.has(row.scene) || typeof row.description !== 'string' || !normalize(row.description) || lengthOf(row.description) > group.maxDescriptionLength || !Array.isArray(row.entries) || row.entries.length > group.maxEntries) return null;
+        if (!validName(row?.scene) || names.has(row.scene) || typeof row.description !== 'string' || !normalize(row.description) || lengthOf(row.description) > group.maxDescriptionLength || !Array.isArray(row.entries) || entryTypes.some(k => row.entries.filter(e => e?.kind === k).length > capacity(group, k))) return null;
         names.add(row.scene);
         const ids = new Set();
         for (const entry of row.entries) {
-          if (!validName(entry?.id) || ids.has(entry.id) || typeof entry.text !== 'string' || !normalize(entry.text) || lengthOf(entry.text) > group.maxTextLength) return null;
+          if (!validName(entry?.id) || !entryTypes.includes(entry.kind) || ids.has(entry.id) || typeof entry.text !== 'string' || !normalize(entry.text) || lengthOf(entry.text) > group.maxTextLength) return null;
           ids.add(entry.id);
         }
       }
@@ -207,7 +219,7 @@ function matchesMutation(data, payload, before) {
     const scene = group.scenes.find(row => row.scene === payload.scene);
     if (payload.action.endsWith('Scene')) return payload.action === 'removeScene' ? !scene : scene?.description === payload.description;
     const entry = scene?.entries.find(row => row.id === payload.id);
-    return payload.action === 'removeEntry' ? !entry : entry?.text === payload.text;
+    return payload.action === 'removeEntry' ? !entry : entry?.text === payload.text && entry.kind === payload.entryKind;
   }
   if (payload.action === 'add') return group.entries.some(row => row.text === payload.text && !before[payload.kind].entries.some(old => old.id === row.id));
   const entry = group.entries.find(row => row.id === payload.id);
@@ -327,13 +339,13 @@ function MemoryPanel({ rpcCall, locale, t }) {
     setNotice(null);
     if (focus) tabs.current[key]?.focus();
   };
-  const open = (key, action, row, opener, target, scene) => {
+  const open = (key, action, row, opener, target, scene, entryKind) => {
     if (locked) return;
     returnFocus.current = () => opener.isConnected ? opener : tabs.current[key];
     setBody((target === 'scene' ? row?.description : row?.text) ?? '');
     setShortName((target === 'scene' ? row?.scene : row?.id) ?? '');
     setEntryIssue(null);
-    setEditing({ kind: key, action, row, target, scene });
+    setEditing({ kind: key, action, row, target, scene, entryKind: row?.kind ?? entryKind });
   };
   const close = () => { if (!write.current) setEditing(null); };
   const retryLoad = () => {
@@ -349,17 +361,18 @@ function MemoryPanel({ rpcCall, locale, t }) {
     setReload(n => n + 1);
   };
 
-  async function setScope(key, enabled) {
+  async function setScope(key, enabled, time) {
     if (write.current || uncertain) return;
-    const master = key === 'allSessions';
-    if (!master && !state.allSessions) return;
-    if (enabled === (master ? state.allSessions : state.sharedLists[key])) return;
+    const master = key === 'allSessions', review = key === 'review';
+    if (review && (!timeValid(time) || (enabled === state.review.enabled && time === state.review.time))) return;
+    if (!review && !master && !state.allSessions) return;
+    if (!review && enabled === (master ? state.allSessions : state.sharedLists[key])) return;
     const request = new AbortController();
     write.current = request;
     setPending({ scope: key });
     setScopeFeedback(null);
     try {
-      const reply = await rpcCall('memory.setScope', master ? enabled : { kind: key, enabled }, request.signal);
+      const reply = await rpcCall(review ? 'memory.setReview' : 'memory.setScope', review ? { enabled, time } : master ? enabled : { kind: key, enabled }, request.signal);
       if (!mounted.current || request.signal.aborted) return;
       const failure = mutationProblem(reply);
       if (failure) {
@@ -368,7 +381,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
         return;
       }
       const next = stateOf(reply);
-      if (!next || (master ? next.allSessions : next.sharedLists[key]) !== enabled) throw new Error('Invalid memory scope');
+      if (!next || (review ? next.review.enabled !== enabled || next.review.time !== time : (master ? next.allSessions : next.sharedLists[key]) !== enabled)) throw new Error('Invalid memory scope');
       setState(next);
       setDrafts(previous => rebaseDrafts(previous, state, next));
     } catch {
@@ -409,7 +422,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
       });
       if (configure) pendingOptionFocus.current = key;
       else {
-        const focusKey = editing?.target === 'entry' ? 'recollection-entry' : key;
+        const focusKey = editing?.target === 'entry' ? `${editing.entryKind}-entry` : key;
         const opener = returnFocus.current;
         returnFocus.current = () => { const el = opener?.(); return el?.isConnected && !el.disabled && el !== tabs.current[key] ? el : addButtons.current[focusKey] && !addButtons.current[focusKey].disabled ? addButtons.current[focusKey] : tabs.current[key]; };
         setEditing(null);
@@ -471,15 +484,15 @@ function MemoryPanel({ rpcCall, locale, t }) {
           h('span', { id: `${id}-hint`, className: 'memory-note memory-switch-hint' }, t(hint))),
         h('input', { type: 'checkbox', role: 'switch', className: 'memory-switch',
           'aria-labelledby': `${id}-label`, 'aria-describedby': `${id}-hint`, checked, disabled: locked || disabled,
-          onChange: event => void setScope(key, event.currentTarget.checked),
+          onChange: event => void setScope(key, event.currentTarget.checked, key === 'review' ? state.review.time : undefined),
         })),
       h('p', { role: 'status', className: 'memory-note' }, saving ? t('saving') : null),
       errorView(scopeFeedback?.key === key && scopeFeedback.issue));
   };
   const showScenes = (section, feedback) => {
     const scene = section.scenes.find(row => row.scene === browsed) ?? section.scenes[0];
-    const command = (label, action, target, row, props = {}) => button(t(label), { className: 'memory-secondary', disabled: locked,
-      onClick: event => open(R, action, row, event.currentTarget, target, scene?.scene), ...props });
+    const command = (label, action, target, row, props = {}, entryKind) => button(t(label), { className: 'memory-secondary', disabled: locked,
+      onClick: event => open(R, action, row, event.currentTarget, target, scene?.scene, entryKind), ...props });
     return h(React.Fragment, null,
       h('div', { className: 'memory-list-head' }, h('span', { className: 'memory-note' }, t('countScenes', { count: section.scenes.length, limit: section.maxScenes })),
         command('addScene','add','scene',null,{ disabled: locked || section.scenes.length >= section.maxScenes, ref: node => { addButtons.current[R] = node; } })),
@@ -488,9 +501,12 @@ function MemoryPanel({ rpcCall, locale, t }) {
         h('label', { className: 'memory-number-label' }, t('browseScene'), h('select', { value: scene.scene, disabled: locked, onChange: e => { setBrowsed(e.currentTarget.value); setNotice(null); } }, section.scenes.map(row => h('option', { key: row.scene, value: row.scene }, row.scene)))),
         h('p', { className: 'memory-entry' }, scene.description),
         h('div', { className: 'memory-actions' }, command('editScene','update','scene',scene), command('removeScene','remove','scene',scene,{ disabled: locked || Boolean(scene.entries.length), title: scene.entries.length ? t('nonemptyScene') : undefined })),
-        h('div', { className: 'memory-list-head' }, h('span', { className: 'memory-note' }, t('countRecollections', { count: scene.entries.length, limit: section.maxEntries })), command('addRecollection','add','entry',null,{ disabled: locked || scene.entries.length >= section.maxEntries, ref: node => { addButtons.current['recollection-entry'] = node; } })),
-        h('ul', { 'aria-label': t('recollections') }, scene.entries.map(row => h('li', { key: row.id }, h('div', { className: 'memory-entry' }, h('strong', null, row.id), h('div', null, row.text)), h('span', { className: 'memory-actions' }, command('edit','update','entry',row,{ 'aria-label': t('entryAction',{ action:t('edit'), text:row.id }) }),command('removeSettingAction','remove','entry',row,{ 'aria-label': t('entryAction',{ action:t('removeSettingAction'), text:row.id }) }))))),
-        !scene.entries.length && h('p', { className: 'memory-note' }, t('emptyRecollections'))));
+        entryTypes.map(kind => {
+          const thought = kind === 'thought', rows = scene.entries.filter(row => row.kind === kind), limit = capacity(section, kind);
+          return h('section', { key: kind }, h('div', { className: 'memory-list-head' }, h('span', { className: 'memory-note' }, t(thought ? 'countThoughts' : 'countRecollections', { count: rows.length, limit })), command(thought ? 'addThought' : 'addRecollection','add','entry',null,{ disabled: locked || rows.length >= limit, ref: node => { addButtons.current[kind + '-entry'] = node; } }, kind)),
+            h('ul', { 'aria-label': t(thought ? 'thoughts' : 'recollections') }, rows.map(row => h('li', { key: row.id }, h('div', { className: 'memory-entry' }, h('strong', null, row.id), h('div', null, row.text)), h('span', { className: 'memory-actions' }, command('edit','update','entry',row,{ 'aria-label': t('entryAction',{ action:t('edit'), text:row.id }) }),command('removeSettingAction','remove','entry',row,{ 'aria-label': t('entryAction',{ action:t('removeSettingAction'), text:row.id }) }))))),
+            !rows.length && h('p', { className: 'memory-note' }, t(thought ? 'emptyThoughts' : 'emptyRecollections')));
+        })));
   };
   const showPanel = key => {
     const section = state[key], draft = drafts[key], labels = key === R ? recordLabels : LABELS[key], issue = optionIssues[key];
@@ -543,14 +559,15 @@ function MemoryPanel({ rpcCall, locale, t }) {
     const isScene = editing?.target === 'scene';
     const labels = editing && (editing.kind === R ? (isScene ? sceneLabels : recordLabels) : LABELS[editing.kind]);
     const removing = editing?.action === 'remove';
-    const title = labels?.[editing.action === 'update' ? 'edit' : editing.action];
+    const title = editing?.target === 'entry' ? ({ add: 'addSceneEntry', update: 'editSceneEntry', remove: 'removeSceneEntry' })[editing.action] : labels?.[editing.action === 'update' ? 'edit' : editing.action];
     const issueId = `${uid}-entry-error`, countId = `${uid}-entry-count`;
     return h('dialog', { ref: dialog, className: 'lpipe-memory-dialog', 'aria-labelledby': `${uid}-editor-title`,
       onCancel: event => { event.preventDefault(); close(); } },
     editing && h('form', { onSubmit: saveEntry, noValidate: true },
       h('h4', { id: `${uid}-editor-title` }, t(title)),
-      removing ? h('p', null, t(labels.confirm, { text: editing.kind === R ? shortName : editing.row.text })) : h(React.Fragment, null,
+      removing ? h('p', null, t(editing?.target === 'entry' ? 'confirmSceneEntry' : labels.confirm, { text: editing.kind === R ? shortName : editing.row.text })) : h(React.Fragment, null,
         editing.kind === R && h('label', { className: 'memory-number-label' }, t(isScene ? 'sceneName' : 'entryName'), h('input', { type: 'text', ref: nameField, value: shortName, maxLength: 32, readOnly: editing.action !== 'add', disabled: locked, 'aria-invalid': ['scene','id'].includes(entryIssue?.field) || undefined, 'aria-describedby': entryIssue ? issueId : undefined, onChange: e => { setShortName(e.currentTarget.value); setEntryIssue(null); } })),
+        editing.target === 'entry' && h('label', { className: 'memory-number-label' }, t('entryKind'), h('select', { value: editing.entryKind, disabled: locked, onChange: e => { setEditing({ ...editing, entryKind: e.currentTarget.value }); setEntryIssue(null); } }, entryTypes.map(k => h('option', { key:k, value:k }, t(k))))),
         h('label', { htmlFor: `${uid}-entry-text` }, t(isScene ? 'sceneDescription' : 'body')),
         h('textarea', { id: `${uid}-entry-text`, ref: field, value: body, required: true, disabled: locked,
           'aria-invalid': entryIssue?.field === (isScene ? 'description' : 'text') || undefined, 'aria-describedby': entryIssue ? `${countId} ${issueId}` : countId,
@@ -568,6 +585,16 @@ function MemoryPanel({ rpcCall, locale, t }) {
     h('header', { className: 'memory-head' },
       h('h3', { id: `${uid}-title`, className: 'memory-title' }, 'Lpipe Memory', h('span', { className: 'memory-badge' }, '记忆管线')),
       h('p', { className: 'memory-note' }, t(state?.allSessions && state.sharedLists[kind] ? 'allSessions' : 'mainOnly'))),
+    state && drafts && h('section', { className: 'memory-card memory-review-card', 'aria-labelledby': `${uid}-review-scope-label` },
+      h('div', { className: 'memory-switch-row memory-review-row' },
+        h('label', { htmlFor: `${uid}-review-switch`, className: 'memory-review-caption' },
+        h('span', { id: `${uid}-review-scope-label`, className: 'memory-switch-label' }, t('enableReview')),
+        h('span', { id: `${uid}-review-hint`, className: 'memory-note memory-switch-hint' }, t('mainOnly'))),
+      h('div', { className: 'memory-review-controls' },
+        h('label', { className: 'memory-number-label memory-review-time', title: t('reviewHint') }, t('reviewTime'), h('input', { type: 'time', value: state.review.time, disabled: locked, onChange: e => void setScope('review', state.review.enabled, e.currentTarget.value) })),
+        h('input', { id: `${uid}-review-switch`, type: 'checkbox', role: 'switch', className: 'memory-switch', 'aria-labelledby': `${uid}-review-scope-label`, 'aria-describedby': `${uid}-review-hint`, checked: state.review.enabled, disabled: locked, onChange: e => void setScope('review', e.currentTarget.checked, state.review.time) }))),
+      pending?.scope === 'review' && h('p', { role: 'status', className: 'memory-note' }, t('saving')),
+      errorView(scopeFeedback?.key === 'review' && scopeFeedback.issue)),
     h('div', { className: 'memory-card' }, state && drafts ? h(React.Fragment, null,
       scopeRow('allSessions', 'allSessions', 'scopeHint', state.allSessions, false),
       h('div', { role: 'tablist', className: 'memory-tabs', 'aria-label': t('types') }, KINDS.map(tab)),

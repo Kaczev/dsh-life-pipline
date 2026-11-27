@@ -3,7 +3,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink } from 'no
 import { hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-export const MEMORY_VERSION = 3;
+export const MEMORY_VERSION = 4;
 const flatKinds = ['wishes', 'settings'];
 export const MEMORY_KINDS = Object.freeze([...flatKinds, 'recollections']);
 export const RECOLLECTION_ID_PATTERN = '^[a-z]+(?:-[a-z]+)*(?![\\s\\S])';
@@ -11,7 +11,7 @@ const recollectionName = new RegExp(RECOLLECTION_ID_PATTERN, 'u');
 export const MEMORY_DEFAULTS = Object.freeze({
   wishes: Object.freeze({ enabled: true, maxEntries: 8, maxTextLength: 120 }),
   settings: Object.freeze({ enabled: true, maxEntries: 12, maxTextLength: 160 }),
-  recollections: Object.freeze({ enabled: true, maxScenes: 12, maxEntries: 8, maxDescriptionLength: 64, maxTextLength: 160 }),
+  recollections: Object.freeze({ enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts: 4, maxDescriptionLength: 64, maxTextLength: 160 }),
 });
 export const MEMORY_ID_PATTERN = '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![\\s\\S])';
 const idPattern = new RegExp(MEMORY_ID_PATTERN, 'u');
@@ -21,7 +21,12 @@ const configKeys = ['enabled', 'maxEntries', 'maxTextLength'];
 const legacyStateKeys = ['version', 'storeId', 'nextUiId', ...flatKinds];
 const legacyScopeKeys = [...legacyStateKeys, 'allSessions'];
 const v2Keys = [...legacyScopeKeys, 'sharedLists'];
-const stateKeys = [...v2Keys, 'recollections'];
+const v3Keys = [...v2Keys, 'recollections'];
+const stateKeys = [...v3Keys, 'review'];
+const newReview = () => ({ enabled: true, time: '04:00', nextReviewAt: nextReviewAt('04:00') });
+const validTime = value => typeof value === 'string' && value.length === 5 && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+const validTimestamp = value => Number.isSafeInteger(value) && Number.isFinite(new Date(value).getTime());
+const validEntryKind = value => value === 'recollection' || value === 'thought';
 const defaultSharedLists = () => ({ wishes: false, settings: true, recollections: false });
 const newRecollections = () => ({ ...MEMORY_DEFAULTS.recollections, scenes: [], selections: [] });
 const maxEntries = 32;
@@ -57,6 +62,29 @@ function validateConfig(config, keys = configKeys) {
   if (!inRange(config.maxTextLength, maxTextLength)) throw invalid(`Maximum text length must be an integer from 1 to ${maxTextLength}.`, 'maxTextLength');
 }
 
+export function nextReviewAt(time, now = Date.now()) {
+  if (!validTime(time)) throw invalid('Expected a local time in HH:mm format.', 'time');
+  if (!validTimestamp(now)) throw invalid('Expected a valid timestamp.', 'now');
+  const [hour, minute] = time.split(':').map(Number);
+  const next = new Date(now);
+  next.setHours(hour, minute, 0, 0);
+  if (+next <= now) {
+    next.setDate(next.getDate() + 1);
+    next.setHours(hour, minute, 0, 0);
+  }
+  if (!validTimestamp(+next) || +next <= now) throw invalid('No future review time is representable.', 'now');
+  return +next;
+}
+
+export function configureReview(state, input, now = Date.now()) {
+  if (!exact(input, ['enabled', 'time']) || typeof input.enabled !== 'boolean') throw invalid('Expected enabled and time.');
+  if (!validTime(input.time)) throw invalid('Expected a local time in HH:mm format.', 'time');
+  if (state.review.enabled !== input.enabled || state.review.time !== input.time) {
+    state.review = { ...input, nextReviewAt: input.enabled ? nextReviewAt(input.time, now) : null };
+  }
+  return state.review;
+}
+
 export function createMemoryState(storeId = randomUUID()) {
   return validateMemoryState({
     version: MEMORY_VERSION,
@@ -65,7 +93,7 @@ export function createMemoryState(storeId = randomUUID()) {
     allSessions: false,
     sharedLists: defaultSharedLists(),
     ...Object.fromEntries(flatKinds.map((kind) => [kind, { ...MEMORY_DEFAULTS[kind], entries: [] }])),
-    recollections: newRecollections(),
+    recollections: newRecollections(), review: newReview(),
   });
 }
 
@@ -79,6 +107,9 @@ export function validateMemoryState(state) {
   if (!exact(state.sharedLists, MEMORY_KINDS) || MEMORY_KINDS.some(kind => typeof state.sharedLists[kind] !== 'boolean')) {
     throw corrupt('Memory state has invalid shared-list preferences.');
   }
+  const review = state.review;
+  if (!exact(review, ['enabled', 'time', 'nextReviewAt']) || typeof review.enabled !== 'boolean' || !validTime(review.time) ||
+      (review.enabled ? !validTimestamp(review.nextReviewAt) : review.nextReviewAt !== null)) throw corrupt('Memory state has invalid review settings.');
   const uiIds = new Set();
   for (const kind of flatKinds) {
     const group = state[kind];
@@ -226,7 +257,7 @@ const requireSession = sessionId => {
 };
 function checkRecollectionConfig(config, keys = recollectionConfigKeys) {
   validateConfig(config, keys);
-  for (const [field, max] of [['maxScenes', maxEntries], ['maxDescriptionLength', maxTextLength]]) {
+  for (const [field, max] of [['maxScenes', maxEntries], ['maxThoughts', maxEntries], ['maxDescriptionLength', maxTextLength]]) {
     if (!inRange(config[field], max)) throw invalid(`Expected an integer from 1 to ${max}.`, field);
   }
 }
@@ -244,7 +275,9 @@ function checkRecollectionLimits(scenes, config) {
   checkCap(scenes.length, config.maxScenes, 'scene_limit', 'maxScenes');
   for (const s of scenes) {
     checkCap(length(s.description), config.maxDescriptionLength, 'text_limit', 'maxDescriptionLength');
-    checkCap(s.entries.length, config.maxEntries, 'entry_limit', 'maxEntries');
+    const thoughts = s.entries.filter(e => e.kind === 'thought').length;
+    checkCap(s.entries.length - thoughts, config.maxEntries, 'entry_limit', 'maxEntries');
+    checkCap(thoughts, config.maxThoughts, 'entry_limit', 'maxThoughts');
     for (const e of s.entries) checkCap(length(e.text), config.maxTextLength, 'text_limit', 'maxTextLength');
   }
 }
@@ -257,7 +290,7 @@ function validateRecollectionState(group) {
     names.add(s.scene);
     const ids = new Set();
     for (const e of s.entries) {
-      if (!exact(e, ['id', 'text']) || !validName(e.id) || ids.has(e.id) || normalizedContent(e.text, group.maxTextLength, 'text') !== e.text) throw invalid('Invalid recollection entry.');
+      if (!exact(e, ['id', 'text', 'kind']) || !validEntryKind(e.kind) || !validName(e.id) || ids.has(e.id) || normalizedContent(e.text, group.maxTextLength, 'text') !== e.text) throw invalid('Invalid recollection entry.');
       ids.add(e.id);
     }
   }
@@ -275,7 +308,10 @@ export function validateSceneInput(input) {
   return input;
 }
 export function validateRecollectionInput(input) {
-  if (exact(input, ['id', 'text'])) normalizedContent(input.text, maxTextLength, 'text');
+  if (exact(input, ['id', 'text']) || exact(input, ['id', 'text', 'kind'])) {
+    if (Object.hasOwn(input, 'kind') && !validEntryKind(input.kind)) throw invalid('Unknown entry type.', 'kind');
+    normalizedContent(input.text, maxTextLength, 'text');
+  }
   else if (!exact(input, ['id', 'remove']) || input.remove !== true) throw invalid('Supply id and text, or id and remove: true.');
   requireName(input.id, 'id');
   return input;
@@ -331,11 +367,14 @@ function changeRecollection(state, scene, input, mode) {
   if (i >= 0 && mode === 'add') throw new MemoryError('already_exists', 'A recollection with this ID already exists.', { field: 'id' });
   if (input.remove) { entries.splice(i, 1); return { outcome: 'removed', scene, id }; }
   const text = normalizedContent(input.text, state.recollections.maxTextLength, 'text');
-  if (i < 0) {
-    checkCap(entries.length + 1, state.recollections.maxEntries, 'entry_limit', 'maxEntries');
-    entries.push({ id, text });
-  } else entries[i] = { id, text };
-  return { outcome: i < 0 ? 'created' : 'updated', scene, id, text };
+  const kind = input.kind ?? entries[i]?.kind ?? 'recollection';
+  if (entries[i]?.kind !== kind) {
+    const field = kind === 'thought' ? 'maxThoughts' : 'maxEntries';
+    checkCap(entries.filter(e => e.kind === kind).length + 1, state.recollections[field], 'entry_limit', field);
+  }
+  if (i < 0) entries.push({ id, text, kind });
+  else entries[i] = { id, text, kind };
+  return { outcome: i < 0 ? 'created' : 'updated', scene, id, text, kind };
 }
 export function applyRecollectionMutation(state, input, sessionId) {
   validateRecollectionInput(input);
@@ -349,7 +388,11 @@ const uiRecollectionFields = new Map([
   ['removeScene', ['scene']], ['addEntry', ['scene', 'id', 'text']], ['updateEntry', ['scene', 'id', 'text']], ['removeEntry', ['scene', 'id']],
 ]);
 function validateRecollectionUi(input) {
-  const fields = uiRecollectionFields.get(input.action);
+  let fields = uiRecollectionFields.get(input.action);
+  if (['addEntry', 'updateEntry'].includes(input.action) && Object.hasOwn(input, 'entryKind')) {
+    if (!validEntryKind(input.entryKind)) throw invalid('Unknown entry type.', 'entryKind');
+    fields = [...fields, 'entryKind'];
+  }
   if (!fields || !exact(input, ['kind', 'action', ...fields])) throw invalid('Invalid recollection settings input.');
   if (fields.includes('config')) checkRecollectionConfig(input.config);
   for (const field of ['scene','id']) if (fields.includes(field)) requireName(input[field], field);
@@ -369,7 +412,7 @@ function applyRecollectionUi(state, input) {
     return applySceneMutation(state, { scene, description });
   }
   if (action === 'removeScene') return applySceneMutation(state, { scene, remove: true });
-  return changeRecollection(state, scene, action === 'removeEntry' ? { id, remove: true } : { id, text }, action === 'addEntry' ? 'add' : 'update');
+  return changeRecollection(state, scene, action === 'removeEntry' ? { id, remove: true } : { id, text, kind: input.entryKind }, action === 'addEntry' ? 'add' : 'update');
 }
 
 const hostTag = createHash('sha256').update(hostname()).digest('hex').slice(0, 32);
@@ -494,7 +537,7 @@ async function loadState(file) {
     try { state = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
     catch (cause) { throw corrupt('Memory state is not valid UTF-8 JSON.', cause); }
   } finally { await handle.close(); }
-  // Upgrade known legacy shapes in memory; a changed transaction persists v3.
+  // Upgrade known legacy shapes in memory; only a changed transaction writes them back.
   if (state?.version === 1) {
     if (exact(state, legacyStateKeys)) state.allSessions = false;
     else if (!exact(state, legacyScopeKeys) || typeof state.allSessions !== 'boolean') {
@@ -508,6 +551,21 @@ async function loadState(file) {
     state.version = MEMORY_VERSION;
     state.sharedLists.recollections = false;
     state.recollections = newRecollections();
+    state.review = newReview();
+  } else if (state?.version === 3) {
+    const group = state.recollections;
+    const keys = recollectionConfigKeys.filter(key => key !== 'maxThoughts');
+    if (!exact(state, v3Keys) || !exact(group, [...keys, 'scenes', 'selections']) || !Array.isArray(group.scenes)) throw corrupt('Memory state has invalid v3 metadata.');
+    for (const scene of group.scenes) {
+      if (!Array.isArray(scene?.entries)) throw corrupt('Memory state has invalid v3 scene entries.');
+      for (const entry of scene.entries) {
+        if (!exact(entry, ['id', 'text'])) throw corrupt('Memory state has invalid v3 entry fields.');
+        entry.kind = 'recollection';
+      }
+    }
+    group.maxThoughts = MEMORY_DEFAULTS.recollections.maxThoughts;
+    state.review = newReview();
+    state.version = MEMORY_VERSION;
   }
   return validateMemoryState(state);
 }
