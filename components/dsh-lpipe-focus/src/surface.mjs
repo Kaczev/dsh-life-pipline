@@ -205,18 +205,21 @@ export function evaluateUnconvertedNudge(session, decisionMessages, config, { on
   const { surfaceEvents: evs, unmetered, lastLayerIdx } = inspectLayers(session);
   const tail = lastLayerIdx + 1;
   const chars = totalChars(evs, incoming);
-  if (chars >= config.compactChars && lastLayerIdx >= 0 && !evs.slice(tail).some(ev => layerOf(ev) === 'pressure')) {
-    onDiagnostic({ event: 'pressure', sessionId: session.id, chars });
-    return buildPressureMessage(chars);
-  }
   let unconvertedChars = 0, atLastNudge = null;
   for (let i = tail; i < evs.length; i++) {
-    if (layerOf(evs[i]) === 'nudge') atLastNudge = unconvertedChars;
+    if (layerOf(evs[i]) === 'nudge' && sourceOf(evs[i]).stage !== 'request') atLastNudge = unconvertedChars;
     if (!unmetered.has(i) && ['assistant/message', 'tool/result'].includes(evs[i]?.type)) unconvertedChars += charsOfSurfaceEvent(evs[i]);
   }
-  if (unconvertedChars < config.nudgeChars || (atLastNudge !== null && unconvertedChars - atLastNudge < Math.max(8000, Math.floor(config.nudgeChars / 2)))) return null;
-  onDiagnostic({ event: 'nudged', sessionId: session.id, unconvertedChars, nudgeChars: config.nudgeChars });
-  return buildNudgeMessage(unconvertedChars);
+  const humanRequest = incoming.some(msg => msg?.role === 'user' && (msg.source == null || msg.source.kind === 'user' || msg.source.kind === 'dsh-lpipe-chat'));
+  if (!(humanRequest && unconvertedChars >= config.nudgeChars) && chars >= config.compactChars && lastLayerIdx >= 0 && !evs.slice(tail).some(ev => layerOf(ev) === 'pressure')) {
+    onDiagnostic({ event: 'pressure', sessionId: session.id, chars });
+    return buildPressureMessage();
+  }
+  if (unconvertedChars < config.nudgeChars) return null;
+  const stage = humanRequest ? 'request' : atLastNudge === null ? 'first' : 'repeat';
+  if (stage === 'repeat' && unconvertedChars - atLastNudge < Math.max(8000, Math.floor(config.nudgeChars / 2))) return null;
+  onDiagnostic({ event: 'nudged', sessionId: session.id, stage, unconvertedChars, nudgeChars: config.nudgeChars });
+  return buildNudgeMessage(stage);
 }
 export function createPreStepHandler({ loadConfig, allowed, now = () => Date.now(), onDiagnostic = () => {} }) {
   return async (payload, next) => {

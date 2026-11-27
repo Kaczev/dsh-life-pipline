@@ -2,13 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 export const FOCUS_SOURCE_KIND = 'dsh-lpipe-focus';
 
-function nudgeText(chars) {
-  return [
-    '<system-reminder>',
-    `Work since the last equivalence layer: ${chars} characters. Review this span using the folding criteria in the context equivalence instructions.`,
-    '</system-reminder>',
-  ].join('\n');
-}
+const nudgeText = {
+  first: 'Unfolded context has reached the reminder threshold. Consider whether this is a good time to fold.',
+  repeat: 'Unfolded context has grown since the last reminder. Look for a natural stopping point to fold.',
+  request: 'Unfolded context exceeds the reminder threshold. Call `focus_equate` at the next suitable opportunity. Going forward, fold at natural stopping points without waiting for a reminder.',
+};
 
 const escapeClosingTag = (text, tagName) =>
   String(text ?? '').replace(new RegExp(`<\\/${tagName}\\s*>`, 'gi'), (tag) => `<\\${tag.slice(1)}`);
@@ -97,10 +95,11 @@ export function buildPressureMessage() {
   });
 }
 
-export function buildNudgeMessage(chars) {
+export function buildNudgeMessage(stage) {
   return createFocusUserMessage({
-    text: nudgeText(chars),
+    text: `<system-reminder>\n${nudgeText[stage]}\n</system-reminder>`,
     source: {
+      stage,
       kind: FOCUS_SOURCE_KIND,
       layer: 'nudge',
       form: 'notice',

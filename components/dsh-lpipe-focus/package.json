@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-focus",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "type": "module",
   "description": "Short-term working context management with equivalence layers for Lpipe.",
   "license": "AGPL-3.0-or-later",

@@ -359,6 +359,15 @@ test('unconverted nudge triggers without percentages, throttles repeats by half-
     session.append('tool/result', toolResultMsg(1, 3, 'r3', 'C'.repeat(9000)), { surfaceOp: 'append' });
     const d3 = await h.runPreStep(agent, [], { turn: 1, step: 4 });
     assert.equal(d3.messages.length, 1);
+    assert.match(nudgeMsg.content[0].text, /Consider whether this is a good time to fold\./);
+    assert.match(d3.messages[0].content[0].text, /Look for a natural stopping point to fold\./);
+    const requestText = 'Unfolded context exceeds the reminder threshold. Call `focus_equate` at the next suitable opportunity. Going forward, fold at natural stopping points without waiting for a reminder.';
+    for (const turn of [2, 3]) {
+      const request = userMsg('Continue');
+      const decision = await h.runPreStep(agent, [request], { turn, step: 1 });
+      assert.equal(decision.messages.length, 2);
+      assert.ok(decision.messages[1].content[0].text.includes(requestText));
+    }
     const nudgeEvent2 = session.append('user/message', d3.messages[0], { surfaceOp: 'append' });
 
     // Step 5: model calls focus_equate -> both nudges in unconverted layer are shadowed and gone from surface.nodes
@@ -400,7 +409,7 @@ test('nudge counts unfinished work across turns and replay, pacing reminders unt
     const first = (await check(2)).messages;
     assert.equal(first.length, 1, 'two subthreshold turns reach the threshold together');
     assert.equal(first[0].source.layer, 'nudge');
-    assert.match(first[0].content[0].text, /20,?000/);
+    assert.match(first[0].content[0].text, /Unfolded context has reached the reminder threshold\./);
     assert.deepEqual((await check(2, first)).messages, first, 'do not double-inject an incoming nudge');
     append('user/message', first[0]);
     work(2, 6000);
