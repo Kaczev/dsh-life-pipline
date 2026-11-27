@@ -1,27 +1,21 @@
 # 记忆管线 · Lpipe Memory
 
-在 **设置 → Lpipe → 记忆管线**，可以管理两份清单：
+在 **设置 → Lpipe → 记忆管线** 管理三种记忆：
 
-- **欲望**：想做、想看看或想体验的事，比如「想找个晚上一起听那张专辑」。助手需要时可以查看，不会定时提醒，也不会把它当成待办。
-- **设定**：希望助手平时记住的事实，比如「我叫 Kaseria」或「默认用中文和我交流」。开启后，助手会参考这份清单，不用每次重说。
+- **欲望**：想做、想看看或想体验的事。助手需要时可以查看，不会定时提醒，也不会把它当成待办。
+- **设定**：希望助手在不同话题下都能默认采用的事实或偏好。
+- **回忆**：按情景保存的经历或收获。对话中可以看到情景目录，以及当前情景下的回忆。浏览其他情景不会改变当前情景。
 
-默认只有 Lpipe 主对话使用已启用的清单。打开 **所有顶层对话生效** 后，可在两个页签里分别选择是否向其他顶层对话共享这份清单。要在普通对话中只使用设定，开启设定页的共享开关，关闭欲望页的共享开关即可。范围开关立即保存。关闭总开关会保留两个页签的选择。子代理始终排除在外。
+每种记忆都有独立的启用开关和共享开关。打开 **所有顶层对话生效** 后，只会共享各页签中已勾选的清单；关闭总开关不会清除这些选择。子代理始终不参与。回忆默认启用、不共享。即使共享回忆，每个会话仍单独选择当前情景。
 
-切换到相应页签，就能添加、编辑或删除条目。你也可以在生效范围内请助手记下、修改或移除一条。
+在回忆页可以创建情景、编辑简介，再按短名添加或编辑条目。情景名和条目 ID 由小写英文单词组成，多个单词用连字符连接。默认最多 12 个情景，每个情景 8 条回忆；简介最多 64 字符，单条回忆最多 160 字符。调低上限不会裁剪已有数据。删除情景前需先清空条目。
 
-两份清单各有自己的开关、条数上限和单条字数上限。改完这些选项后点 **保存选项**；关闭某份清单只会让它停止在对话中生效，已存条目仍可在面板里编辑。
-
-记忆管线不会自动归档聊天，也不会把旧对话变成这两份清单。
+容量和启用状态改完后点 **保存选项**；共享开关立即保存。关闭记忆类型后，仍可在面板管理已有内容。记忆管线不会自动归档聊天。
 
 ## English
 
-Open **Settings → Lpipe → Memory Pipeline** to manage two lists:
+Open **Settings → Lpipe → Memory Pipeline** to manage Wishes, Settings, and Recollections. Wishes are interests, not tasks or reminders. Settings are facts or preferences that apply across contexts. Recollections preserve experiences in named scenes. Browsing a scene does not select it.
 
-- **Wishes** are things you want to do, explore, or experience, like listening to an album together. The assistant can look them up when relevant. Wishes aren’t tasks and won’t trigger reminders.
-- **Settings** are facts you want the assistant to remember, like your name or the language you normally use. When this list is on, you don’t have to repeat those facts each time.
+Each tab has its own enable and sharing switches. Sharing requires the master scope switch and never includes subagents. Recollections are enabled by default and limited to the Lpipe main conversation. Conversations that share scenes still select their current scenes independently.
 
-By default, only the Lpipe main conversation uses the enabled lists. To share settings with other top-level conversations, turn on the master scope switch, then select sharing in the Settings tab. Keep sharing off in the Wishes tab to keep wishes in the main conversation. Scope switches save immediately. Turning the master switch off preserves both tab selections. Subagents are always excluded.
-
-Use either tab to add, edit, or remove entries. You can also ask the assistant to make changes in any conversation within scope. Each list has its own switch and limits. Select **Save options** after changing those options. Turning a list off keeps its entries available to edit in the panel.
-
-Memory doesn’t archive your chats or turn old conversations into entries.
+Scene and entry names use lowercase English words joined by hyphens. The defaults are 12 scenes, 8 entries per scene, 64 characters per description, and 160 per entry. Empty a scene before deleting it. Lowering a limit never truncates stored entries. Select **Save options** to apply limits or enable changes. Sharing changes take effect immediately. Disabled lists remain editable in the panel. Memory does not automatically archive chats.

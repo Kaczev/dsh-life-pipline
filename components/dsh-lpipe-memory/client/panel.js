@@ -3,7 +3,12 @@ const h = React.createElement;
 const RPC_ENDPOINT = 'dsh-lpipe-memory';
 const PANEL_SLOT = 'lpipe.settings.panel';
 const LOCALE_NS = 'lpipe.memory.settings';
-const KINDS = ['wishes', 'settings'];
+const KINDS = ['wishes', 'settings', 'recollections'];
+const R = 'recollections';
+const SCENE_LIMITS = { maxScenes: 32, maxEntries: 32, maxDescriptionLength: 500, maxTextLength: 500 };
+const validName = name => typeof name === 'string' && name.length <= 32 && /^[a-z]+(?:-[a-z]+)*$/.test(name);
+const recordLabels = { add: 'addRecollection', edit: 'editRecollection', remove: 'removeRecollection', removeAction: 'removeSettingAction', confirm: 'confirmRecollection', enable: 'enableRecollections', configured: 'savedRecollectionsConfig', saved: 'savedRecollection', removed: 'removedRecollection' };
+const sceneLabels = { add: 'addScene', edit: 'editScene', remove: 'removeScene', removeAction: 'removeSettingAction', confirm: 'confirmScene', saved: 'savedScene', removed: 'removedScene' };
 const LIMITS = { maxEntries: 32, maxTextLength: 500 };
 const LABELS = {
   wishes: { enable: 'enableWishes', count: 'countWishes', empty: 'emptyWishes', add: 'addWishes', edit: 'editWishes', remove: 'removeWishes', removeAction: 'removeWishAction', confirm: 'confirmWish', configured: 'savedWishesConfig', saved: 'savedWishes', removed: 'removedWishes' },
@@ -59,8 +64,9 @@ const STYLES = `
 .lpipe-memory .memory-switch:checked::before { transform: translateX(16px); }
 .lpipe-memory .memory-switch:disabled { opacity: .55; cursor: not-allowed; }
 .lpipe-memory .memory-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 10px; }
+.lpipe-memory .memory-recollection-fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, max(160px, calc(50% - 5px))), 1fr)); }
 .lpipe-memory .memory-number-label { display: grid; align-content: start; gap: 4px; font-size: 11px; font-weight: 600; color: var(--memory-muted); }
-.lpipe-memory :is(input[type=number],textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
+.lpipe-memory :is(input[type=number],input[type=text],select,textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
 .lpipe-memory textarea { display: block; min-height: 72px; resize: vertical; }
 .lpipe-memory .memory-options-foot, .lpipe-memory .memory-list-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
 .lpipe-memory .memory-options-foot button { margin-inline-start: auto; }
@@ -92,7 +98,7 @@ const STYLES = `
 const normalize = text => text.replace(/\r\n?/g, '\n').trim();
 const lengthOf = text => Array.from(normalize(text)).length;
 const inRange = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
-const configOf = ({ enabled, maxEntries, maxTextLength }) => ({ enabled, maxEntries, maxTextLength });
+const configOf = ({ enabled, maxEntries, maxTextLength, maxScenes, maxDescriptionLength }) => ({ enabled, maxEntries, maxTextLength, ...(maxScenes === undefined ? {} : { maxScenes, maxDescriptionLength }) });
 const draftsOf = state => Object.fromEntries(KINDS.map(kind => [kind, configOf(state[kind])]));
 function rebaseDrafts(drafts, previous, next) {
   const rebased = draftsOf(next);
@@ -103,7 +109,7 @@ function rebaseDrafts(drafts, previous, next) {
   }
   return rebased;
 }
-const equalConfig = (a, b) => a.enabled === b.enabled && a.maxEntries === b.maxEntries && a.maxTextLength === b.maxTextLength;
+const equalConfig = (a, b) => Object.keys(b).every(field => a[field] === b[field]);
 const problem = (key, params, field) => ({ key, params, field });
 
 function checkOptions(entries, draft) {
@@ -123,8 +129,41 @@ function entryRequest(kind, action, section, id, raw) {
   return action === 'add' ? { kind, action, text } : { kind, action, id, text };
 }
 
+function sceneOptions(section, draft) {
+  for (const [field, max] of Object.entries(SCENE_LIMITS)) {
+    if (!inRange(draft[field], max)) return problem('entriesRange', { limit: max }, field);
+  }
+  if (section.scenes.length > draft.maxScenes) return problem('existingScenes', undefined, 'maxScenes');
+  for (const row of section.scenes) {
+    if (lengthOf(row.description) > draft.maxDescriptionLength) return problem('existingDescription', { scene: row.scene }, 'maxDescriptionLength');
+    if (row.entries.length > draft.maxEntries) return problem('existingSceneEntries', { scene: row.scene }, 'maxEntries');
+    if (row.entries.some(entry => lengthOf(entry.text) > draft.maxTextLength)) return problem('existingSceneText', { scene: row.scene }, 'maxTextLength');
+  }
+  return null;
+}
 function configureRequest(kind, section, draft) {
-  return checkOptions(section.entries, draft) ?? { kind, action: 'configure', config: configOf(draft) };
+  const issue = kind === R ? sceneOptions(section, draft) : checkOptions(section.entries, draft);
+  return issue ?? { kind, action: 'configure', config: configOf(draft) };
+}
+function recollectionRequest(section, editing, name, raw) {
+  const { target, action, scene } = editing;
+  const isScene = target === 'scene';
+  const parent = section.scenes.find(row => row.scene === scene);
+  const rows = isScene ? section.scenes : parent?.entries;
+  if (!rows) return problem('missingScene');
+  const field = isScene ? 'scene' : 'id';
+  if (!validName(name)) return problem('invalidName', undefined, field);
+  const match = rows.find(row => row[field] === name);
+  if (action === 'add' && match) return problem('duplicateName', undefined, field);
+  if (action === 'add' && rows.length >= (isScene ? section.maxScenes : section.maxEntries)) return problem('addLimit');
+  if (action !== 'add' && !match) return problem('missingRecord');
+  const payload = { kind: R, scene: isScene ? name : scene, ...(isScene ? {} : { id: name }) };
+  if (action === 'remove') return isScene && match.entries.length ? problem('nonemptyScene') : { ...payload, action: isScene ? 'removeScene' : 'removeEntry' };
+  const text = normalize(raw), textField = isScene ? 'description' : 'text';
+  const limit = isScene ? section.maxDescriptionLength : section.maxTextLength;
+  if (!text) return problem('requiredText', undefined, textField);
+  if (lengthOf(text) > limit) return problem('textLimit', { limit }, textField);
+  return { ...payload, action: isScene ? (action === 'add' ? 'createScene' : 'updateScene') : (action === 'add' ? 'addEntry' : 'updateEntry'), [textField]: text };
 }
 
 function stateOf(reply) {
@@ -134,6 +173,20 @@ function stateOf(reply) {
   for (const kind of KINDS) {
     if (typeof state.sharedLists?.[kind] !== 'boolean') return null;
     const group = state[kind];
+    if (kind === R) {
+      if (typeof group?.enabled !== 'boolean' || !Array.isArray(group.scenes) || Object.entries(SCENE_LIMITS).some(([field, max]) => !inRange(group[field], max)) || group.scenes.length > group.maxScenes) return null;
+      const names = new Set();
+      for (const row of group.scenes) {
+        if (!validName(row?.scene) || names.has(row.scene) || typeof row.description !== 'string' || !normalize(row.description) || lengthOf(row.description) > group.maxDescriptionLength || !Array.isArray(row.entries) || row.entries.length > group.maxEntries) return null;
+        names.add(row.scene);
+        const ids = new Set();
+        for (const entry of row.entries) {
+          if (!validName(entry?.id) || ids.has(entry.id) || typeof entry.text !== 'string' || !normalize(entry.text) || lengthOf(entry.text) > group.maxTextLength) return null;
+          ids.add(entry.id);
+        }
+      }
+      continue;
+    }
     if (typeof group?.enabled !== 'boolean' || !inRange(group.maxEntries, LIMITS.maxEntries)
       || !inRange(group.maxTextLength, LIMITS.maxTextLength) || !Array.isArray(group.entries)
       || group.entries.length > group.maxEntries) return null;
@@ -147,6 +200,19 @@ function stateOf(reply) {
   return state;
 }
 
+function matchesMutation(data, payload, before) {
+  const group = data[payload.kind];
+  if (payload.action === 'configure') return equalConfig(configOf(group), payload.config);
+  if (payload.kind === R) {
+    const scene = group.scenes.find(row => row.scene === payload.scene);
+    if (payload.action.endsWith('Scene')) return payload.action === 'removeScene' ? !scene : scene?.description === payload.description;
+    const entry = scene?.entries.find(row => row.id === payload.id);
+    return payload.action === 'removeEntry' ? !entry : entry?.text === payload.text;
+  }
+  if (payload.action === 'add') return group.entries.some(row => row.text === payload.text && !before[payload.kind].entries.some(old => old.id === row.id));
+  const entry = group.entries.find(row => row.id === payload.id);
+  return payload.action === 'remove' ? !entry : entry?.text === payload.text;
+}
 function replyProblem(reply) {
   return typeof reply?.message === 'string' && reply.message ? { message: reply.message, field: reply.field } : null;
 }
@@ -185,6 +251,9 @@ function MemoryPanel({ rpcCall, locale, t }) {
   const [optionIssues, setOptionIssues] = React.useState({});
   const [editing, setEditing] = React.useState(null);
   const [body, setBody] = React.useState('');
+  const [shortName, setShortName] = React.useState('');
+  const [browsed, setBrowsed] = React.useState('');
+  const nameField = React.useRef(null);
   const [entryIssue, setEntryIssue] = React.useState(null);
   const [uncertain, setUncertain] = React.useState(false);
   const scopeRecovery = React.useRef(null);
@@ -220,6 +289,12 @@ function MemoryPanel({ rpcCall, locale, t }) {
         const recovery = scopeRecovery.current;
         setState(data);
         setDrafts(recovery ? rebaseDrafts(recovery.drafts, recovery.state, data) : draftsOf(data));
+        if (recovery?.payload) {
+          if (matchesMutation(data, recovery.payload, recovery.state)) {
+            if (recovery.payload.action === 'createScene') setBrowsed(recovery.payload.scene);
+            setEditing(null);
+          } else if (recovery.editor) setEditing(recovery.editor);
+        }
         scopeRecovery.current = null;
         setUncertain(false);
       } catch {
@@ -233,7 +308,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
   React.useLayoutEffect(() => {
     if (editing && !dialog.current.open) {
       dialog.current.showModal();
-      (editing.action === 'remove' ? cancelButton.current : field.current)?.focus();
+      (editing.action === 'remove' ? cancelButton.current : editing.kind === R && editing.action === 'add' ? nameField.current : field.current)?.focus();
     }
     if (!editing && dialog.current?.open) {
       dialog.current.close();
@@ -252,12 +327,13 @@ function MemoryPanel({ rpcCall, locale, t }) {
     setNotice(null);
     if (focus) tabs.current[key]?.focus();
   };
-  const open = (key, action, row, opener) => {
+  const open = (key, action, row, opener, target, scene) => {
     if (locked) return;
     returnFocus.current = () => opener.isConnected ? opener : tabs.current[key];
-    setBody(row?.text ?? '');
+    setBody((target === 'scene' ? row?.description : row?.text) ?? '');
+    setShortName((target === 'scene' ? row?.scene : row?.id) ?? '');
     setEntryIssue(null);
-    setEditing({ kind: key, action, row });
+    setEditing({ kind: key, action, row, target, scene });
   };
   const close = () => { if (!write.current) setEditing(null); };
   const retryLoad = () => {
@@ -318,7 +394,7 @@ function MemoryPanel({ rpcCall, locale, t }) {
       if (!mounted.current || request.signal.aborted) return;
       const failure = mutationProblem(reply);
       if (failure) {
-        if (failure.uncertain) setUncertain(true);
+        if (failure.uncertain) { scopeRecovery.current = { payload, editor: editing, state, drafts }; setUncertain(true); }
         else showIssue(failure.issue);
         return;
       }
@@ -333,15 +409,19 @@ function MemoryPanel({ rpcCall, locale, t }) {
       });
       if (configure) pendingOptionFocus.current = key;
       else {
-        returnFocus.current = () => addButtons.current[key]?.disabled ? tabs.current[key] : addButtons.current[key];
+        const focusKey = editing?.target === 'entry' ? 'recollection-entry' : key;
+        const opener = returnFocus.current;
+        returnFocus.current = () => { const el = opener?.(); return el?.isConnected && !el.disabled && el !== tabs.current[key] ? el : addButtons.current[focusKey] && !addButtons.current[focusKey].disabled ? addButtons.current[focusKey] : tabs.current[key]; };
         setEditing(null);
       }
-      setNotice({ key, configure, ...problem(configure ? LABELS[key].configured : action === 'remove' ? LABELS[key].removed : LABELS[key].saved) });
+      if (action === 'createScene') setBrowsed(payload.scene);
+      const labels = key !== R ? LABELS[key] : action.endsWith('Scene') ? sceneLabels : recordLabels;
+      setNotice({ kind: key, configure, ...problem(configure ? labels.configured : action.startsWith('remove') ? labels.removed : labels.saved) });
     } catch {
       // The request may have committed. Reload before allowing a second add or write.
       if (!mounted.current || request.signal.aborted) return;
+      scopeRecovery.current = { payload, editor: editing, state, drafts };
       setUncertain(true);
-
     } finally {
       if (write.current === request) write.current = null;
       if (mounted.current && !request.signal.aborted) setPending(null);
@@ -360,8 +440,8 @@ function MemoryPanel({ rpcCall, locale, t }) {
   const saveEntry = event => {
     event.preventDefault();
     if (locked || !editing) return;
-    const payload = entryRequest(editing.kind, editing.action, state[editing.kind], editing.row?.id, body);
-    if (payload.key) { setEntryIssue(payload); field.current?.focus(); }
+    const payload = editing.kind === R ? recollectionRequest(state[R], editing, shortName, body) : entryRequest(editing.kind, editing.action, state[editing.kind], editing.row?.id, body);
+    if (payload.key) { setEntryIssue(payload); (['scene', 'id'].includes(payload.field) ? nameField.current : field.current)?.focus(); }
     else void mutate(payload);
   };
   const updateDraft = (key, fieldName, value) => {
@@ -396,17 +476,34 @@ function MemoryPanel({ rpcCall, locale, t }) {
       h('p', { role: 'status', className: 'memory-note' }, saving ? t('saving') : null),
       errorView(scopeFeedback?.key === key && scopeFeedback.issue));
   };
+  const showScenes = (section, feedback) => {
+    const scene = section.scenes.find(row => row.scene === browsed) ?? section.scenes[0];
+    const command = (label, action, target, row, props = {}) => button(t(label), { className: 'memory-secondary', disabled: locked,
+      onClick: event => open(R, action, row, event.currentTarget, target, scene?.scene), ...props });
+    return h(React.Fragment, null,
+      h('div', { className: 'memory-list-head' }, h('span', { className: 'memory-note' }, t('countScenes', { count: section.scenes.length, limit: section.maxScenes })),
+        command('addScene','add','scene',null,{ disabled: locked || section.scenes.length >= section.maxScenes, ref: node => { addButtons.current[R] = node; } })),
+      h('p', { className: 'memory-note memory-list-status', role: 'status' }, feedback && !feedback.configure ? textOf(t,feedback) : null),
+      !scene ? h('p', { className: 'memory-note' }, t('emptyScenes')) : h(React.Fragment, null,
+        h('label', { className: 'memory-number-label' }, t('browseScene'), h('select', { value: scene.scene, disabled: locked, onChange: e => { setBrowsed(e.currentTarget.value); setNotice(null); } }, section.scenes.map(row => h('option', { key: row.scene, value: row.scene }, row.scene)))),
+        h('p', { className: 'memory-entry' }, scene.description),
+        h('div', { className: 'memory-actions' }, command('editScene','update','scene',scene), command('removeScene','remove','scene',scene,{ disabled: locked || Boolean(scene.entries.length), title: scene.entries.length ? t('nonemptyScene') : undefined })),
+        h('div', { className: 'memory-list-head' }, h('span', { className: 'memory-note' }, t('countRecollections', { count: scene.entries.length, limit: section.maxEntries })), command('addRecollection','add','entry',null,{ disabled: locked || scene.entries.length >= section.maxEntries, ref: node => { addButtons.current['recollection-entry'] = node; } })),
+        h('ul', { 'aria-label': t('recollections') }, scene.entries.map(row => h('li', { key: row.id }, h('div', { className: 'memory-entry' }, h('strong', null, row.id), h('div', null, row.text)), h('span', { className: 'memory-actions' }, command('edit','update','entry',row,{ 'aria-label': t('entryAction',{ action:t('edit'), text:row.id }) }),command('removeSettingAction','remove','entry',row,{ 'aria-label': t('entryAction',{ action:t('removeSettingAction'), text:row.id }) }))))),
+        !scene.entries.length && h('p', { className: 'memory-note' }, t('emptyRecollections'))));
+  };
   const showPanel = key => {
-    const section = state[key], draft = drafts[key], labels = LABELS[key], issue = optionIssues[key];
+    const section = state[key], draft = drafts[key], labels = key === R ? recordLabels : LABELS[key], issue = optionIssues[key];
+    const limits = key === R ? SCENE_LIMITS : LIMITS;
     const issueId = `${uid}-${key}-error`;
     const dirty = !equalConfig(draft, configOf(section));
-    const draftIssue = dirty ? checkOptions(section.entries, draft) : null;
+    const draftIssue = dirty ? (key === R ? sceneOptions(section, draft) : checkOptions(section.entries, draft)) : null;
     const optionIssue = issue ?? draftIssue;
-    const feedback = notice?.key === key ? notice : null;
-    const full = section.entries.length >= section.maxEntries;
+    const feedback = notice?.kind === key ? notice : null;
+    const full = key !== R && section.entries.length >= section.maxEntries;
     const inputError = name => optionIssue?.field === name ? { 'aria-invalid': true, 'aria-describedby': issueId } : {};
-    const number = name => h('label', { key: name, className: 'memory-number-label' }, t(name), h('input', {
-      ref: node => { inputs.current[`${key}-${name}`] = node; }, type: 'number', name, min: 1, max: LIMITS[name], step: 1, required: true,
+    const number = name => h('label', { key: name, className: 'memory-number-label' }, t(key === R && name === 'maxEntries' ? 'maxSceneEntries' : name), h('input', {
+      ref: node => { inputs.current[`${key}-${name}`] = node; }, type: 'number', name, min: 1, max: limits[name], step: 1, required: true,
       disabled: locked, value: Number.isNaN(draft[name]) ? '' : draft[name],
       onChange: event => updateDraft(key, name, event.currentTarget.valueAsNumber), ...inputError(name),
     }));
@@ -422,14 +519,14 @@ function MemoryPanel({ rpcCall, locale, t }) {
             disabled: locked, onChange: event => updateDraft(key, 'enabled', event.currentTarget.checked), ...inputError('enabled'),
           })),
         scopeRow(key, `${key}Scope`, state.allSessions ? 'listScopeHint' : 'scopeOffHint', state.sharedLists[key], !state.allSessions),
-        h('div', { className: 'memory-fields' }, Object.keys(LIMITS).map(number)),
+        h('div', { className: key === R ? 'memory-fields memory-recollection-fields' : 'memory-fields' }, Object.keys(limits).map(number)),
         errorView(optionIssue, issueId),
         h('div', { className: 'memory-options-foot' },
           h('div', null,
             !section.enabled && h('p', { className: 'memory-note' }, t('disabled')),
             h('p', { className: 'memory-note', role: 'status' }, dirty ? t('unsaved') : feedback?.configure ? textOf(t, feedback) : null)),
           button(t(pending?.configure && pending.key === key ? 'saving' : 'saveOptions'), { type: 'submit', className: 'memory-primary', disabled: locked || !dirty || Boolean(draftIssue) }))),
-      h('div', { className: 'memory-list-head' },
+      key === R ? showScenes(section, feedback) : h(React.Fragment, null, h('div', { className: 'memory-list-head' },
         h('span', { className: 'memory-note' }, t(labels.count, { count: section.entries.length, limit: section.maxEntries }), full && t('full')),
         button(t(labels.add), { ref: node => { addButtons.current[key] = node; }, className: 'memory-secondary', disabled: full || locked, onClick: event => open(key, 'add', null, event.currentTarget) })),
       h('p', { className: 'memory-note memory-list-status', role: 'status' }, feedback && !feedback.configure ? textOf(t, feedback) : null),
@@ -440,10 +537,11 @@ function MemoryPanel({ rpcCall, locale, t }) {
           return button(caption, { key: action, disabled: locked,
             'aria-label': t('entryAction', { action: caption, text: row.text }), onClick: event => open(key, action, row, event.currentTarget) });
         }))))),
-      !section.entries.length && h('p', { className: 'memory-note memory-empty' }, t(labels.empty)));
+      !section.entries.length && h('p', { className: 'memory-note memory-empty' }, t(labels.empty))));
   };
   const renderDialog = () => {
-    const labels = editing && LABELS[editing.kind];
+    const isScene = editing?.target === 'scene';
+    const labels = editing && (editing.kind === R ? (isScene ? sceneLabels : recordLabels) : LABELS[editing.kind]);
     const removing = editing?.action === 'remove';
     const title = labels?.[editing.action === 'update' ? 'edit' : editing.action];
     const issueId = `${uid}-entry-error`, countId = `${uid}-entry-count`;
@@ -451,12 +549,13 @@ function MemoryPanel({ rpcCall, locale, t }) {
       onCancel: event => { event.preventDefault(); close(); } },
     editing && h('form', { onSubmit: saveEntry, noValidate: true },
       h('h4', { id: `${uid}-editor-title` }, t(title)),
-      removing ? h('p', null, t(labels.confirm, { text: editing.row.text })) : h(React.Fragment, null,
-        h('label', { htmlFor: `${uid}-entry-text` }, t('body')),
+      removing ? h('p', null, t(labels.confirm, { text: editing.kind === R ? shortName : editing.row.text })) : h(React.Fragment, null,
+        editing.kind === R && h('label', { className: 'memory-number-label' }, t(isScene ? 'sceneName' : 'entryName'), h('input', { type: 'text', ref: nameField, value: shortName, maxLength: 32, readOnly: editing.action !== 'add', disabled: locked, 'aria-invalid': ['scene','id'].includes(entryIssue?.field) || undefined, 'aria-describedby': entryIssue ? issueId : undefined, onChange: e => { setShortName(e.currentTarget.value); setEntryIssue(null); } })),
+        h('label', { htmlFor: `${uid}-entry-text` }, t(isScene ? 'sceneDescription' : 'body')),
         h('textarea', { id: `${uid}-entry-text`, ref: field, value: body, required: true, disabled: locked,
-          'aria-invalid': entryIssue?.field === 'text' || undefined, 'aria-describedby': entryIssue ? `${countId} ${issueId}` : countId,
+          'aria-invalid': entryIssue?.field === (isScene ? 'description' : 'text') || undefined, 'aria-describedby': entryIssue ? `${countId} ${issueId}` : countId,
           onChange: event => { setBody(event.currentTarget.value); setEntryIssue(null); } }),
-        h('p', { id: countId, className: 'memory-note' }, t('charCount', { count: lengthOf(body), limit: state[editing.kind].maxTextLength }))),
+        h('p', { id: countId, className: 'memory-note' }, t('charCount', { count: lengthOf(body), limit: isScene ? state[R].maxDescriptionLength : state[editing.kind].maxTextLength }))),
       errorView(uncertain ? problem('saveFailed') : entryIssue, issueId),
       h('div', { className: 'memory-dialog-actions' },
         button(t('cancel'), { ref: cancelButton, disabled: busy, onClick: close }),

@@ -3,21 +3,27 @@ import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink } from 'no
 import { hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-export const MEMORY_VERSION = 2;
-export const MEMORY_KINDS = Object.freeze(['wishes', 'settings']);
+export const MEMORY_VERSION = 3;
+const flatKinds = ['wishes', 'settings'];
+export const MEMORY_KINDS = Object.freeze([...flatKinds, 'recollections']);
+export const RECOLLECTION_ID_PATTERN = '^[a-z]+(?:-[a-z]+)*(?![\\s\\S])';
+const recollectionName = new RegExp(RECOLLECTION_ID_PATTERN, 'u');
 export const MEMORY_DEFAULTS = Object.freeze({
   wishes: Object.freeze({ enabled: true, maxEntries: 8, maxTextLength: 120 }),
   settings: Object.freeze({ enabled: true, maxEntries: 12, maxTextLength: 160 }),
+  recollections: Object.freeze({ enabled: true, maxScenes: 12, maxEntries: 8, maxDescriptionLength: 64, maxTextLength: 160 }),
 });
 export const MEMORY_ID_PATTERN = '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![\\s\\S])';
 const idPattern = new RegExp(MEMORY_ID_PATTERN, 'u');
 const uiIdPattern = /^ui-([1-9][0-9]*)(?![\s\S])/;
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?![\s\S])/i;
 const configKeys = ['enabled', 'maxEntries', 'maxTextLength'];
-const legacyStateKeys = ['version', 'storeId', 'nextUiId', ...MEMORY_KINDS];
+const legacyStateKeys = ['version', 'storeId', 'nextUiId', ...flatKinds];
 const legacyScopeKeys = [...legacyStateKeys, 'allSessions'];
-const stateKeys = [...legacyScopeKeys, 'sharedLists'];
-const defaultSharedLists = () => ({ wishes: false, settings: true });
+const v2Keys = [...legacyScopeKeys, 'sharedLists'];
+const stateKeys = [...v2Keys, 'recollections'];
+const defaultSharedLists = () => ({ wishes: false, settings: true, recollections: false });
+const newRecollections = () => ({ ...MEMORY_DEFAULTS.recollections, scenes: [], selections: [] });
 const maxEntries = 32;
 const maxTextLength = 500;
 
@@ -58,7 +64,8 @@ export function createMemoryState(storeId = randomUUID()) {
     nextUiId: 1,
     allSessions: false,
     sharedLists: defaultSharedLists(),
-    ...Object.fromEntries(MEMORY_KINDS.map((kind) => [kind, { ...MEMORY_DEFAULTS[kind], entries: [] }])),
+    ...Object.fromEntries(flatKinds.map((kind) => [kind, { ...MEMORY_DEFAULTS[kind], entries: [] }])),
+    recollections: newRecollections(),
   });
 }
 
@@ -73,7 +80,7 @@ export function validateMemoryState(state) {
     throw corrupt('Memory state has invalid shared-list preferences.');
   }
   const uiIds = new Set();
-  for (const kind of MEMORY_KINDS) {
+  for (const kind of flatKinds) {
     const group = state[kind];
     try { validateConfig(group, [...configKeys, 'entries']); }
     catch (cause) { throw corrupt(`Memory state has invalid ${kind} configuration.`, cause); }
@@ -92,11 +99,13 @@ export function validateMemoryState(state) {
       }
     }
   }
+  try { validateRecollectionState(state.recollections); }
+  catch (cause) { throw corrupt('Memory state has invalid recollections.', cause); }
   return state;
 }
 
 export function validateToolInput(kind, input) {
-  if (!validKind(kind)) throw invalid('Unknown memory kind.', 'kind');
+  if (!flatKinds.includes(kind)) throw invalid('Unknown memory kind.', 'kind');
   if (kind === 'wishes' && exact(input, [])) return input;
   if (!record(input)) throw invalid('Expected a memory tool input object.');
   if (input.action === 'update' && exact(input, ['action', 'id', 'text'])) {
@@ -121,6 +130,7 @@ export function validateScopeInput(input) {
 export function validateUiInput(input) {
   if (!record(input)) throw invalid('Expected a memory settings input object.');
   if (!validKind(input.kind)) throw invalid('Unknown memory kind.', 'kind');
+  if (input.kind === 'recollections') return validateRecollectionUi(input);
   if (input.action === 'configure' && exact(input, ['kind', 'action', 'config'])) {
     validateConfig(input.config);
     return input;
@@ -180,6 +190,7 @@ export function applyToolMutation(state, kind, input) {
 
 export function applyUiMutation(state, input) {
   validateUiInput(input);
+  if (input.kind === 'recollections') return applyRecollectionUi(state, input);
   const group = state[input.kind];
   if (input.action === 'configure') {
     const { config } = input;
@@ -202,6 +213,163 @@ export function applyUiMutation(state, input) {
     return { outcome: 'created', id, text };
   }
   return changeEntry(group, input, false);
+}
+
+const recollectionConfigKeys = Object.keys(MEMORY_DEFAULTS.recollections);
+const validName = value => typeof value === 'string' && value.length <= 32 && recollectionName.test(value);
+const validSession = value => typeof value === 'string' && value.trim().length > 0;
+const requireName = (value, field) => {
+  if (!validName(value)) throw invalid('Use lowercase English words joined by hyphens, up to 32 characters.', field);
+};
+const requireSession = sessionId => {
+  if (!validSession(sessionId)) throw invalid('A session ID is required to select or edit the current scene.', 'sessionId');
+};
+function checkRecollectionConfig(config, keys = recollectionConfigKeys) {
+  validateConfig(config, keys);
+  for (const [field, max] of [['maxScenes', maxEntries], ['maxDescriptionLength', maxTextLength]]) {
+    if (!inRange(config[field], max)) throw invalid(`Expected an integer from 1 to ${max}.`, field);
+  }
+}
+function checkCap(actual, limit, code, field) {
+  if (actual > limit) throw new MemoryError(code, `${field} limit exceeded (${limit}).`, { field, limit });
+}
+function normalizedContent(value, limit, field) {
+  if (typeof value !== 'string') throw invalid('Expected text.', field);
+  const text = normalize(value);
+  if (!text) throw new MemoryError('empty_text', 'Enter non-blank text.', { field });
+  checkCap(length(text), limit, 'text_limit', field);
+  return text;
+}
+function checkRecollectionLimits(scenes, config) {
+  checkCap(scenes.length, config.maxScenes, 'scene_limit', 'maxScenes');
+  for (const s of scenes) {
+    checkCap(length(s.description), config.maxDescriptionLength, 'text_limit', 'maxDescriptionLength');
+    checkCap(s.entries.length, config.maxEntries, 'entry_limit', 'maxEntries');
+    for (const e of s.entries) checkCap(length(e.text), config.maxTextLength, 'text_limit', 'maxTextLength');
+  }
+}
+function validateRecollectionState(group) {
+  checkRecollectionConfig(group, [...recollectionConfigKeys, 'scenes', 'selections']);
+  if (!Array.isArray(group.scenes) || !Array.isArray(group.selections)) throw invalid('Invalid recollection lists.');
+  const names = new Set(), sessions = new Set();
+  for (const s of group.scenes) {
+    if (!exact(s, ['scene', 'description', 'entries']) || !validName(s.scene) || names.has(s.scene) || !Array.isArray(s.entries) || normalizedContent(s.description, group.maxDescriptionLength, 'description') !== s.description) throw invalid('Invalid scene.');
+    names.add(s.scene);
+    const ids = new Set();
+    for (const e of s.entries) {
+      if (!exact(e, ['id', 'text']) || !validName(e.id) || ids.has(e.id) || normalizedContent(e.text, group.maxTextLength, 'text') !== e.text) throw invalid('Invalid recollection entry.');
+      ids.add(e.id);
+    }
+  }
+  checkRecollectionLimits(group.scenes, group);
+  for (const s of group.selections) {
+    if (!exact(s, ['sessionId', 'scene']) || !validSession(s.sessionId) || sessions.has(s.sessionId) || !names.has(s.scene)) throw invalid('Invalid session selection.');
+    sessions.add(s.sessionId);
+  }
+}
+export function validateSceneInput(input) {
+  if (![['scene'], ['scene','select'], ['scene','description'], ['scene','description','select'], ['scene','remove']].some(keys => exact(input, keys))) throw invalid('Invalid scene parameters.');
+  requireName(input.scene, 'scene');
+  if (Object.hasOwn(input, 'description')) normalizedContent(input.description, maxTextLength, 'description');
+  for (const field of ['select', 'remove']) if (Object.hasOwn(input, field) && input[field] !== true) throw invalid('Expected true.', field);
+  return input;
+}
+export function validateRecollectionInput(input) {
+  if (exact(input, ['id', 'text'])) normalizedContent(input.text, maxTextLength, 'text');
+  else if (!exact(input, ['id', 'remove']) || input.remove !== true) throw invalid('Supply id and text, or id and remove: true.');
+  requireName(input.id, 'id');
+  return input;
+}
+const lookup = (state, name) => state.recollections.scenes.find(s => s.scene === name);
+function existingScene(state, name) {
+  const found = lookup(state, name);
+  if (!found) throw new MemoryError('not_found', 'No scene has that name.', { field: 'scene' });
+  return found;
+}
+export function readScene(state, name) {
+  requireName(name, 'scene');
+  return structuredClone(existingScene(state, name));
+}
+export function currentScene(state, sessionId) {
+  return state.recollections.selections.find(s => s.sessionId === sessionId)?.scene ?? null;
+}
+export function applySceneMutation(state, input, sessionId) {
+  validateSceneInput(input);
+  const { scene, select, remove } = input;
+  if (select) requireSession(sessionId);
+  const group = state.recollections;
+  const found = lookup(state, scene);
+  if (remove) {
+    if (!found) existingScene(state, scene);
+    if (found.entries.length) throw new MemoryError('scene_not_empty', 'Remove the recollections before deleting this scene.', { field: 'scene' });
+    group.scenes.splice(group.scenes.indexOf(found), 1);
+    group.selections = group.selections.filter(s => s.scene !== scene);
+    return { outcome: 'removed', scene };
+  }
+  let outcome = 'selected';
+  if (Object.hasOwn(input, 'description')) {
+    const description = normalizedContent(input.description, group.maxDescriptionLength, 'description');
+    if (found) { found.description = description; outcome = 'updated'; }
+    else {
+      checkCap(group.scenes.length + 1, group.maxScenes, 'scene_limit', 'maxScenes');
+      group.scenes.push({ scene, description, entries: [] }); outcome = 'created';
+    }
+  } else if (!select) throw invalid('Browsing a scene is not a mutation.');
+  else existingScene(state, scene);
+  if (select) {
+    const selected = group.selections.find(s => s.sessionId === sessionId);
+    if (selected) selected.scene = scene;
+    else group.selections.push({ sessionId, scene });
+  }
+  return { outcome, scene };
+}
+function changeRecollection(state, scene, input, mode) {
+  const { entries } = existingScene(state, scene);
+  const { id } = input;
+  const i = entries.findIndex(e => e.id === id);
+  if (i < 0 && (input.remove || mode === 'update')) throw new MemoryError('not_found', 'No recollection has that ID in this scene.', { field: 'id' });
+  if (i >= 0 && mode === 'add') throw new MemoryError('already_exists', 'A recollection with this ID already exists.', { field: 'id' });
+  if (input.remove) { entries.splice(i, 1); return { outcome: 'removed', scene, id }; }
+  const text = normalizedContent(input.text, state.recollections.maxTextLength, 'text');
+  if (i < 0) {
+    checkCap(entries.length + 1, state.recollections.maxEntries, 'entry_limit', 'maxEntries');
+    entries.push({ id, text });
+  } else entries[i] = { id, text };
+  return { outcome: i < 0 ? 'created' : 'updated', scene, id, text };
+}
+export function applyRecollectionMutation(state, input, sessionId) {
+  validateRecollectionInput(input);
+  requireSession(sessionId);
+  const scene = currentScene(state, sessionId);
+  if (!scene) throw new MemoryError('no_current_scene', 'Select a scene before editing recollections.');
+  return changeRecollection(state, scene, input, 'upsert');
+}
+const uiRecollectionFields = new Map([
+  ['configure', ['config']], ['createScene', ['scene', 'description']], ['updateScene', ['scene', 'description']],
+  ['removeScene', ['scene']], ['addEntry', ['scene', 'id', 'text']], ['updateEntry', ['scene', 'id', 'text']], ['removeEntry', ['scene', 'id']],
+]);
+function validateRecollectionUi(input) {
+  const fields = uiRecollectionFields.get(input.action);
+  if (!fields || !exact(input, ['kind', 'action', ...fields])) throw invalid('Invalid recollection settings input.');
+  if (fields.includes('config')) checkRecollectionConfig(input.config);
+  for (const field of ['scene','id']) if (fields.includes(field)) requireName(input[field], field);
+  for (const field of ['description','text']) if (fields.includes(field)) normalizedContent(input[field], maxTextLength, field);
+  return input;
+}
+function applyRecollectionUi(state, input) {
+  const { action, scene, id, description, text } = input;
+  if (action === 'configure') {
+    checkRecollectionLimits(state.recollections.scenes, input.config);
+    Object.assign(state.recollections, input.config);
+    return { outcome: 'configured' };
+  }
+  if (action === 'createScene' || action === 'updateScene') {
+    if (action === 'createScene' && lookup(state, scene)) throw new MemoryError('already_exists', 'This scene already exists.', { field: 'scene' });
+    if (action === 'updateScene') existingScene(state, scene);
+    return applySceneMutation(state, { scene, description });
+  }
+  if (action === 'removeScene') return applySceneMutation(state, { scene, remove: true });
+  return changeRecollection(state, scene, action === 'removeEntry' ? { id, remove: true } : { id, text }, action === 'addEntry' ? 'add' : 'update');
 }
 
 const hostTag = createHash('sha256').update(hostname()).digest('hex').slice(0, 32);
@@ -326,15 +494,20 @@ async function loadState(file) {
     try { state = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
     catch (cause) { throw corrupt('Memory state is not valid UTF-8 JSON.', cause); }
   } finally { await handle.close(); }
-  // Upgrade only the two known v1 shapes. The next changed transaction persists v2.
+  // Upgrade known legacy shapes in memory; a changed transaction persists v3.
   if (state?.version === 1) {
     if (exact(state, legacyStateKeys)) state.allSessions = false;
     else if (!exact(state, legacyScopeKeys) || typeof state.allSessions !== 'boolean') {
       throw corrupt('Memory state has invalid v1 store metadata.');
     }
+    state.version = 2;
+    state.sharedLists = { wishes: state.allSessions, settings: true };
+  }
+  if (state?.version === 2) {
+    if (!exact(state, v2Keys) || !exact(state.sharedLists, flatKinds)) throw corrupt('Memory state has invalid v2 store metadata.');
     state.version = MEMORY_VERSION;
-    state.sharedLists = defaultSharedLists();
-    if (state.allSessions) state.sharedLists.wishes = true;
+    state.sharedLists.recollections = false;
+    state.recollections = newRecollections();
   }
   return validateMemoryState(state);
 }
@@ -414,7 +587,7 @@ export async function openMemoryStore(homeDir) {
           const result = await mutator(draft);
           validateMemoryState(draft);
           if (draft.storeId !== current.storeId || draft.nextUiId < current.nextUiId) throw corrupt('A transaction cannot change the store ID or roll back its UI ID counter.');
-          for (const kind of MEMORY_KINDS) {
+          for (const kind of flatKinds) {
             const previousIds = new Set(current[kind].entries.map(({ id }) => id));
             if (draft[kind].entries.some(({ id }) => id.startsWith('ui-') && !previousIds.has(id) && Number(id.slice(3)) < current.nextUiId)) {
               throw corrupt('A transaction cannot reuse a previously issued UI ID.');

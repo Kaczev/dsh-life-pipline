@@ -1,8 +1,8 @@
 {
   "name": "dsh-lpipe-memory",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "type": "module",
-  "description": "Manage wishes and settings for the Lpipe main session or all top-level conversations.",
+  "description": "Manage wishes, settings, and scene-based recollections for Lpipe conversations.",
   "license": "AGPL-3.0-or-later",
   "main": "src/index.js",
   "exports": {

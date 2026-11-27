@@ -1,5 +1,7 @@
 import { applyToolMutation, applyUiMutation, MemoryError, validateScopeInput, validateToolInput, validateUiInput } from './store.mjs';
 
+import { applySceneMutation, applyRecollectionMutation, validateSceneInput, validateRecollectionInput, readScene } from './store.mjs';
+
 const BUSINESS_ERRORS = new Set(['entry_limit', 'text_limit', 'reserved_id', 'not_found', 'id_exhausted', 'empty_text']);
 const unavailable = () => ({ ok: false, code: 'not_available', message: 'This memory tool is not enabled for this session.' });
 const invalid = message => ({ ok: false, code: 'invalid_input', message });
@@ -26,7 +28,7 @@ export function createMemoryService({ opened, allowedInState, warn = () => {} })
   };
   const withWishes = (kind, state, result) => kind === 'wishes'
     ? { ...result, wishes: state.wishes.entries.map(entry => ({ ...entry })) } : result;
-  const publicState = ({ allSessions, sharedLists, wishes, settings }) => ({ allSessions, sharedLists, wishes, settings });
+  const publicState = ({ allSessions, sharedLists, wishes, settings, recollections: { selections: _private, ...recollections } }) => ({ allSessions, sharedLists, wishes, settings, recollections });
   return {
     allowed, async readCurrent() { await ready; return current(); },
     async close() {
@@ -59,6 +61,22 @@ export function createMemoryService({ opened, allowedInState, warn = () => {} })
       } catch (error) {
         return failure(error, warn);
       }
+    },
+    async recall(kind, input, subject, signal) {
+      if (!allowed('recollections', subject)) return unavailable();
+      try {
+        const scene = kind === 'scene';
+        (scene ? validateSceneInput : validateRecollectionInput)(input);
+        const value = await ready;
+        const eligible = state => live && !signal?.aborted && allowedInState('recollections', state, subject);
+        if (scene && Object.keys(input).length === 1) {
+          const state = value.read();
+          return eligible(state) ? { ok: true, ...readScene(state, input.scene) } : unavailable();
+        }
+        return await value.transact(state => eligible(state)
+          ? { ok: true, ...(scene ? applySceneMutation : applyRecollectionMutation)(state, input, subject.session.id) }
+          : unavailable());
+      } catch (error) { return failure(error, warn); }
     },
     async rpc(method, payload) {
       try {

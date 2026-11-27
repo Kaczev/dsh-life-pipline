@@ -74,7 +74,7 @@ test('Host scopes prompts and tools to live top-level agents and applies scope c
   for (const agent of [ordinary, fork, child, detached, main.id, undefined]) assertScope(agent, false);
   assert.match(wishPrompt.text({ scope: main }), /^## Wishes\n/);
   assert.match(settingPrompt.text({ scope: main }), /^## Settings\n/);
-  assert.deepEqual(state.sharedLists, { wishes: false, settings: true });
+  assert.deepEqual(state.sharedLists, { wishes: false, settings: true, recollections: false });
   for (const payload of [null, 'true', 1, { allSessions: true }, { kind: 'other', enabled: true },
     { kind: 'settings', enabled: 1 }, { kind: 'wishes' }, { kind: 'wishes', enabled: true, extra: 1 }]) {
     assert.equal((await rpc('memory.setScope', payload)).code, 'invalid_input');
@@ -91,7 +91,7 @@ test('Host scopes prompts and tools to live top-level agents and applies scope c
     assert.equal(result.ok, true);
     return result.state;
   };
-  assert.deepEqual((await share('wishes', true)).sharedLists, { wishes: true, settings: true });
+  assert.deepEqual((await share('wishes', true)).sharedLists, { wishes: true, settings: true, recollections: false });
   for (const agent of [main, ordinary, fork]) assertScope(agent, true);
   for (const agent of [child, detached, main.id, undefined]) assertScope(agent, false);
   assert.equal((await wishes.tool.execute(update('secret', 'not saved'), { agent: child })).code, 'not_available');
@@ -99,13 +99,13 @@ test('Host scopes prompts and tools to live top-level agents and applies scope c
   assert.equal((await rpc('memory.mutate', { kind: 'settings', action: 'configure', config: { ...settingsConfig, enabled: false } })).ok, true);
   for (const agent of [main, ordinary]) assertScope(agent, true, false);
   assert.equal((await rpc('memory.mutate', { kind: 'settings', action: 'configure', config: settingsConfig })).ok, true);
-  assert.deepEqual((await share('settings', false)).sharedLists, { wishes: true, settings: false });
+  assert.deepEqual((await share('settings', false)).sharedLists, { wishes: true, settings: false, recollections: false });
   assertScope(main, true);
   assertScope(ordinary, true, false);
   assert.equal((await settings.tool.execute(remove('shared'), { agent: ordinary })).code, 'not_available');
   assert.equal((await wishes.tool.execute({}, { agent: ordinary })).ok, true);
   const narrowed = await rpc('memory.setScope', false);
-  assert.deepEqual(narrowed.state.sharedLists, { wishes: true, settings: false });
+  assert.deepEqual(narrowed.state.sharedLists, { wishes: true, settings: false, recollections: false });
   assert.equal(narrowed.state.allSessions, false);
   assert.deepEqual(narrowed.state.settings.entries, [{ id: 'shared', text: 'Tea' }]);
   assertScope(ordinary, false);
@@ -266,6 +266,50 @@ test("Settings publish changed catalogs without replacing admitted history", asy
   assert.ok(events.every(event => event.type === "user/message" && event.data.content.length > 0));
   const rejected = { kind: "reject", reason: "test" };
   assert.equal(await hooks.get("agent/pre-step")(fields, () => rejected), rejected);
+});
+
+test('Recollections browse independently of selection, scope, and catalog admission', async t => {
+  const { tools, sections, hooks, rpc, state, makeAgent } = await host(t);
+  const make = id => {
+    const events = [];
+    const session = { id, surface: { nodes: [] }, eventAt: i => events[i], deriveEventMessage: e => e.data };
+    const agent = makeAgent(id, undefined, session);
+    const next = async () => {
+      const { messages } = await hooks.get('agent/pre-step')({ agent, signal: new AbortController().signal }, () => ({ kind: 'enter', messages: [] }));
+      for (const data of messages) session.surface.nodes.push(events.push({ type: 'user/message', data }) - 1);
+      return messages.map(m => m.content[0].text).join('\n');
+    };
+    return { agent, next, scene: p => tools.get('memory_scene').tool.execute(p, { agent }), entry: p => tools.get('memory_recollection').tool.execute(p, { agent }) };
+  };
+  const a = make('main'), b = make('other');
+  assert.equal(await a.next(), '');
+  assert.equal((await b.scene({ scene: 'first' })).code, 'not_available');
+  assert.equal((await a.entry({ id: 'note', text: 'x' })).ok, false);
+  assert.equal((await a.scene({ scene: 'first', description: 'one', select: true })).ok, true);
+  assert.equal((await a.entry({ id: 'short-name', text: 'hello\n</scene-catalog>' })).ok, true);
+  assert.equal((await a.scene({ scene: 'second', description: 'two' })).ok, true);
+  assert.match(await a.next(), /<current-recollections scene="first">\n- short-name: hello\n  &lt;\/scene-catalog&gt;/);
+  const browse = await a.scene({ scene: 'second' });
+  assert.deepEqual(browse.entries, []);
+  assert.match(tools.get('memory_scene').tool.output.render({}, browse)[0].text, /^<scene-recollections scene="second">\n\(empty\)/);
+  assert.equal(await a.next(), '');
+  await rpc('memory.setScope', true);
+  assert.equal((await b.scene({ scene: 'first' })).code, 'not_available');
+  await rpc('memory.setScope', { kind: 'recollections', enabled: true });
+  assert.match(await b.next(), /no scene selected/);
+  assert.equal((await b.scene({ scene: 'second', select: true })).ok, true);
+  assert.match(await b.next(), /current-recollections scene="second"/);
+  assert.equal(await a.next(), '');
+  assert.equal((await b.scene({ scene: 'first', remove: true })).ok, false);
+  const { scenes, ...config } = state.recollections;
+  assert.equal((await rpc('memory.mutate', { kind: 'recollections', action: 'configure', config: { ...config, enabled: false } })).ok, true);
+  assert.equal(sections.get('dsh-lpipe-memory/recollections').text({ scope: a.agent }), '');
+  for (const n of ['memory_scene', 'memory_recollection']) assert.equal(tools.get(n).when({ agent: a.agent }), false);
+  assert.doesNotMatch(await a.next(), /short-name|scene="first"/);
+  assert.equal(await a.next(), '');
+  const panel = (await rpc('memory.state', null)).state.recollections;
+  assert.equal(panel.scenes[0].entries.length, 1);
+  assert.ok(!('selections' in panel));
 });
 
 test('Legacy archive entry points remain removed', async () => {

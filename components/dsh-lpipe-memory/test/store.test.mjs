@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   applyToolMutation, applyUiMutation, createMemoryState, MemoryError, openMemoryStore,
-  validateMemoryState, validateToolInput, validateUiInput,
+  validateMemoryState, validateToolInput, validateUiInput, applySceneMutation,
+  applyRecollectionMutation, readScene, currentScene, validateSceneInput, validateRecollectionInput,
 } from '../src/store.mjs';
 
+const initialRecollections = { enabled: true, maxScenes: 12, maxEntries: 8, maxDescriptionLength: 64, maxTextLength: 160, scenes: [], selections: [] };
 const storeId = '8862812f-5a93-4948-b1ee-ef5417c2fe89';
 const update = (id, text) => ({ action: 'update', id, text });
 const remove = (id) => ({ action: 'remove', id });
@@ -83,7 +85,8 @@ test('tool and UI shapes are exact; only the wish tool accepts a read', () => {
 test('pure mutations enforce per-kind limits, normalize Unicode text and preserve entry IDs', () => {
   const state = createMemoryState(storeId);
   assert.deepEqual(state, {
-    version: 2, storeId, nextUiId: 1, allSessions: false, sharedLists: { wishes: false, settings: true },
+    version: 3, storeId, nextUiId: 1, allSessions: false, sharedLists: { wishes: false, settings: true, recollections: false },
+    recollections: initialRecollections,
     wishes: { enabled: true, maxEntries: 8, maxTextLength: 120, entries: [] },
     settings: { enabled: true, maxEntries: 12, maxTextLength: 160, entries: [] },
   });
@@ -121,7 +124,7 @@ test('both v1 formats migrate lazily, preserving existing sharing, list configur
     await writeFile(f.file, source);
     const store = await f.open();
     const allSessions = scope.allSessions ?? false;
-    const expected = { ...legacy, version: 2, allSessions, sharedLists: { wishes: allSessions, settings: true } };
+    const expected = { ...legacy, version: 3, allSessions, sharedLists: { wishes: allSessions, settings: true, recollections: false }, recollections: initialRecollections };
     assert.deepEqual(store.read(), expected);
     assert.equal(await readFile(f.file, 'utf8'), source);
     await store.transact(draft => { draft.sharedLists.settings = false; });
@@ -132,6 +135,74 @@ test('both v1 formats migrate lazily, preserving existing sharing, list configur
     assert.deepEqual(JSON.parse(await readFile(f.file, 'utf8')), expected);
     await reopened.close();
   }
+});
+
+test('v2 preserves per-list sharing and entries without rewriting on read', async t => {
+  const f = await fixture(t); await mkdir(f.dir);
+  const { recollections, ...v2 } = createMemoryState(storeId);
+  v2.version = 2; v2.sharedLists = { wishes: true, settings: false }; v2.allSessions = true;
+  v2.settings.entries.push({ id: 'existing', text: 'old' });
+  const bytes = JSON.stringify(v2); await writeFile(f.file, bytes);
+  const store = await f.open();
+  assert.deepEqual(store.read(), { ...v2, version: 3, sharedLists: { ...v2.sharedLists, recollections: false }, recollections });
+  assert.equal(await readFile(f.file, 'utf8'), bytes);
+});
+
+test('scene browsing is isolated, selections persist per session, deletion clears all references', async t => {
+  const f = await fixture(t), store = await f.open();
+  const a = 'session-a', b = '__proto__';
+  await store.transact(s => {
+    applySceneMutation(s, { scene: 'books', description: 'Reading', select: true }, a);
+    applySceneMutation(s, { scene: 'journal', description: 'Life', select: true }, b);
+    applyRecollectionMutation(s, { id: 'first-day', text: 'Tea' }, a);
+    applyRecollectionMutation(s, { id: 'first-day', text: 'Coffee' }, b);
+    assert.throws(() => applySceneMutation(s, { scene: 'books', remove: true }), isError('scene_not_empty'));
+  });
+  await store.close(); const reopened = await f.open();
+  const state = reopened.read(); const other = readScene(state, 'journal'); other.entries[0].text = 'external';
+  assert.equal(currentScene(state, a), 'books'); assert.equal(currentScene(state, b), 'journal');
+  assert.equal(readScene(state, 'journal').entries[0].text, 'Coffee');
+  assert.throws(() => applyRecollectionMutation(state, { id: 'lost', text: 'Tea' }, 'unknown'), isError('no_current_scene'));
+  await reopened.transact(s => {
+    applySceneMutation(s, { scene: 'books', select: true }, b);
+    applyRecollectionMutation(s, { id: 'first-day', remove: true }, a);
+    applySceneMutation(s, { scene: 'books', remove: true });
+    assert.deepEqual(s.recollections.selections, []);
+    assert.equal(readScene(s, 'journal').entries[0].text, 'Coffee');
+  });
+});
+
+test('recollection settings enforce every capacity without truncating; UI editing is independent of selection', () => {
+  const s = createMemoryState(storeId), ui = (action, args) => applyUiMutation(s, {kind:'recollections', action, ...args});
+  const config = {enabled:false,maxScenes:2,maxEntries:2,maxDescriptionLength:2,maxTextLength:2};
+  ui('configure', { config });
+  for (const scene of ['one','two']) ui('createScene',{scene,description:'🎈字'});
+  for (const id of ['first','second']) ui('addEntry',{scene:'one',id,text:'字🎈'});
+  assert.throws(() => ui('addEntry',{scene:'one',id:'first',text:'x'}), isError('already_exists'));
+  assert.throws(() => ui('updateEntry',{scene:'one',id:'absent',text:'x'}), isError('not_found'));
+  assert.throws(() => ui('createScene',{scene:'three',description:'x'}), isError('scene_limit'));
+  assert.throws(() => ui('addEntry',{scene:'one',id:'third',text:'x'}), isError('entry_limit'));
+  assert.throws(() => ui('updateScene',{scene:'two',description:'abc'}), isError('text_limit'));
+  assert.throws(() => ui('updateEntry',{scene:'one',id:'first',text:'abc'}), isError('text_limit'));
+  const before = structuredClone(s);
+  for (const field of ['maxScenes','maxEntries','maxDescriptionLength','maxTextLength']) {
+    assert.throws(() => ui('configure',{config:{...config,[field]:1}}), { field });
+  }
+  assert.deepEqual(s, before);
+  ui('updateScene',{scene:'one',description:'新'}); ui('updateEntry',{scene:'one',id:'first',text:'好'});
+  ui('removeEntry',{scene:'one',id:'first'}); ui('removeScene',{scene:'two'});
+  assert.equal(validateMemoryState(s), s); assert.deepEqual(s.recollections.selections, []);
+});
+
+test('scene and entry tools reject invalid names and contradictory actions', () => {
+  for (const bad of ['a-2','A','a--b','x\n','a'.repeat(33),'__proto__']) {
+    assert.throws(() => validateSceneInput({scene:bad}), isError('invalid_input'));
+    assert.throws(() => validateRecollectionInput({id:bad,text:'x'}), isError('invalid_input'));
+  }
+  for (const input of [{scene:'one',select:false},{scene:'one',remove:true,description:'x'},{scene:'one',select:true,remove:true}]) {
+    assert.throws(() => validateSceneInput(input), isError('invalid_input'));
+  }
+  assert.throws(() => validateRecollectionInput({id:'one',remove:true,text:'x'}), isError('invalid_input'));
 });
 
 test('malformed scope data is rejected without rewriting the store', async t => {
@@ -227,7 +298,7 @@ test('recovery discards only uncommitted temporary files and fails closed when c
   await reopened.close();
   const valid = JSON.stringify(createMemoryState(storeId));
   for (const [invalid, code] of [[Buffer.from([0xff]), 'store_corrupt'], ['{', 'store_corrupt'],
-    [JSON.stringify({ ...createMemoryState(storeId), version: 3 }), 'store_version'],
+    [JSON.stringify({ ...createMemoryState(storeId), version: 4 }), 'store_version'],
     [JSON.stringify({ ...createMemoryState(storeId), nextUiId: 0 }), 'store_corrupt']]) {
     await writeFile(f.file, invalid); await writeFile(f.temp, valid);
     await assert.rejects(f.open(), isError(code));
@@ -312,5 +383,5 @@ test('unverifiable owners are left in place and empty interrupted locks can be a
   await assert.rejects(f.open(), isError('store_locked'));
   assert.deepEqual(await readdir(f.lock), ['unknown-owner']);
   await rm(join(f.lock, 'unknown-owner'), { recursive: true });
-  assert.equal((await f.open()).read().version, 2);
+  assert.equal((await f.open()).read().version, 3);
 });
