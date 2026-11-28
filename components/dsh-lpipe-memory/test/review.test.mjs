@@ -5,7 +5,9 @@ import { createReviewRunner } from '../src/review.mjs';
 const day = 86_400_000;
 function fixture() {
   const due = 10 * day, clock = { value: due };
-  const state = { storeId: 'test', allSessions: true, sharedLists: { settings: true }, review: { enabled: true, nextReviewAt: due } };
+  const state = { storeId: 'test', allSessions: true, sharedLists: { settings: true }, review: { enabled: true, nextReviewAt: due },
+    wishes: { enabled: true, entries: [{ text: 'wish' }] }, settings: { enabled: false, entries: [{ text: 'setting' }] },
+    recollections: { enabled: true, scenes: [] } };
   const messages = [], advances = [], warnings = [], resolutions = [];
   const agent = { status: 'idle', async followup(message) { messages.push(message); return true; } };
   const hooks = {
@@ -28,7 +30,32 @@ test('before the deadline no agent is resolved; equality is due', async () => {
   f.clock.value++; await f.runner.tick();
   assert.deepEqual(f.resolutions, ['main']); assert.deepEqual(f.advances, [[f.due, f.due]]);
   assert.equal(f.messages[0].source.due, f.due);
-  assert.match(f.messages[0].content[0].text, /Shared lists: settings\./);
+  assert.equal(f.messages[0].content[0].text, 'When idle, review your wishes and recollections. Correct or reclassify entries where useful. Keep private content out of shared lists. Save new interpretations as thoughts.');
+});
+
+test('an empty enabled scope advances without resolving the main agent', async () => {
+  for (const enabled of [true, false]) {
+    const f = fixture();
+    f.state.wishes.enabled = false;
+    f.state.recollections.enabled = enabled;
+    f.state.recollections.scenes = [{ description: 'scene', entries: [] }];
+    await f.runner.tick(); await f.runner.tick();
+    assert.deepEqual(f.resolutions, []); assert.deepEqual(f.messages, []);
+    assert.deepEqual(f.advances, [[f.due, f.due]]);
+  }
+});
+
+test('delivery uses categories enabled after agent resolution', async () => {
+  const f = fixture();
+  f.state.wishes.entries = [];
+  f.state.recollections.scenes = [{ entries: [{ kind: 'thought' }] }];
+  f.hooks.resolveAgent = async () => {
+    f.state.wishes.enabled = f.state.recollections.enabled = false;
+    f.state.settings.enabled = true;
+    return { agent: f.agent };
+  };
+  await f.runner.tick();
+  assert.equal(f.messages[0].content[0].text, 'When idle, review your settings. Correct or reclassify entries where useful. Keep private content out of shared lists.');
 });
 
 test('busy main leaves the deadline pending until idle', async () => {

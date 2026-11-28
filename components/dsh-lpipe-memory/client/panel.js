@@ -5,7 +5,7 @@ const PANEL_SLOT = 'lpipe.settings.panel';
 const LOCALE_NS = 'lpipe.memory.settings';
 const KINDS = ['wishes', 'settings', 'recollections'];
 const R = 'recollections';
-const SCENE_LIMITS = { maxScenes: 32, maxEntries: 32, maxThoughts: 32, maxDescriptionLength: 500, maxTextLength: 500 };
+const SCENE_LIMITS = { maxScenes: 32, staleAfterDays: 3650, maxEntries: 32, maxThoughts: 32, maxDescriptionLength: 500, maxTextLength: 500 };
 const entryTypes = ['recollection', 'thought'];
 const timeValid = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 const capacity = (group, kind) => kind === 'thought' ? group.maxThoughts : group.maxEntries;
@@ -67,7 +67,7 @@ const STYLES = `
 .lpipe-memory .memory-switch:checked::before { transform: translateX(16px); }
 .lpipe-memory .memory-switch:disabled { opacity: .55; cursor: not-allowed; }
 .lpipe-memory .memory-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px 10px; }
-.lpipe-memory .memory-recollection-fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, max(160px, calc(50% - 5px))), 1fr)); }
+.lpipe-memory .memory-recollection-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
 .lpipe-memory .memory-review-card { margin-bottom: 8px; }
 .lpipe-memory .memory-review-row { flex-wrap: wrap; }
 .lpipe-memory .memory-review-caption { flex: 1 1 130px; }
@@ -75,7 +75,6 @@ const STYLES = `
 .lpipe-memory .memory-review-card > :is([role=status],[role=alert]) { flex-basis: 100%; }
 .lpipe-memory .memory-review-time { display: flex; align-items: center; gap: 8px; }
 .lpipe-memory .memory-review-time input { width: auto; }
-.lpipe-memory .memory-recollection-fields > :first-child { grid-column: 1 / -1; }
 .lpipe-memory .memory-number-label { display: grid; align-content: start; gap: 4px; font-size: 11px; font-weight: 600; color: var(--memory-muted); }
 .lpipe-memory :is(input[type=number],input[type=time],input[type=text],select,textarea) { width: 100%; min-width: 0; color: var(--memory-text); background: var(--memory-soft); border: 1px solid var(--memory-strong); border-radius: var(--dsw-radius-sm); padding: 5px 8px; }
 .lpipe-memory textarea { display: block; min-height: 72px; resize: vertical; }
@@ -109,7 +108,7 @@ const STYLES = `
 const normalize = text => text.replace(/\r\n?/g, '\n').trim();
 const lengthOf = text => Array.from(normalize(text)).length;
 const inRange = (value, max) => Number.isInteger(value) && value >= 1 && value <= max;
-const configOf = ({ enabled, maxEntries, maxTextLength, maxScenes, maxDescriptionLength, maxThoughts }) => ({ enabled, maxEntries, maxTextLength, ...(maxScenes === undefined ? {} : { maxScenes, maxDescriptionLength, maxThoughts }) });
+const configOf = ({ enabled, maxEntries, maxTextLength, maxScenes, maxDescriptionLength, maxThoughts, staleAfterDays }) => ({ enabled, maxEntries, maxTextLength, ...(maxScenes === undefined ? {} : { maxScenes, maxDescriptionLength, maxThoughts, staleAfterDays }) });
 const draftsOf = state => Object.fromEntries(KINDS.map(kind => [kind, configOf(state[kind])]));
 function rebaseDrafts(drafts, previous, next) {
   const rebased = draftsOf(next);

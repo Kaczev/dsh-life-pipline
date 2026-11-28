@@ -73,7 +73,11 @@ test('Host scopes prompts and tools to live top-level agents and applies scope c
   assertScope(main, true);
   for (const agent of [ordinary, fork, child, detached, main.id, undefined]) assertScope(agent, false);
   assert.match(wishPrompt.text({ scope: main }), /^## Wishes\n/);
-  assert.match(settingPrompt.text({ scope: main }), /^## Settings\n/);
+  assert.match(settingPrompt.text({ scope: main }), /across unrelated conversations/);
+  const recollections = sections.get('dsh-lpipe-memory/recollections').text({ scope: main });
+  assert.match(recollections, /exit it even if no replacement scene is ready/);
+  assert.match(recollections, /should not interrupt unrelated work or force a selection/);
+  assert.match(recollections, /merge, condense, or discard lower-value information as needed, including an entire scene/);
   assert.deepEqual(state.sharedLists, { wishes: false, settings: true, recollections: false });
   for (const payload of [null, 'true', 1, { allSessions: true }, { kind: 'other', enabled: true },
     { kind: 'settings', enabled: 1 }, { kind: 'wishes' }, { kind: 'wishes', enabled: true, extra: 1 }]) {
@@ -92,7 +96,10 @@ test('Host scopes prompts and tools to live top-level agents and applies scope c
     return result.state;
   };
   assert.deepEqual((await share('wishes', true)).sharedLists, { wishes: true, settings: true, recollections: false });
-  for (const agent of [main, ordinary, fork]) assertScope(agent, true);
+  for (const agent of [main, ordinary, fork]) {
+    assertScope(agent, true);
+    for (const prompt of [wishPrompt, settingPrompt]) assert.equal(prompt.text({ scope: agent }), prompt.text({ scope: main }));
+  }
   for (const agent of [child, detached, main.id, undefined]) assertScope(agent, false);
   assert.equal((await wishes.tool.execute(update('secret', 'not saved'), { agent: child })).code, 'not_available');
   const { entries, ...settingsConfig } = state.settings;
@@ -185,6 +192,8 @@ test('Model receipts frame entry text, report outcomes and preserve actionable e
 test("Settings publish changed catalogs without replacing admitted history", async t => {
   const { hooks, rpc, rebind, state, makeAgent } = await host(t);
   rebind("request-main");
+  const { scenes, ...recollectionConfig } = state.recollections;
+  assert.equal((await rpc('memory.mutate', { kind: 'recollections', action: 'configure', config: { ...recollectionConfig, enabled: false } })).ok, true);
   const events = [], nodes = [];
   const session = {
     id: "request-main", surface: { nodes },
@@ -281,8 +290,13 @@ test('Recollections browse independently of selection, scope, and catalog admiss
     };
     return { agent, next, scene: p => tools.get('memory_scene').tool.execute(p, { agent }), entry: p => tools.get('memory_recollection').tool.execute(p, { agent }) };
   };
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
   const a = make('main'), b = make('other');
+  const reminder = 'No scene is selected. Consider selecting a relevant scene, or creating or updating one when useful. This is only a reminder; do not interrupt unrelated work or force a choice';
+  assert.ok((await a.next()).includes(reminder));
   assert.equal(await a.next(), '');
+  assert.equal(await b.next(), '');
   assert.equal((await b.scene({ scene: 'first' })).code, 'not_available');
   assert.equal((await a.entry({ id: 'note', text: 'x' })).ok, false);
   assert.equal((await a.scene({ scene: 'first', description: 'one', select: true })).ok, true);
@@ -296,17 +310,45 @@ test('Recollections browse independently of selection, scope, and catalog admiss
   assert.equal(await a.next(), '');
   await rpc('memory.setScope', true);
   assert.equal((await b.scene({ scene: 'first' })).code, 'not_available');
+  const prompt = sections.get('dsh-lpipe-memory/recollections');
+  assert.equal(prompt.text({ scope: b.agent }), '');
   await rpc('memory.setScope', { kind: 'recollections', enabled: true });
-  assert.match(await b.next(), /no scene selected/);
+  assert.equal(prompt.text({ scope: b.agent }), prompt.text({ scope: a.agent }));
+  assert.ok((await b.next()).includes(reminder));
   assert.equal((await b.scene({ scene: 'second', select: true })).ok, true);
   assert.match(await b.next(), /current-recollections scene="second"/);
   assert.equal(await a.next(), '');
-  assert.equal((await b.scene({ scene: 'first', remove: true })).ok, false);
+  now += 30 * 86400000;
+  assert.equal(await a.next(), '', 'exactly 30 days is still recent');
+  now++;
+  const stale = await a.next();
+  assert.match(stale, /first: one \(Not loaded for a long time\)/);
+  assert.match(stale, /second: two \(Empty — safe to delete\)/);
   const { scenes, ...config } = state.recollections;
+  const setDays = staleAfterDays => rpc('memory.mutate', { kind: 'recollections', action: 'configure', config: { ...config, staleAfterDays } });
+  assert.equal((await setDays(31)).ok, true);
+  const extended = await a.next();
+  assert.match(extended, /first: one/);
+  assert.doesNotMatch(extended, /Not loaded for a long time/);
+  assert.equal((await setDays(30)).ok, true);
+  assert.equal(await a.next(), stale);
+  assert.equal((await b.scene({ scene: 'first' })).ok, true);
+  assert.equal(await a.next(), '', 'browsing does not refresh the load time');
+  assert.equal((await a.scene({ scene: 'first', select: true })).ok, true);
+  const refreshed = await a.next();
+  assert.match(refreshed, /current-recollections scene="first"/);
+  assert.doesNotMatch(refreshed, /Not loaded for a long time/);
+  const exit = await b.scene({ scene: '' });
+  assert.equal(exit.outcome, 'exited');
+  assert.ok((await b.next()).includes(reminder));
+  assert.equal(await a.next(), '', 'exit affects only the calling session');
+  assert.equal((await b.scene({ scene: 'first', remove: true })).ok, false);
   assert.equal((await rpc('memory.mutate', { kind: 'recollections', action: 'configure', config: { ...config, enabled: false } })).ok, true);
   assert.equal(sections.get('dsh-lpipe-memory/recollections').text({ scope: a.agent }), '');
   for (const n of ['memory_scene', 'memory_recollection']) assert.equal(tools.get(n).when({ agent: a.agent }), false);
-  assert.doesNotMatch(await a.next(), /short-name|scene="first"/);
+  const unavailable = await a.next();
+  assert.match(unavailable, /\(unavailable\)/);
+  assert.doesNotMatch(unavailable, /short-name|scene="first"|No scene is selected/);
   assert.equal(await a.next(), '');
   const panel = (await rpc('memory.state', null)).state.recollections;
   assert.equal(panel.scenes[0].entries.length, 2);

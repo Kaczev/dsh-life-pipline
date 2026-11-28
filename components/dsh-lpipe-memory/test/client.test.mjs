@@ -140,14 +140,14 @@ function mountMemoryPanel() {
 }
 
 const snapshot = (allSessions, wishes = {}, settings = {}, sharedLists = { wishes: true, settings: true }) => ({
-  ok: true, state: { allSessions, review: { enabled:false,time:'04:00' }, sharedLists: { recollections: false, ...sharedLists }, wishes: section(wishes), settings: section(settings), recollections: { enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts:4, maxDescriptionLength: 64, maxTextLength: 160, scenes: [] } },
+  ok: true, state: { allSessions, review: { enabled:false,time:'04:00' }, sharedLists: { recollections: false, ...sharedLists }, wishes: section(wishes), settings: section(settings), recollections: { enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts:4, maxDescriptionLength: 64, maxTextLength: 160, staleAfterDays: 30, scenes: [] } },
 });
 
-test('Recollection panel manages scene and entry lifecycle with explicit names and four safe limits', async () => {
+test('Recollection panel manages scene and entry lifecycle with explicit names and six safe limits', async () => {
   const ui = mountMemoryPanel(), snap = snapshot(true), group = snap.state.recollections;
   await ui.respond('memory.state', null, snap);
   ui.click(ui.button('recollections'));
-  assert.deepEqual(['maxScenes','maxEntries','maxThoughts','maxDescriptionLength','maxTextLength'].map(k => ui.option('recollections', k).props.value), [12,8,4,64,160]);
+  assert.deepEqual(['maxScenes','maxEntries','maxThoughts','maxDescriptionLength','maxTextLength','staleAfterDays'].map(k => ui.option('recollections', k).props.value), [12,8,4,64,160,30]);
   const pane = () => ui.find(n => n.props.id === 'memory-test-recollections-pane');
   const dialog = () => ui.find(n => n.type === 'dialog');
   const submit = () => ui.submit(ui.find(n => n.type === 'form', dialog()));
@@ -164,9 +164,19 @@ test('Recollection panel manages scene and entry lifecycle with explicit names a
   ui.change(ui.option('recollections','maxDescriptionLength'), { valueAsNumber: 3 });
   assert.equal(ui.option('recollections','maxDescriptionLength').props['aria-invalid'], true);
   ui.change(ui.option('recollections','maxDescriptionLength'), { valueAsNumber: 24 });
+  const age = () => ui.option('recollections', 'staleAfterDays');
+  for (const valueAsNumber of [0, 1.5, 3651]) {
+    ui.change(age(), { valueAsNumber });
+    assert.equal(age().props['aria-invalid'], true);
+    ui.submit(ui.find(n => n.type === 'form', pane()));
+    assert.equal(ui.requests.length, 0);
+  }
+  ui.change(age(), { valueAsNumber: 45 });
   ui.submit(ui.find(n => n.type === 'form', pane()));
   group.maxDescriptionLength = 24;
-  await reply('configure', { config: { enabled:true, maxScenes:12, maxEntries:8, maxThoughts:4, maxTextLength:160, maxDescriptionLength:24 } });
+  group.staleAfterDays = 45;
+  await reply('configure', { config: { enabled:true, maxScenes:12, maxEntries:8, maxThoughts:4, maxTextLength:160, maxDescriptionLength:24, staleAfterDays:45 } });
+  assert.equal(age().props.value, 45);
   ui.click(ui.button('addRecollection')); set('input','Bad_1'); set('textarea','detail'); submit();
   assert.equal(ui.requests.length,0);
   set('input','first-detail'); submit();

@@ -17,6 +17,7 @@
     "maxScenes": "最多情景数",
     "maxSceneEntries": "每个情景最多回忆数",
     "maxDescriptionLength": "情景简介最多字数",
+    "staleAfterDays": "标记情景为「长期未加载」的天数",
     "countScenes": "{count} / {limit} 个情景",
     "countRecollections": "{count} / {limit} 条回忆",
     "emptyScenes": "还没有情景。",

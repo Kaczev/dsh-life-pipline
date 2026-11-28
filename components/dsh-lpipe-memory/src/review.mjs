@@ -1,6 +1,17 @@
-export const REVIEW_NOTICE = 'A memory review is due. When idle, revisit your wishes, settings, and relevant scenes. Correct or reclassify entries where needed. If a connection suggests a new idea, keep it as a thought rather than a fact. Do not move private content into a shared list. Leave entries unchanged when no revision is needed.';
+import { MEMORY_KINDS } from './store.mjs';
 
-// A missed deadline stays due until the configured main agent accepts a followup.
+const categories = new Intl.ListFormat('en');
+function reviewNotice(state) {
+  const enabled = MEMORY_KINDS.filter(kind => state[kind].enabled);
+  const hasEntries = enabled.some(kind => kind === 'recollections'
+    ? state.recollections.scenes.some(scene => scene.entries.length > 0)
+    : state[kind].entries.length > 0);
+  if (!hasEntries) return null;
+  const text = `When idle, review your ${categories.format(enabled)}. Correct or reclassify entries where useful. Keep private content out of shared lists.`;
+  return state.recollections.enabled ? `${text} Save new interpretations as thoughts.` : text;
+}
+
+// Reviews with entries stay due until the configured main agent accepts a followup.
 export function createReviewRunner({ current, controller, mainId, advance, now = Date.now, warn }) {
   let active = true, running = false, timer, accepted = null;
   async function tick() {
@@ -10,17 +21,19 @@ export function createReviewRunner({ current, controller, mainId, advance, now =
       const state = await current();
       const due = state?.review?.nextReviewAt;
       if (!active || !state?.review?.enabled || due == null || now() < due) return;
-      if (accepted !== due) {
+      if (accepted !== due && reviewNotice(state)) {
         const id = mainId();
         if (!id) return;
         const { agent } = await controller.resolveAgent(id);
         const latest = await current();
-        if (!active || mainId() !== id || agent?.status !== 'idle' || !latest?.review.enabled || latest.review.nextReviewAt !== due || now() < due) return;
-        const shared = ['wishes', 'settings', 'recollections'].filter(k => latest.allSessions && latest.sharedLists[k]);
-        const text = `${REVIEW_NOTICE}\nShared lists: ${shared.join(', ') || 'none'}.`;
-        const result = await agent.followup({ id: `memory-review-${latest.storeId}-${due}`, role: 'user', content: [{ type: 'text', text }], source: { kind: 'dsh-lpipe-memory/review', form: 'notice', summary: '记忆管线 · 回顾', due } });
-        if (result === false) return;
-        accepted = due;
+        if (!active || mainId() !== id || !latest?.review.enabled || latest.review.nextReviewAt !== due || now() < due) return;
+        const text = reviewNotice(latest);
+        if (text) {
+          if (agent?.status !== 'idle') return;
+          const result = await agent.followup({ id: `memory-review-${latest.storeId}-${due}`, role: 'user', content: [{ type: 'text', text }], source: { kind: 'dsh-lpipe-memory/review', form: 'notice', summary: '记忆管线 · 回顾', due } });
+          if (result === false) return;
+          accepted = due;
+        }
       }
       await advance(due, now());
       accepted = null;

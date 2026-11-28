@@ -3,7 +3,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, rmdir, unlink } from 'no
 import { hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-export const MEMORY_VERSION = 4;
+export const MEMORY_VERSION = 5;
 const flatKinds = ['wishes', 'settings'];
 export const MEMORY_KINDS = Object.freeze([...flatKinds, 'recollections']);
 export const RECOLLECTION_ID_PATTERN = '^[a-z]+(?:-[a-z]+)*(?![\\s\\S])';
@@ -11,7 +11,7 @@ const recollectionName = new RegExp(RECOLLECTION_ID_PATTERN, 'u');
 export const MEMORY_DEFAULTS = Object.freeze({
   wishes: Object.freeze({ enabled: true, maxEntries: 8, maxTextLength: 120 }),
   settings: Object.freeze({ enabled: true, maxEntries: 12, maxTextLength: 160 }),
-  recollections: Object.freeze({ enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts: 4, maxDescriptionLength: 64, maxTextLength: 160 }),
+  recollections: Object.freeze({ enabled: true, maxScenes: 12, maxEntries: 8, maxThoughts: 4, maxDescriptionLength: 64, maxTextLength: 160, staleAfterDays: 30 }),
 });
 export const MEMORY_ID_PATTERN = '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![\\s\\S])';
 const idPattern = new RegExp(MEMORY_ID_PATTERN, 'u');
@@ -247,6 +247,9 @@ export function applyUiMutation(state, input) {
 }
 
 const recollectionConfigKeys = Object.keys(MEMORY_DEFAULTS.recollections);
+const staleDays = 3650;
+const legacyRecollectionConfigKeys = recollectionConfigKeys.filter(key => key !== 'staleAfterDays');
+const legacySceneKeys = ['scene', 'description', 'entries'];
 const validName = value => typeof value === 'string' && value.length <= 32 && recollectionName.test(value);
 const validSession = value => typeof value === 'string' && value.trim().length > 0;
 const requireName = (value, field) => {
@@ -257,7 +260,7 @@ const requireSession = sessionId => {
 };
 function checkRecollectionConfig(config, keys = recollectionConfigKeys) {
   validateConfig(config, keys);
-  for (const [field, max] of [['maxScenes', maxEntries], ['maxThoughts', maxEntries], ['maxDescriptionLength', maxTextLength]]) {
+  for (const [field, max] of [['maxScenes', maxEntries], ['maxThoughts', maxEntries], ['maxDescriptionLength', maxTextLength], ['staleAfterDays', staleDays]]) {
     if (!inRange(config[field], max)) throw invalid(`Expected an integer from 1 to ${max}.`, field);
   }
 }
@@ -286,7 +289,9 @@ function validateRecollectionState(group) {
   if (!Array.isArray(group.scenes) || !Array.isArray(group.selections)) throw invalid('Invalid recollection lists.');
   const names = new Set(), sessions = new Set();
   for (const s of group.scenes) {
-    if (!exact(s, ['scene', 'description', 'entries']) || !validName(s.scene) || names.has(s.scene) || !Array.isArray(s.entries) || normalizedContent(s.description, group.maxDescriptionLength, 'description') !== s.description) throw invalid('Invalid scene.');
+    if (!exact(s, [...legacySceneKeys, 'createdAt', 'loadedAt']) || !validName(s.scene) || names.has(s.scene) ||
+        !validTimestamp(s.createdAt) || (s.loadedAt !== null && !validTimestamp(s.loadedAt)) || !Array.isArray(s.entries) ||
+        normalizedContent(s.description, group.maxDescriptionLength, 'description') !== s.description) throw invalid('Invalid scene.');
     names.add(s.scene);
     const ids = new Set();
     for (const e of s.entries) {
@@ -301,6 +306,7 @@ function validateRecollectionState(group) {
   }
 }
 export function validateSceneInput(input) {
+  if (exact(input, ['scene']) && input.scene === '') return input;
   if (![['scene'], ['scene','select'], ['scene','description'], ['scene','description','select'], ['scene','remove']].some(keys => exact(input, keys))) throw invalid('Invalid scene parameters.');
   requireName(input.scene, 'scene');
   if (Object.hasOwn(input, 'description')) normalizedContent(input.description, maxTextLength, 'description');
@@ -332,6 +338,11 @@ export function currentScene(state, sessionId) {
 export function applySceneMutation(state, input, sessionId) {
   validateSceneInput(input);
   const { scene, select, remove } = input;
+  if (scene === '') {
+    requireSession(sessionId);
+    state.recollections.selections = state.recollections.selections.filter(s => s.sessionId !== sessionId);
+    return { outcome: 'exited', scene: null };
+  }
   if (select) requireSession(sessionId);
   const group = state.recollections;
   const found = lookup(state, scene);
@@ -348,14 +359,18 @@ export function applySceneMutation(state, input, sessionId) {
     if (found) { found.description = description; outcome = 'updated'; }
     else {
       checkCap(group.scenes.length + 1, group.maxScenes, 'scene_limit', 'maxScenes');
-      group.scenes.push({ scene, description, entries: [] }); outcome = 'created';
+      const now = Date.now();
+      group.scenes.push({ scene, description, entries: [], createdAt: now, loadedAt: null }); outcome = 'created';
     }
   } else if (!select) throw invalid('Browsing a scene is not a mutation.');
   else existingScene(state, scene);
   if (select) {
+    const now = Date.now();
     const selected = group.selections.find(s => s.sessionId === sessionId);
     if (selected) selected.scene = scene;
     else group.selections.push({ sessionId, scene });
+    const selectedScene = lookup(state, scene);
+    if (selectedScene) selectedScene.loadedAt = now;
   }
   return { outcome, scene };
 }
@@ -537,7 +552,7 @@ async function loadState(file) {
     try { state = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)); }
     catch (cause) { throw corrupt('Memory state is not valid UTF-8 JSON.', cause); }
   } finally { await handle.close(); }
-  // Upgrade known legacy shapes in memory; only a changed transaction writes them back.
+  const persistSceneEpoch = [3, 4].includes(state?.version) && Array.isArray(state.recollections?.scenes) && state.recollections.scenes.length > 0;
   if (state?.version === 1) {
     if (exact(state, legacyStateKeys)) state.allSessions = false;
     else if (!exact(state, legacyScopeKeys) || typeof state.allSessions !== 'boolean') {
@@ -552,22 +567,30 @@ async function loadState(file) {
     state.sharedLists.recollections = false;
     state.recollections = newRecollections();
     state.review = newReview();
-  } else if (state?.version === 3) {
-    const group = state.recollections;
-    const keys = recollectionConfigKeys.filter(key => key !== 'maxThoughts');
-    if (!exact(state, v3Keys) || !exact(group, [...keys, 'scenes', 'selections']) || !Array.isArray(group.scenes)) throw corrupt('Memory state has invalid v3 metadata.');
+  } else if (state?.version === 3 || state?.version === 4) {
+    const v3 = state.version === 3, group = state.recollections;
+    const keys = v3 ? legacyRecollectionConfigKeys.filter(key => key !== 'maxThoughts') : legacyRecollectionConfigKeys;
+    if (!exact(state, v3 ? v3Keys : stateKeys) || !exact(group, [...keys, 'scenes', 'selections']) || !Array.isArray(group.scenes)) {
+      throw corrupt(`Memory state has invalid v${state.version} metadata.`);
+    }
+    const migratedAt = Date.now();
     for (const scene of group.scenes) {
-      if (!Array.isArray(scene?.entries)) throw corrupt('Memory state has invalid v3 scene entries.');
-      for (const entry of scene.entries) {
-        if (!exact(entry, ['id', 'text'])) throw corrupt('Memory state has invalid v3 entry fields.');
+      if (!exact(scene, legacySceneKeys) || !Array.isArray(scene.entries)) throw corrupt('Invalid legacy scene.');
+      if (v3) for (const entry of scene.entries) {
+        if (!exact(entry, ['id', 'text'])) throw corrupt('Invalid v3 recollection entry.');
         entry.kind = 'recollection';
       }
+      scene.createdAt = migratedAt;
+      scene.loadedAt = migratedAt;
     }
-    group.maxThoughts = MEMORY_DEFAULTS.recollections.maxThoughts;
-    state.review = newReview();
+    if (v3) {
+      group.maxThoughts = MEMORY_DEFAULTS.recollections.maxThoughts;
+      state.review = newReview();
+    }
+    group.staleAfterDays = MEMORY_DEFAULTS.recollections.staleAfterDays;
     state.version = MEMORY_VERSION;
   }
-  return validateMemoryState(state);
+  return { state: validateMemoryState(state), persistSceneEpoch };
 }
 
 async function replaceState(dir, file, temp, source) {
@@ -612,9 +635,12 @@ export async function openMemoryStore(homeDir) {
     if (await stateFileInfo(file)) {
       // The canonical file is the only commit point. Validate it before any
       // cleanup, and never promote a temporary file in place of a corrupt one.
-      current = await loadState(file);
+      const loaded = await loadState(file);
+      current = loaded.state;
       if (await stateFileInfo(temp)) await unlink(temp);
       if (await stateFileInfo(initTemp)) await unlink(initTemp);
+      // Commit the first observed age baseline so restarting does not reset it.
+      if (loaded.persistSceneEpoch) await replaceState(dir, file, temp, encode(current));
     } else {
       if (await stateFileInfo(temp)) throw corrupt('A transaction temporary file exists but the committed memory state is missing.');
       // The initial temporary file cannot contain a previously acknowledged

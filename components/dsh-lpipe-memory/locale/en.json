@@ -17,6 +17,7 @@
     "maxScenes": "Maximum scenes",
     "maxSceneEntries": "Recollections per scene",
     "maxDescriptionLength": "Characters per scene description",
+    "staleAfterDays": "Days before a scene is marked not loaded for a long time",
     "countScenes": "{count} / {limit} scenes",
     "countRecollections": "{count} / {limit} recollections",
     "emptyScenes": "No scenes yet.",

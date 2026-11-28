@@ -75,7 +75,7 @@ export function createMemoryService({ opened, allowedInState, warn = () => {} })
         (scene ? validateSceneInput : validateRecollectionInput)(input);
         const value = await ready;
         const eligible = state => live && !signal?.aborted && allowedInState('recollections', state, subject);
-        if (scene && Object.keys(input).length === 1) {
+        if (scene && Object.keys(input).length === 1 && input.scene !== '') {
           const state = value.read();
           return eligible(state) ? { ok: true, ...readScene(state, input.scene) } : unavailable();
         }
