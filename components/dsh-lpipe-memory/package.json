@@ -1,6 +1,6 @@
 {
   "name": "dsh-lpipe-memory",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "description": "Manage wishes, settings, and scene-based recollections for Lpipe conversations.",
   "license": "AGPL-3.0-or-later",

@@ -22,10 +22,17 @@ test('system prompt defines when to fold and the tool describes the inclusive re
   assert.equal(FOCUS_SYSTEM_PROMPT, [
     '## Context equivalence (`focus_equate`)',
     '',
-    'An equivalence layer takes the place of part of the conversation. After a fold, the original messages in that span are unavailable. Preserve enough for the next model to understand the user, answer what is still due, and continue the work in the language and context of the exchange. Once a piece of work has produced a result, fold before starting the next substantive piece. Decisions, corrections, and open questions can also accumulate across short exchanges. If your next reply or action depends on those details, fold before using them. Otherwise, answer or ask the user directly.',
+    'An equivalence layer replaces part of the conversation. After a fold, the original messages in that span are unavailable. Preserve what the next model needs to understand the user, answer what is still due, and continue in the language and context of the exchange.',
+    '',
+    'Distinguish proposals from decisions, and decisions from completed work. Keep agreed wording verbatim when the wording itself matters. When you inspect a source to answer a question, preserve the answer it supports and any limits on that answer. If the source does not resolve the question, say what you established and what remains open.',
+    '',
+    'Fold when a piece of work has produced a result, before starting the next substantive piece. When decisions, corrections, or open questions accumulate across short exchanges, fold before a reply or action that relies on them. Otherwise, answer or ask the user directly.',
   ].join('\n'));
-  assert.equal(createFocusEquateTool().description.split('\n\n')[0],
-    'Call `focus_equate` alone after all outstanding tool calls have returned. The span starts immediately after the most recent equivalence layer. On the first fold, it starts after the fixed opening instructions. It ends with the successful tool result for this call, inclusive. The new equivalence layer takes that span’s place, followed by the current todo and next layers when present. Messages after the tool result stay in their original order.');
+  assert.equal(createFocusEquateTool().description, [
+    'Call `focus_equate` alone after all outstanding tool calls have returned. The new layer replaces the span after the most recent equivalence layer through this call’s successful result. On the first fold, the span starts after the fixed opening instructions. Later messages stay in order.',
+    'Record each point once, in the field where it serves its purpose. Include at least one entry in `definitions`, `experience`, `conclusions`, or `guidance`. Earlier layers remain unless superseded. Before replacing one, carry forward everything in it that still matters, even if it is not needed for the next step.',
+    'Omit `todos` when the outstanding work is unchanged. To update it, supply the complete remaining list; `[]` clears it. Each call replaces `next`. If todos remain, include at least one next action. Otherwise, omit `next` or pass `[]` to clear it.',
+  ].join('\n\n'));
 });
 
 test('seven detail lists share the entry contract and at least one of four durable fields has entries', async () => {
@@ -39,7 +46,12 @@ test('seven detail lists share the entry contract and at least one of four durab
   assert.deepEqual(schema.anyOf.map(branch => branch.required), fields.map(field => [field]));
   for (const field of listFields) {
     const list = schema.properties[field];
-    assert.match(list.description, /detail list/i);
+    assert.ok(list.description.trim(), field);
+    assert.deepEqual(Object.values(list.items.properties).map(property => property.description), [
+      'One self-contained point that can be understood without the messages it replaces.',
+      'An established detail whose omission would change how the point is understood, used, or verified.',
+      'A specific unresolved detail whose answer could change a later judgment or action.',
+    ]);
     assert.equal(list.type, 'array');
     assert.equal(list.items.type, 'object');
     assert.equal(list.items.additionalProperties, false);

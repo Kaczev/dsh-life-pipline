@@ -224,9 +224,9 @@ function detailListSchema(description) {
     items: {
       type: 'object', additionalProperties: false, required: ['content'],
       properties: {
-        content: { type: 'string', pattern: '\\S' },
-        known: { type: 'string', pattern: '\\S' },
-        unknown: { type: 'string', pattern: '\\S' },
+        content: { type: 'string', pattern: '\\S', description: 'One self-contained point that can be understood without the messages it replaces.' },
+        known: { type: 'string', pattern: '\\S', description: 'An established detail whose omission would change how the point is understood, used, or verified.' },
+        unknown: { type: 'string', pattern: '\\S', description: 'A specific unresolved detail whose answer could change a later judgment or action.' },
       },
     },
   };
@@ -236,27 +236,26 @@ export function createFocusEquateTool({ onDiagnostic = () => {} } = {}) {
   return {
     name: FOCUS_TOOL_NAME,
     description: [
-      'Call `focus_equate` alone after all outstanding tool calls have returned. The span starts immediately after the most recent equivalence layer. On the first fold, it starts after the fixed opening instructions. It ends with the successful tool result for this call, inclusive. The new equivalence layer takes that span’s place, followed by the current todo and next layers when present. Messages after the tool result stay in their original order.',
-      'Use a *detail list* for each content field. Each entry has a required `content` string stating one point that makes sense on its own. Add `known` for established details whose omission could change how that point is understood, acted on, or verified. Add `unknown` for a specific unresolved detail whose answer would change a later judgment or action. Both are optional strings. Place each point in the field that serves its purpose and record each detail once.',
-      'Provide at least one entry in `definitions`, `experience`, `conclusions`, or `guidance`. Earlier equivalence layers remain available unless you identify them in `supersedes` for later compaction.',
-      'Set `todos` only when unfinished user work changes. Omit it to keep the current list, provide the complete updated list to replace it, or pass `[]` to clear it. Each call replaces `next`. If the resulting todo list has entries, provide at least one `next` entry that advances the work. Otherwise, omitting `next` or passing `[]` clears the previous next layer.',
+      'Call `focus_equate` alone after all outstanding tool calls have returned. The new layer replaces the span after the most recent equivalence layer through this call’s successful result. On the first fold, the span starts after the fixed opening instructions. Later messages stay in order.',
+      'Record each point once, in the field where it serves its purpose. Include at least one entry in `definitions`, `experience`, `conclusions`, or `guidance`. Earlier layers remain unless superseded. Before replacing one, carry forward everything in it that still matters, even if it is not needed for the next step.',
+      'Omit `todos` when the outstanding work is unchanged. To update it, supply the complete remaining list; `[]` clears it. Each call replaces `next`. If todos remain, include at least one next action. Otherwise, omit `next` or pass `[]` to clear it.',
     ].join('\n\n'),
     parameters: {
       type: 'object', additionalProperties: false, required: ['key', 'supersedes'],
       anyOf: CONTENT_FIELDS.map(field => ({ required: [field], properties: { [field]: { minItems: 1 } } })),
       properties: {
         key: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH,
-          description: 'A new, unique lowercase kebab-case key for this equivalence layer.' },
+          description: 'A new, unique lowercase kebab-case key for this layer.' },
         supersedes: { type: 'array',
           items: { type: 'string', pattern: KEY_PATTERN, maxLength: MAX_KEY_LENGTH },
-          description: 'Keys of earlier equivalence layers this layer fully replaces. Include a key only when the new layer preserves everything still needed from it. Use `[]` if none qualify.' },
-        definitions: detailListSchema('A detail list of conversation-specific meanings that later reasoning depends on. Preserve the scope of each term or procedure, including earlier meanings needed to interpret the exchange.'),
-        experience: detailListSchema('A detail list of reusable methods and applicable skill rules. State what to do, when it applies, and its limits. Name the skill when retaining its guidance.'),
-        conclusions: detailListSchema('A detail list of decisions, findings, and judgments that are established or still open. Identify whose judgment each is and how far the evidence or confirmation extends.'),
-        guidance: detailListSchema('A detail list of preferences, agreements, and constraints that should guide later choices. Preserve whose guidance it is, where it applies, and whether it is a preference, a shared commitment, or a requirement.'),
-        work_done: detailListSchema('A detail list of actions taken or attempted. Record the scope and observed outcome so later work can resume from the right point.'),
-        todos: detailListSchema('A detail list of all unfinished user requests and unanswered user questions. State what remains due to the user in each entry.'),
-        next: detailListSchema('A detail list of immediate actions, in execution order. State what each action advances and any prerequisite it must wait for. The latest user instruction takes precedence.'),
+          description: 'Keys of earlier equivalence layers this layer fully replaces; `[]` if none.' },
+        definitions: detailListSchema('Conversation-specific meanings of terms and procedures, including where each meaning applies.'),
+        experience: detailListSchema('Reusable methods, when they apply, and their limits. Name the source skill when retaining its guidance.'),
+        conclusions: detailListSchema('Decisions, findings, and judgments. For a decision, identify who agreed to what. For a finding or judgment, state its basis and what that basis supports.'),
+        guidance: detailListSchema('Preferences, agreements, and requirements that guide later choices, with their source, scope, and degree of obligation.'),
+        work_done: detailListSchema('Actions taken or attempted, their scope, and their observed outcomes. Distinguish a verified result from an attempt whose outcome is unknown.'),
+        todos: detailListSchema('All deliverables, commitments, and answers still owed to the user, including deferred work.'),
+        next: detailListSchema('Immediate actions in execution order, with any prerequisites. The user’s latest instruction takes precedence.'),
       },
     },
     output: {

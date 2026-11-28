@@ -914,11 +914,11 @@ test('a changed definition keeps both meanings in order until a later layer expl
   const { h, session, applyLayer, check } = fixture(t, { nudgeChars: 16000, compactChars: 32000 });
   const [head] = seedBaseLayer(session);
   const prompt = h.sections[0].text({ scope: { id: session.id, session } });
-  assert.match(prompt, /decisions, corrections, and open questions can also accumulate across short exchanges/i);
-  assert.match(prompt, /if your next reply or action depends on those details, fold before using them/i);
+  assert.match(prompt, /decisions, corrections, or open questions accumulate across short exchanges/i);
+  assert.match(prompt, /fold before a reply or action that relies on them/i);
   const tool = h.registeredTools.get(FOCUS_TOOL_NAME).tool;
-  assert.match(tool.description, /detail list/i);
-  assert.match(tool.parameters.properties.definitions.description, /earlier meanings/i);
+  assert.match(tool.description, /carry forward everything in it that still matters/i);
+  assert.match(tool.parameters.properties.definitions.description, /where each meaning applies/i);
   const first = { key: 'launch-in-design', supersedes: [], definitions: point('In design, launch means the first internal demo.') };
   const second = { key: 'launch-in-ops', supersedes: [], definitions: point('In operations, launch means public availability.'), next: point('Ask which audience is in scope.') };
   await applyLayer(first);

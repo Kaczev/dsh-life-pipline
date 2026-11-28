@@ -4,5 +4,9 @@ export const FOCUS_PROMPT_ORDER = 712;
 export const FOCUS_SYSTEM_PROMPT = [
   '## Context equivalence (`focus_equate`)',
   '',
-  'An equivalence layer takes the place of part of the conversation. After a fold, the original messages in that span are unavailable. Preserve enough for the next model to understand the user, answer what is still due, and continue the work in the language and context of the exchange. Once a piece of work has produced a result, fold before starting the next substantive piece. Decisions, corrections, and open questions can also accumulate across short exchanges. If your next reply or action depends on those details, fold before using them. Otherwise, answer or ask the user directly.',
+  'An equivalence layer replaces part of the conversation. After a fold, the original messages in that span are unavailable. Preserve what the next model needs to understand the user, answer what is still due, and continue in the language and context of the exchange.',
+  '',
+  'Distinguish proposals from decisions, and decisions from completed work. Keep agreed wording verbatim when the wording itself matters. When you inspect a source to answer a question, preserve the answer it supports and any limits on that answer. If the source does not resolve the question, say what you established and what remains open.',
+  '',
+  'Fold when a piece of work has produced a result, before starting the next substantive piece. When decisions, corrections, or open questions accumulate across short exchanges, fold before a reply or action that relies on them. Otherwise, answer or ask the user directly.',
 ].join('\n');
